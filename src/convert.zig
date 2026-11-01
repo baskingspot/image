@@ -427,17 +427,28 @@ fn Expand3(comptime swap: bool) type {
             blocks(dst, .rgb8, lanes, out, in, n, block);
         }
         fn block(o: *[lanes * 4]u8, i: *const [lanes * 3]u8) void {
-            const mask = comptime m: {
-                var m: [lanes * 4]i32 = undefined;
-                for (0..lanes) |p| {
-                    for (0..3) |ch| m[p * 4 + ch] = p * 3 + (if (swap) 2 - ch else ch);
-                    m[p * 4 + 3] = -1;
-                }
-                break :m m;
+            // Four pixels at a time, each a 16-byte shuffle (pshufb, tbl)
+            // of 16 input bytes; the last group loads the block's last 16
+            // bytes so no load passes its end. Alpha is ORed in.
+            const alpha: @Vector(16, u8) = comptime a: {
+                var a: [16]u8 = @splat(0);
+                for (0..4) |p| a[p * 4 + 3] = 255;
+                break :a a;
             };
-            const v: @Vector(lanes * 3, u8) = i.*;
-            const opaque_: @Vector(1, u8) = .{255};
-            o.* = @shuffle(u8, v, opaque_, mask);
+            inline for (0..4) |g| {
+                const at = @min(g * 12, lanes * 3 - 16);
+                const shift = g * 12 - at;
+                const m = comptime m: {
+                    var m: [16]i32 = undefined;
+                    for (0..4) |p| {
+                        for (0..3) |ch| m[p * 4 + ch] = shift + p * 3 + (if (swap) 2 - ch else ch);
+                        m[p * 4 + 3] = shift + p * 3;
+                    }
+                    break :m m;
+                };
+                const v: @Vector(16, u8) = i[at..][0..16].*;
+                o[g * 16 ..][0..16].* = @shuffle(u8, v, undefined, m) | alpha;
+            }
         }
     };
 }
@@ -506,16 +517,24 @@ fn GrayTo(comptime count: usize) type {
             blocks(dst, .gray8, lanes, out, in, n, block);
         }
         fn block(o: *[lanes * count]u8, i: *const [lanes]u8) void {
-            const mask = comptime m: {
-                var m: [lanes * count]i32 = undefined;
-                for (0..lanes) |p| {
-                    for (0..count) |ch| m[p * count + ch] = if (ch == 3) -1 else p;
-                }
-                break :m m;
+            // Each 16 output bytes are a 16-byte shuffle (pshufb, tbl) of
+            // the 16 gray bytes, with alpha ORed in.
+            const v: @Vector(16, u8) = i.*;
+            const alpha: @Vector(16, u8) = comptime a: {
+                var a: [16]u8 = @splat(0);
+                if (count == 4) for (0..4) |p| {
+                    a[p * 4 + 3] = 255;
+                };
+                break :a a;
             };
-            const v: @Vector(lanes, u8) = i.*;
-            const opaque_: @Vector(1, u8) = .{255};
-            o.* = @shuffle(u8, v, opaque_, mask);
+            inline for (0..count) |g| {
+                const m = comptime m: {
+                    var m: [16]i32 = undefined;
+                    for (0..16) |b| m[b] = (g * 16 + b) / count;
+                    break :m m;
+                };
+                o[g * 16 ..][0..16].* = @shuffle(u8, v, undefined, m) | alpha;
+            }
         }
     };
 }

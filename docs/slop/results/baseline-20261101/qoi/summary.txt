@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s    wuffs     qoih image-rs     zune     ±   <1    ~   slowest vs wuffs
+QoiDecode/icon                    13      278.5     1.15     0.87     0.59     2.22    9%    1    4   0.50 [0.50, 0.54] textures_pk-_0mod_button1-64x64.qoi
+QoiDecode/1mp                     23      275.6     1.06     1.03     0.64     1.64    3%    4   11   0.67 [0.66, 0.78] screenshot_game-3dbrick2-320x240.qoi
+QoiDecode/large                    8      205.2     1.08     1.07     0.75     1.57    1%    0    4   0.97 [0.92, 1.02] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.qoi
+QoiDecodeBGRA/icon                13      256.5     1.01        -        -        -    7%    2    4   0.47 [0.41, 0.52] textures_pk-_0mod_button1-64x64.qoi
+QoiDecodeBGRA/1mp                 23      260.0     0.98        -        -        -    3%    5   11   0.63 [0.61, 0.76] screenshot_game-3dbrick2-320x240.qoi
+QoiDecodeBGRA/large                8      199.2     1.04        -        -        -    3%    0    4   0.96 [0.88, 1.03] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.qoi
+all                               88      254.2     1.04     0.99     0.65     1.78         12   38
