@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s image-rs     ±   <1    ~   slowest vs image-rs
+NetpbmDecodePBM/icon              13     1485.4     5.04    3%    0    0   3.24 [2.79, 3.45] icon_16-actions_address_book_new-16x16.pbm
+NetpbmDecodePBM/1mp               23     2690.1     9.90    4%    0    0   7.89 [7.85, 7.90] textures_pk-_pkf_water1-128x128.pbm
+NetpbmDecodePBM/large              7     2693.8     9.28    3%    0    0   8.99 [8.14, 9.29] screenshot_web-apple_com-1313x4755.pbm
+NetpbmDecodePlain/icon            13       48.6     0.91    1%   11    2   0.86 [0.85, 0.89] icon_16-actions_contact_new-16x16.ppm
+NetpbmDecodePlain/1mp             23       52.4     0.90    2%   11    8   0.63 [0.62, 0.64] textures_plants-plant_01-166x1022.ppm
+NetpbmDecodePlain/large            6       52.9     0.96    2%    2    0   0.69 [0.67, 0.70] textures_plants-plant_02-1024x1316.ppm
+all                               85      347.1     2.74         24   10

@@ -1,0 +1,44 @@
+image/arm, geomean              rows image MP/s    wuffs      stb image-rs     zune     ±   <1    ~   slowest vs wuffs
+NetpbmDecodePPM/icon              13     7221.6     2.80     1.59     1.17     1.04    4%    0    0   1.86 [1.32, 1.93] icon_16-actions_contact_new-16x16.ppm
+NetpbmDecodePPM/1mp               23     7307.8     1.12     1.01     2.10     1.47    1%    0    8   0.99 [0.97, 1.07] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.ppm
+NetpbmDecodePPM/large              7     4138.9     1.16     1.37     2.67     1.92    2%    0    3   1.01 [0.95, 1.02] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.ppm
+NetpbmDecodePPMRGBA/icon          13     3936.2     2.19     2.41     3.02        -    2%    0    0   1.90 [1.89, 1.92] icon_16-actions_appointment_new-16x16.ppm
+NetpbmDecodePPMRGBA/1mp           23     5103.8     1.16     2.22     4.46        -    1%    0    6   1.00 [0.98, 1.06] photo_wikipedia-002-1260x806.ppm
+NetpbmDecodePPMRGBA/large          7     2910.8     1.01     2.45     4.74        -    2%    0    7   0.99 [0.93, 1.02] screenshot_web-amazon_com-1313x6097.ppm
+NetpbmDecodePGM/icon              13     8486.3     2.89     1.66     1.04     0.91    3%    0    0   1.84 [1.73, 2.14] icon_16-actions_appointment_new-16x16.pgm
+NetpbmDecodePGM/1mp               23    36523.6     1.62     1.03     2.07     1.56    1%    0    3   1.02 [0.98, 1.11] photo_wikipedia-003-1436x730.pgm
+NetpbmDecodePGM/large              7    14832.7     1.12     1.00     2.05     1.87    1%    0    2   1.00 [0.99, 1.04] textures_plants-plant_02-1024x1316.pgm
+NetpbmDecodePPM16/icon            13     3227.6        -        -     1.28    71.98     -    0    0   -
+NetpbmDecodePPM16/1mp             23     1999.5        -        -     1.66    46.42     -    0    0   -
+NetpbmDecodePPM16/large            6     1284.6        -        -     1.65    30.99     -    0    0   -
+NetpbmDecodePPM16BGRA/icon        13      494.6     4.18        -        -        -    4%    0    0   2.88 [2.48, 2.90] icon_16-actions_appointment_new-16x16.ppm
+NetpbmDecodePPM16BGRA/1mp         23      691.4     6.18        -        -        -    2%    0    0   5.93 [5.80, 6.02] textures_plants-plant_01-166x1022.ppm
+NetpbmDecodePPM16BGRA/large        6      497.9     4.95        -        -        -    9%    0    0   4.21 [3.97, 4.44] screenshot_web-amazon_com-1313x6097.ppm
+NetpbmDecodePAM/icon              13     3786.5        -        -     1.98     1.48     -    0    0   -
+NetpbmDecodePAM/1mp               23     5007.9        -        -     2.04     1.50     -    0    0   -
+NetpbmDecodePAM/large              6     3256.6        -        -     2.11     1.53     -    0    0   -
+NetpbmDecodePBM/icon              13     1381.3        -        -     4.69        -     -    0    0   -
+NetpbmDecodePBM/1mp               23     2372.8        -        -     8.74        -     -    0    0   -
+NetpbmDecodePBM/large              7     2366.2        -        -     8.10        -     -    0    0   -
+NetpbmDecodePlain/icon            13       50.5        -        -     0.94        -     -    0    0   -
+NetpbmDecodePlain/1mp             23       54.0        -        -     0.93        -     -    0    0   -
+NetpbmDecodePlain/large            6       53.1        -        -     0.96        -     -    0    0   -
+NetpbmDecodePFM/icon              13      641.9        -        -        -     7.81     -    0    0   -
+NetpbmDecodePFM/1mp               23      740.6        -        -        -     9.09     -    0    0   -
+NetpbmDecodePFM/large              6      387.6        -        -        -     6.10     -    0    0   -
+NetpbmEncodePPM/icon              13    15873.4        -        -     1.72     2.10     -    0    0   -
+NetpbmEncodePPM/1mp               23     7388.4        -        -     1.00     1.01     -    0    0   -
+NetpbmEncodePPM/large              7     4153.7        -        -     1.00     1.01     -    0    0   -
+NetpbmEncodePGM/icon              13    21989.3        -        -     1.96     2.53     -    0    0   -
+NetpbmEncodePGM/1mp               23    38268.4        -        -     1.03     1.03     -    0    0   -
+NetpbmEncodePGM/large              7    14923.1        -        -     1.00     1.01     -    0    0   -
+NetpbmEncodePAM/icon              13    11109.1        -        -     1.75     1.82     -    0    0   -
+NetpbmEncodePAM/1mp               23     5126.3        -        -     1.01     1.01     -    0    0   -
+NetpbmEncodePAM/large              6     3343.2        -        -     1.00     0.98     -    0    0   -
+NetpbmEncodePPM16/icon            13     1726.7        -        -        -    12.96     -    0    0   -
+NetpbmEncodePPM16/1mp             23     2455.4        -        -        -    18.45     -    0    0   -
+NetpbmEncodePPM16/large            6     1508.3        -        -        -    12.37     -    0    0   -
+NetpbmEncodePlain/icon            13       34.4        -        -     2.53        -     -    0    0   -
+NetpbmEncodePlain/1mp             23       33.6        -        -     2.46        -     -    0    0   -
+NetpbmEncodePlain/large            7       33.1        -        -     2.42        -     -    0    0   -
+all                              595     2058.5     2.10     1.49     1.90     3.19          0   29
