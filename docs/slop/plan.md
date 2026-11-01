@@ -176,11 +176,29 @@ Running beside wave 1's tail, started early by the owner:
   adding-a-format.md assigns to jxl, and `docs/slop/jxl.md`. It may propose
   splitting off a second orb once its entropy decoder lands.
 
-Wave 2, after wave 1's last branches land: JPEG decode, GIF decode, the
-harness pass (the requests below, in the harness cores), and a performance
-orb on the measured gaps: PNG decode against Wuffs first, then
-`image.convert`'s per-call cost, TGA's 50 MP mosaic, Netpbm's small images,
-and QOI against Rust's qoi crate.
+Started at once by the owner ("anything we can do in parallel"), each
+owning the files adding-a-format.md assigns to its format plus
+`docs/slop/<fmt>.md`, with one line per registry:
+
+- **JPEG decode** (branch `wave2-jpeg`): `src/jpeg/`.
+- **GIF decode** (branch `wave2-gif`): `src/gif/`, with GIF's LZW.
+- **WebP decode** (branch `wave3-webp`): `src/webp/`.
+- **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
+  It uses `image.Seeker` once `wave1-seeker` lands, and decodes
+  JPEG-compressed TIFF through `image.jpeg` behind `@hasDecl`.
+- **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
+  and the png_encode harness files; `src/png/` otherwise stays with the PNG
+  orb until `wave1-png-strict` lands.
+- **Harness pass** (branch `wave2-harness`): the harness cores
+  (`test/fuzz/harness.zig`, `test/fuzz/main.zig`, `test/oracle/compare.zig`,
+  `test/oracle/oracle.c`/`.h`, `bench/c/arm.c`, `bench/summary.awk`),
+  `build.zig`, and the justfile, for the requests under Harness requests. It
+  keeps the registry contract in adding-a-format.md unchanged, since every
+  format orb is adding lines to it.
+- **Performance pass** (branch `wave2-perf`): `src/convert.zig`, `src/tga/`,
+  and `src/netpbm/` now; `src/png/` (decoder) once `wave1-png-strict` lands
+  and `src/qoi/` once `wave1-wbmp-qoi` lands; inflate in baskingspot/compress
+  on a branch there. PNG decode against Wuffs first.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
