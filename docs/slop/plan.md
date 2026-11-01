@@ -155,13 +155,33 @@ orchestrating thread fast-forwards `main` to it after rerunning the gates.
 
 ### Owners
 
-Wave 0, running as one orb (branch `wave0-foundations`): every file in the
-repository, including `src/`, `build.zig`, `build.zig.zon`, `justfile`, the
-flake, `bench/`, the fuzz and oracle harnesses, the corpus scripts,
-`THIRD_PARTY.md`, and `docs/slop/` except this Owners section, which the
-orchestrating thread keeps. Wave 0 also writes the QOI decoder, as the worked
-example that proves the API, the harnesses, and decision 1 end to end; QOI
-encode stays in wave 1.
+Wave 0 (landed at `ef9fb93`): the shared types, conversion, `detect`, the
+generic `Decoder`, the fuzz, oracle, and bench harnesses, the corpus, and the
+QOI decoder.
+
+Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
+to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
+adds one line per format to each shared registry and a CHANGELOG bullet;
+registry lines conflict trivially on rebase, and both sides stay. The
+orchestrating thread owns everything else: the shared `src/` files
+(`root.zig` beyond the registry lines, `pixel.zig`, `convert.zig`,
+`decode.zig`, `encode.zig`, `detect.zig`, `Decoder.zig`, `exif.zig`), the
+harness cores, `build.zig`, the justfile, the flake, CI, and this file. An
+orb asks for a change to them, or for text in this file, in its report.
+
+- **PNG and APNG decode** (branch `wave1-png`): `src/png/` and its harness
+  files. Inflate improvements go to `baskingspot/compress`, on a branch there.
+- **BMP, ICO and CUR, decode and encode** (branch `wave1-bmp`): `src/bmp/`,
+  `src/ico/`, and their harness files. One owner, so ICO's BMP payloads share
+  BMP's DIB reader. Also decides how ICO reads directory offsets that do not
+  ascend, which TIFF will face in wave 3.
+- **TGA, decode and encode** (branch `wave1-tga`): `src/tga/` and its harness
+  files.
+- **Netpbm, decode and encode** (branch `wave1-netpbm`): `src/netpbm/` and
+  its harness files.
+- **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
+  `src/wbmp/`, the QOI encoder, and their harness files; it also owns
+  `src/qoi/` for the decoder follow-ups wave 0 measured.
 
 ## Decisions to measure
 
