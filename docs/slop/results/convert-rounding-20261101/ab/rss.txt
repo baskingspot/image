@@ -1,0 +1,7 @@
+peak RSS (MiB)            image   before    wuffs       go
+convert-rgba8-bgra8       129.9    129.9    130.8        -
+convert-rgb8-rgba8        113.9    113.9    114.8        -
+convert-rgba8-rgb8        113.9    113.9    114.8        -
+convert-rgba8-premul      129.9    129.9    130.8    208.4
+convert-gray8-rgba8        81.9     81.9     82.8    105.5
+convert-rgba16-rgba8      193.9    193.9    194.8        -

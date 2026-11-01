@@ -1,0 +1,20 @@
+image/arm, geomean              rows image MP/s   before    wuffs       go     ±   <1    ~   slowest vs before
+ConvertRGBA8ToBGRA8/icon           2    20692.6     0.98     2.45        -    3%    1    1   0.98 [0.95, 1.00] alpha-16x16.raw
+ConvertRGBA8ToBGRA8/1mp            2     5610.2     1.00     0.98        -    1%    0    2   0.99 [0.98, 1.00] alpha-1024x1024.raw
+ConvertRGBA8ToBGRA8/large          1     2801.9     1.04     1.13        -    5%    0    0   1.04 [1.01, 1.12] alpha-4096x4096.raw
+ConvertRGB8ToRGBA8/icon            2     8214.2     1.00     1.13        -    1%    0    2   1.00 [0.99, 1.02] photo-16x16.raw
+ConvertRGB8ToRGBA8/1mp             2     5484.6     1.00     0.99        -    1%    0    2   0.99 [0.97, 1.01] photo-256x256.raw
+ConvertRGB8ToRGBA8/large           1     3059.1     1.01     1.02        -    3%    0    1   1.01 [0.98, 1.03] photo-4096x4096.raw
+ConvertRGBA8ToRGB8/icon            2     2142.9     0.17     1.66        -    3%    2    0   0.13 [0.12, 0.13] alpha-64x64.raw
+ConvertRGBA8ToRGB8/1mp             2     2159.1     0.34     1.66        -    1%    2    0   0.21 [0.20, 0.21] alpha-256x256.raw
+ConvertRGBA8ToRGB8/large           1     1665.9     0.52     1.49        -    4%    1    0   0.52 [0.48, 0.53] alpha-4096x4096.raw
+ConvertRGBA8ToPremul/icon          2     2261.9     1.14     1.37     8.38    1%    0    0   1.12 [1.10, 1.14] alpha-16x16.raw
+ConvertRGBA8ToPremul/1mp           2     2298.5     1.17     1.40     7.96    2%    0    0   1.17 [1.15, 1.19] alpha-256x256.raw
+ConvertRGBA8ToPremul/large         1     1696.7     1.04     1.32     6.34    5%    0    1   1.04 [0.99, 1.10] alpha-4096x4096.raw
+ConvertGray8ToRGBA8/icon           2     9552.4     1.00     1.10    11.97    1%    0    2   0.99 [0.97, 1.02] photo-16x16.raw
+ConvertGray8ToRGBA8/1mp            2     7045.0     1.01     1.02     6.71    2%    0    2   1.00 [0.99, 1.02] photo-1024x1024.raw
+ConvertGray8ToRGBA8/large          1     4462.5     1.00     1.02     4.33    3%    0    1   1.00 [0.96, 1.02] photo-4096x4096.raw
+ConvertRGBA16ToRGBA8/icon          2     8115.8     3.62     2.45        -    2%    0    0   3.04 [2.99, 3.13] alpha-16x16.raw
+ConvertRGBA16ToRGBA8/1mp           2     4067.3     1.88     1.47        -    1%    0    0   1.08 [1.06, 1.11] alpha-1024x1024.raw
+ConvertRGBA16ToRGBA8/large         1     1384.4     1.75     1.61        -    3%    0    0   1.75 [1.68, 1.79] alpha-4096x4096.raw
+all                               30     4321.1     0.96     1.37     7.75          6   14

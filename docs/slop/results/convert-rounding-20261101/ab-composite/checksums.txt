@@ -1,0 +1,3 @@
+before      30 rows, 15 differ from image
+wuffs       30 rows, 0 differ from image
+go          10 rows, 0 differ from image

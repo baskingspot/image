@@ -1,27 +1,31 @@
 //! Conversion and swizzle between pixel formats.
 //!
 //! Every pair of `PixelFormat`s converts. Integer formats convert through
-//! straight 16-bit RGBA, and any pair with a float side through straight
-//! `f32` RGBA, with these definitions:
+//! 16-bit RGBA, and any pair with a float side through `f32` RGBA. Integer
+//! results are Wuffs's pixel swizzler's on every pair it has that keeps
+//! alpha or has none to drop (docs/slop/results/convert-rounding-20261101.md),
+//! with these definitions:
 //!
 //! - Widening an 8-bit sample multiplies by 257; narrowing a 16-bit one
-//!   rounds `c / 257` to nearest. A float sample is `c / max` one way and
-//!   `c * max` rounded to nearest, clamped to 0..max, the other; NaN is 0.
-//! - Premultiplying rounds `c * a / max` to nearest; unpremultiplying rounds
-//!   `c * max / a`, clamped to max, and gives 0 where `a` is 0. Float
-//!   conversions multiply and divide without rounding or clamping.
+//!   takes its high byte. A float sample is `c / max` one way and `c * max`
+//!   rounded to nearest, clamped to 0..max, the other; NaN is 0.
+//! - Premultiplying is `c * a / 65535` and unpremultiplying `c * 65535 / a`
+//!   on 16-bit samples, both truncated; unpremultiplying clamps to 65535
+//!   and gives 0 where `a` is 0. From an 8-bit source the result keeps 8
+//!   bits (its high byte, widened again for a 16-bit destination), so 8-bit
+//!   premultiplying is `c * a * 257 / 65280` truncated and unpremultiplying
+//!   `c * 65535 / a / 256`. Float conversions multiply and divide without
+//!   rounding or clamping.
+//! - A format without alpha drops the (unpremultiplied) alpha; a source
+//!   without alpha is opaque. Wuffs composites onto black there instead,
+//!   the one place the integer results differ from its.
 //! - Gray from color is `(19595 R + 38470 G + 7471 B + 32768) >> 16` on
 //!   16-bit samples (Rec. 601 luma), and `0.299 R + 0.587 G + 0.114 B` with
 //!   those weights in float. Color from gray repeats the gray sample.
-//! - A format without alpha drops the (unpremultiplied) alpha; a source
-//!   without alpha is opaque.
 //!
-//! These make the 8-bit results exact: narrowing the 16-bit premultiply or
-//! unpremultiply of widened samples gives the same value as rounding the
-//! 8-bit arithmetic directly. The pairs decoders meet most, the byte
-//! swizzles, adding and dropping alpha, premultiplying, gray to color, and
-//! 8 to 16 bits and back, have SIMD paths that give the same bytes as the
-//! general path.
+//! The pairs decoders meet most, the byte swizzles, adding and dropping
+//! alpha, premultiplying, gray to color, and 8 to 16 bits and back, have
+//! SIMD paths that give the same bytes as the general path.
 
 const std = @import("std");
 const testing = std.testing;
@@ -41,7 +45,15 @@ pub const Converter = struct {
     const Kernel = *const fn (dst: []u8, src: []const u8, n: usize) void;
 
     pub fn init(dst: PixelFormat, src: PixelFormat) Converter {
-        return .{ .dst = dst, .src = src, .fast = fast(dst, src), .stages = .init(dst, src) };
+        const kernel = fast(dst, src);
+        // Only a pair without a kernel takes the general path, and choosing
+        // its stages costs icons a few percent.
+        return .{
+            .dst = dst,
+            .src = src,
+            .fast = kernel,
+            .stages = if (kernel == null) .init(dst, src) else undefined,
+        };
     }
 
     /// Converts `n` pixels from `src` to `dst`. Asserts both hold `n`
@@ -78,9 +90,11 @@ pub fn convertBuffer(dst: PixelBuffer, src: PixelBuffer) error{ SizeMismatch, Bu
 const chunk = 64;
 
 /// The general path for one pair: an unpack from the source and a pack to
-/// the destination, through 16-bit or float RGBA. Premultiplied to
-/// premultiplied stays premultiplied in the pivot (`keep`), so samples
-/// above their alpha come through as they are.
+/// the destination, through 16-bit or float RGBA. The pivot is
+/// premultiplied (`premul`) when the destination is, and straight
+/// otherwise; the unpack premultiplies or unpremultiplies to match, so
+/// premultiplied to premultiplied passes samples above their alpha through
+/// as they are.
 const Stages = union(enum) {
     int: struct {
         unpack: *const fn (in: []const u8, pivot: *[chunk][4]u16, m: usize) void,
@@ -92,26 +106,26 @@ const Stages = union(enum) {
     },
 
     fn init(dst: PixelFormat, src: PixelFormat) Stages {
-        const keep = src.isPremultiplied() and dst.isPremultiplied();
+        const premul = dst.isPremultiplied();
         if (dst.sample() == .f32 or src.sample() == .f32) {
-            return switch (keep) {
-                inline else => |k| .{ .float = .{
+            return switch (premul) {
+                inline else => |p| .{ .float = .{
                     .unpack = switch (src) {
-                        inline else => |f| Stage(f, k).unpackFloat,
+                        inline else => |f| Stage(f, p).unpackFloat,
                     },
                     .pack = switch (dst) {
-                        inline else => |f| Stage(f, k).packFloat,
+                        inline else => |f| Stage(f, p).packFloat,
                     },
                 } },
             };
         }
-        return switch (keep) {
-            inline else => |k| .{ .int = .{
+        return switch (premul) {
+            inline else => |p| .{ .int = .{
                 .unpack = switch (src) {
-                    inline else => |f| Stage(f, k).unpack16,
+                    inline else => |f| Stage(f, p).unpack16,
                 },
                 .pack = switch (dst) {
-                    inline else => |f| Stage(f, k).pack16,
+                    inline else => |f| Stage(f, p).pack16,
                 },
             } },
         };
@@ -143,19 +157,19 @@ const Stages = union(enum) {
     }
 };
 
-fn Stage(comptime f: PixelFormat, comptime keep: bool) type {
+fn Stage(comptime f: PixelFormat, comptime premul: bool) type {
     return struct {
         fn unpack16(in: []const u8, pivot: *[chunk][4]u16, m: usize) void {
-            for (pivot[0..m], 0..) |*p, j| p.* = unpack16Pixel(f, keep, in, j);
+            for (pivot[0..m], 0..) |*p, j| p.* = unpack16Pixel(f, premul, in, j);
         }
         fn pack16(out: []u8, pivot: *const [chunk][4]u16, m: usize) void {
-            for (pivot[0..m], 0..) |p, j| pack16Pixel(f, keep, out, j, p);
+            for (pivot[0..m], 0..) |p, j| pack16Pixel(f, out, j, p);
         }
         fn unpackFloat(in: []const u8, pivot: *[chunk][4]f32, m: usize) void {
-            for (pivot[0..m], 0..) |*p, j| p.* = unpackFloatPixel(f, keep, in, j);
+            for (pivot[0..m], 0..) |*p, j| p.* = unpackFloatPixel(f, premul, in, j);
         }
         fn packFloat(out: []u8, pivot: *const [chunk][4]f32, m: usize) void {
-            for (pivot[0..m], 0..) |p, j| packFloatPixel(f, keep, out, j, p);
+            for (pivot[0..m], 0..) |p, j| packFloatPixel(f, out, j, p);
         }
     };
 }
@@ -196,9 +210,9 @@ inline fn storeFloat(comptime f: PixelFormat, bytes: []u8, pixel: usize, channel
     }
 }
 
-/// `c / 257` rounded to nearest: 16 bits to 8.
+/// 16 bits to 8: the high byte.
 inline fn narrow(c: u32) u32 {
-    return (c + 128) / 257;
+    return c >> 8;
 }
 
 /// A float sample to an integer one: rounded, clamped, NaN to 0.
@@ -208,7 +222,7 @@ inline fn quantize(v: f32, comptime max: f32) u32 {
     return @intFromFloat(@round(v * max));
 }
 
-inline fn unpack16Pixel(comptime f: PixelFormat, comptime keep: bool, bytes: []const u8, pixel: usize) [4]u16 {
+inline fn unpack16Pixel(comptime f: PixelFormat, comptime premul: bool, bytes: []const u8, pixel: usize) [4]u16 {
     const c = comptime f.channels();
     const wide = comptime f.sample() == .u8;
     var v: [4]u32 = undefined;
@@ -225,32 +239,34 @@ inline fn unpack16Pixel(comptime f: PixelFormat, comptime keep: bool, bytes: []c
     if (wide) {
         for (&v) |*s| s.* *= 257;
     }
-    if (comptime f.isPremultiplied() and !keep) {
-        const a = v[3];
-        for (v[0..3]) |*s| s.* = if (a == 0) 0 else @min(65535, (s.* * 65535 + a / 2) / a);
+    const a = v[3];
+    if (comptime f.isPremultiplied() and !premul) {
+        for (v[0..3]) |*s| s.* = if (a == 0) 0 else @min(65535, s.* * 65535 / a);
+    } else if (comptime f.hasAlpha() and !f.isPremultiplied() and premul) {
+        for (v[0..3]) |*s| s.* = s.* * a / 65535;
+    } else return .{ @intCast(v[0]), @intCast(v[1]), @intCast(v[2]), @intCast(a) };
+    // An 8-bit source's alpha step keeps 8 bits.
+    if (wide) {
+        for (v[0..3]) |*s| s.* = narrow(s.*) * 257;
     }
-    return .{ @intCast(v[0]), @intCast(v[1]), @intCast(v[2]), @intCast(v[3]) };
+    return .{ @intCast(v[0]), @intCast(v[1]), @intCast(v[2]), @intCast(a) };
 }
 
-inline fn pack16Pixel(comptime f: PixelFormat, comptime keep: bool, bytes: []u8, pixel: usize, p: [4]u16) void {
+inline fn pack16Pixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: [4]u16) void {
     const c = comptime f.channels();
-    var v: [3]u32 = .{ p[0], p[1], p[2] };
-    if (comptime f.isPremultiplied() and !keep) {
-        for (&v) |*s| s.* = (s.* * p[3] + 32767) / 65535;
-    }
     if (c.y) |y| {
         // Luma of premultiplied samples is the premultiplied luma.
-        const l = (19595 * v[0] + 38470 * v[1] + 7471 * v[2] + 32768) >> 16;
+        const l = (19595 * @as(u32, p[0]) + 38470 * @as(u32, p[1]) + 7471 * @as(u32, p[2]) + 32768) >> 16;
         store(f, bytes, pixel, y, @intCast(l));
     } else {
-        store(f, bytes, pixel, c.r.?, @intCast(v[0]));
-        store(f, bytes, pixel, c.g.?, @intCast(v[1]));
-        store(f, bytes, pixel, c.b.?, @intCast(v[2]));
+        store(f, bytes, pixel, c.r.?, p[0]);
+        store(f, bytes, pixel, c.g.?, p[1]);
+        store(f, bytes, pixel, c.b.?, p[2]);
     }
     if (c.a) |a| store(f, bytes, pixel, a, p[3]);
 }
 
-inline fn unpackFloatPixel(comptime f: PixelFormat, comptime keep: bool, bytes: []const u8, pixel: usize) [4]f32 {
+inline fn unpackFloatPixel(comptime f: PixelFormat, comptime premul: bool, bytes: []const u8, pixel: usize) [4]f32 {
     const c = comptime f.channels();
     var v: [4]f32 = undefined;
     if (c.y) |y| {
@@ -263,29 +279,27 @@ inline fn unpackFloatPixel(comptime f: PixelFormat, comptime keep: bool, bytes: 
         v[2] = loadFloat(f, bytes, pixel, c.b.?);
     }
     v[3] = if (c.a) |a| loadFloat(f, bytes, pixel, a) else 1;
-    if (comptime f.isPremultiplied() and !keep) {
-        const a = v[3];
+    const a = v[3];
+    if (comptime f.isPremultiplied() and !premul) {
         for (v[0..3]) |*s| {
             s.* = if (a == 0) 0 else s.* / a;
             // An integer sample is clamped as the 16-bit path clamps it.
             if (comptime f.sample() != .f32) s.* = @min(s.*, 1);
         }
+    } else if (comptime f.hasAlpha() and !f.isPremultiplied() and premul) {
+        for (v[0..3]) |*s| s.* *= a;
     }
     return v;
 }
 
-inline fn packFloatPixel(comptime f: PixelFormat, comptime keep: bool, bytes: []u8, pixel: usize, p: [4]f32) void {
+inline fn packFloatPixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: [4]f32) void {
     const c = comptime f.channels();
-    var v: [3]f32 = .{ p[0], p[1], p[2] };
-    if (comptime f.isPremultiplied() and !keep) {
-        for (&v) |*s| s.* *= p[3];
-    }
     if (c.y) |y| {
-        storeFloat(f, bytes, pixel, y, 0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]);
+        storeFloat(f, bytes, pixel, y, 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]);
     } else {
-        storeFloat(f, bytes, pixel, c.r.?, v[0]);
-        storeFloat(f, bytes, pixel, c.g.?, v[1]);
-        storeFloat(f, bytes, pixel, c.b.?, v[2]);
+        storeFloat(f, bytes, pixel, c.r.?, p[0]);
+        storeFloat(f, bytes, pixel, c.g.?, p[1]);
+        storeFloat(f, bytes, pixel, c.b.?, p[2]);
     }
     if (c.a) |a| storeFloat(f, bytes, pixel, a, p[3]);
 }
@@ -500,9 +514,12 @@ fn Premultiply(comptime swap: bool) type {
             const c: @Vector(lanes * 4, u16) = @shuffle(u8, v, undefined, order[0]);
             // The alpha lanes multiply by 255, which leaves them unchanged.
             const a: @Vector(lanes * 4, u16) = @shuffle(u8, v, full, order[1]);
-            // t / 255 rounded is (t + 128 + (t + 128) / 256) / 256.
-            const t = c * a + @as(@Vector(lanes * 4, u16), @splat(128));
-            const p: @Vector(lanes * 4, u8) = @intCast((t + (t >> @splat(8))) >> @splat(8));
+            // The general path's `((c * 257) * (a * 257) / 65535) >> 8` is
+            // `c * a * 257 / 65280` truncated, and for every product `t` of
+            // two bytes that is this, with no sum past 65534; the test
+            // against Wuffs's values checks all of them.
+            const t = c * a;
+            const p: @Vector(lanes * 4, u8) = @intCast((t + ((t + (t >> @splat(8))) >> @splat(7))) >> @splat(8));
             o.* = p;
         }
     };
@@ -547,9 +564,7 @@ fn narrowAll(dst: []u8, src: []const u8, n: usize) void {
     var i: usize = 0;
     while (i + lanes <= count) : (i += lanes) {
         const v: @Vector(lanes, u16) = @bitCast(src[2 * i ..][0 .. 2 * lanes].*);
-        const w: @Vector(lanes, u32) = v;
-        const half: @Vector(lanes, u32) = @splat(128);
-        const p: @Vector(lanes, u8) = @intCast((w + half) / @as(@Vector(lanes, u32), @splat(257)));
+        const p: @Vector(lanes, u8) = @intCast(v >> @splat(8));
         dst[i..][0..lanes].* = p;
     }
     while (i < count) : (i += 1) {
@@ -619,30 +634,55 @@ test "every SIMD path gives the general path's bytes" {
     try testing.expect(fast_pairs >= 40);
 }
 
-test "8-bit premultiply and unpremultiply round exactly" {
-    for (0..256) |a| {
-        for (0..256) |c| {
-            const straight = [4]u8{ @intCast(c), @intCast(255 - c), 0, @intCast(a) };
-            var out: [4]u8 = undefined;
-            // Through the 16-bit pivot, the general path.
-            Stages.init(.rgba8_premul, .rgba8).run(&out, &straight, 1);
-            try testing.expectEqual((2 * c * a + 255) / 510, out[0]);
-            try testing.expectEqual((2 * (255 - c) * a + 255) / 510, out[1]);
-            try testing.expectEqual(a, out[3]);
-            Stages.init(.rgba8, .rgba8_premul).run(&out, &straight, 1);
-            const unpremul: usize = if (a == 0) 0 else @min(255, (2 * c * 255 + a) / (2 * a));
-            try testing.expectEqual(unpremul, out[0]);
+test "8-bit premultiply, unpremultiply, and narrowing match Wuffs" {
+    // Every (c, a) pair, through the SIMD paths and the general one. The
+    // expected values are Wuffs's, in another form than the code's: its
+    // 16-bit premultiply `c·257 · a·257 / 65535`, truncated, is
+    // `c·a·257 / 255`, and its high byte is that over 256; its unpremultiply
+    // `c·257 · 65535 / (a·257)` is `c·65535 / a`.
+    // docs/slop/results/convert-rounding-20261101.md checks these against
+    // Wuffs itself.
+    var straight: [256 * 256][4]u8 = undefined;
+    for (&straight, 0..) |*p, i| p.* = .{ @truncate(i), @truncate(~i), @truncate(i *% 91 +% 17), @intCast(i >> 8) };
+    const bytes = std.mem.sliceAsBytes(&straight);
+    var out: [256 * 256][4]u8 = undefined;
+    var out16: [256 * 256][4]u16 = undefined;
+    for ([_]bool{ true, false }) |simd| {
+        const run = struct {
+            fn run(fast_path: bool, dst: []u8, d: PixelFormat, src: []const u8, s: PixelFormat) void {
+                const n = src.len / s.bytesPerPixel();
+                if (fast_path) convert(dst, d, src, s, n) else Stages.init(d, s).run(dst, src, n);
+            }
+        }.run;
+        run(simd, std.mem.sliceAsBytes(&out), .rgba8_premul, bytes, .rgba8);
+        for (straight, out) |in, p| {
+            const a: u32 = in[3];
+            for (0..3) |ch| try testing.expectEqual(in[ch] * a * 257 / (255 * 256), p[ch]);
+            try testing.expectEqual(a, p[3]);
+        }
+        // The same bytes read as premultiplied, valid or not.
+        run(simd, std.mem.sliceAsBytes(&out), .rgba8, bytes, .rgba8_premul);
+        run(simd, std.mem.sliceAsBytes(&out16), .rgba16, bytes, .rgba8_premul);
+        for (straight, out, out16) |in, p, w| {
+            const a: u32 = in[3];
+            for (0..3) |ch| {
+                const want: u32 = if (a == 0) 0 else @min(255, @as(u32, in[ch]) * 65535 / a / 256);
+                try testing.expectEqual(want, p[ch]);
+                // A 16-bit destination widens the 8-bit result.
+                try testing.expectEqual(want * 257, w[ch]);
+            }
+            try testing.expectEqual(a, p[3]);
         }
     }
-}
-
-test "16 to 8 bits rounds to nearest" {
-    var c: u32 = 0;
-    while (c <= 65535) : (c += 1) {
-        const in = std.mem.toBytes(@as(u16, @intCast(c)));
-        var out: [1]u8 = undefined;
-        Stages.init(.gray8, .gray16).run(&out, &in, 1);
-        try testing.expectEqual((2 * c + 257) / 514, out[0]);
+    // Every 16-bit sample, narrowed.
+    var wide: [65536]u16 = undefined;
+    for (&wide, 0..) |*w, i| w.* = @intCast(i);
+    var narrowed: [65536]u8 = undefined;
+    for ([_]bool{ true, false }) |simd| {
+        if (simd) convert(&narrowed, .gray8, std.mem.sliceAsBytes(&wide), .gray16, wide.len) else {
+            Stages.init(.gray8, .gray16).run(&narrowed, std.mem.sliceAsBytes(&wide), wide.len);
+        }
+        for (wide, narrowed) |w, n| try testing.expectEqual(w / 256, n);
     }
 }
 

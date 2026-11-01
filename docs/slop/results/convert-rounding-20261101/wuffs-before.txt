@@ -1,0 +1,304 @@
+gray8 -> gray8: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> rgb8: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> bgr8: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> rgba8: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> rgba8_premul: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> bgra8: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> bgra8_premul: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> rgba16: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> rgba16_premul: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> bgra16: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray8 -> bgra16_premul: 256 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  gray_alpha8 -> gray8: in { 1, 0 } wuffs { 0 } ours { 1 }
+  gray_alpha8 -> gray8: in { 2, 0 } wuffs { 0 } ours { 2 }
+  gray_alpha8 -> gray8: in { 3, 0 } wuffs { 0 } ours { 3 }
+  gray_alpha8 -> gray8: in { 4, 0 } wuffs { 0 } ours { 4 }
+gray_alpha8 -> gray8: 1114112 pixels, 1105444 differ; 0 invalid premultiplied, 0 of them differ
+gray_alpha8 -> gray_alpha8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  gray_alpha8 -> rgb8: in { 1, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray_alpha8 -> rgb8: in { 2, 0 } wuffs { 0, 0, 0 } ours { 2, 2, 2 }
+  gray_alpha8 -> rgb8: in { 3, 0 } wuffs { 0, 0, 0 } ours { 3, 3, 3 }
+  gray_alpha8 -> rgb8: in { 4, 0 } wuffs { 0, 0, 0 } ours { 4, 4, 4 }
+gray_alpha8 -> rgb8: 1114112 pixels, 1105444 differ; 0 invalid premultiplied, 0 of them differ
+  gray_alpha8 -> bgr8: in { 1, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray_alpha8 -> bgr8: in { 2, 0 } wuffs { 0, 0, 0 } ours { 2, 2, 2 }
+  gray_alpha8 -> bgr8: in { 3, 0 } wuffs { 0, 0, 0 } ours { 3, 3, 3 }
+  gray_alpha8 -> bgr8: in { 4, 0 } wuffs { 0, 0, 0 } ours { 4, 4, 4 }
+gray_alpha8 -> bgr8: 1114112 pixels, 1105444 differ; 0 invalid premultiplied, 0 of them differ
+gray_alpha8 -> rgba8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  gray_alpha8 -> rgba8_premul: in { 128, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> rgba8_premul: in { 129, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> rgba8_premul: in { 130, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> rgba8_premul: in { 131, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+gray_alpha8 -> rgba8_premul: 1114112 pixels, 332303 differ; 0 invalid premultiplied, 0 of them differ
+gray_alpha8 -> bgra8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  gray_alpha8 -> bgra8_premul: in { 128, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> bgra8_premul: in { 129, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> bgra8_premul: in { 130, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+  gray_alpha8 -> bgra8_premul: in { 131, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 1, 1 }
+gray_alpha8 -> bgra8_premul: 1114112 pixels, 332303 differ; 0 invalid premultiplied, 0 of them differ
+gray_alpha8 -> rgba16: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray_alpha8 -> bgra16: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  rgb8 -> gray8: in { 2, 0, 0 } wuffs { 0 } ours { 1 }
+  rgb8 -> gray8: in { 3, 0, 0 } wuffs { 0 } ours { 1 }
+  rgb8 -> gray8: in { 6, 0, 0 } wuffs { 1 } ours { 2 }
+  rgb8 -> gray8: in { 9, 0, 0 } wuffs { 2 } ours { 3 }
+rgb8 -> gray8: 16777216 pixels, 2706082 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> rgb8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> bgr8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> rgba8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> rgba8_premul: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> bgra8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> bgra8_premul: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+rgb8 -> bgra16: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgr8 -> gray8: in { 5, 0, 0 } wuffs { 0 } ours { 1 }
+  bgr8 -> gray8: in { 6, 0, 0 } wuffs { 0 } ours { 1 }
+  bgr8 -> gray8: in { 7, 0, 0 } wuffs { 0 } ours { 1 }
+  bgr8 -> gray8: in { 8, 0, 0 } wuffs { 0 } ours { 1 }
+bgr8 -> gray8: 16777216 pixels, 2706082 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> rgb8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> bgr8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> rgba8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> rgba8_premul: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> bgra8: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> bgra8_premul: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> bgra16: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+bgr8 -> bgra16_premul: 16777216 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8 -> gray8: in { 0, 255, 17, 0 } wuffs { 0 } ours { 152 }
+  rgba8 -> gray8: in { 1, 254, 108, 0 } wuffs { 0 } ours { 162 }
+  rgba8 -> gray8: in { 2, 253, 199, 0 } wuffs { 0 } ours { 172 }
+  rgba8 -> gray8: in { 3, 252, 34, 0 } wuffs { 0 } ours { 153 }
+rgba8 -> gray8: 1114112 pixels, 1109800 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8 -> rgb8: in { 0, 255, 17, 0 } wuffs { 0, 0, 0 } ours { 0, 255, 17 }
+  rgba8 -> rgb8: in { 1, 254, 108, 0 } wuffs { 0, 0, 0 } ours { 1, 254, 108 }
+  rgba8 -> rgb8: in { 2, 253, 199, 0 } wuffs { 0, 0, 0 } ours { 2, 253, 199 }
+  rgba8 -> rgb8: in { 3, 252, 34, 0 } wuffs { 0, 0, 0 } ours { 3, 252, 34 }
+rgba8 -> rgb8: 1114112 pixels, 1109741 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8 -> bgr8: in { 0, 255, 17, 0 } wuffs { 0, 0, 0 } ours { 17, 255, 0 }
+  rgba8 -> bgr8: in { 1, 254, 108, 0 } wuffs { 0, 0, 0 } ours { 108, 254, 1 }
+  rgba8 -> bgr8: in { 2, 253, 199, 0 } wuffs { 0, 0, 0 } ours { 199, 253, 2 }
+  rgba8 -> bgr8: in { 3, 252, 34, 0 } wuffs { 0, 0, 0 } ours { 34, 252, 3 }
+rgba8 -> bgr8: 1114112 pixels, 1109741 differ; 0 invalid premultiplied, 0 of them differ
+rgba8 -> rgba8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8 -> rgba8_premul: in { 1, 254, 108, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8 -> rgba8_premul: in { 2, 253, 199, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 1, 1 }
+  rgba8 -> rgba8_premul: in { 3, 252, 34, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8 -> rgba8_premul: in { 4, 251, 125, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+rgba8 -> rgba8_premul: 1114112 pixels, 711769 differ; 0 invalid premultiplied, 0 of them differ
+rgba8 -> bgra8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8 -> bgra8_premul: in { 1, 254, 108, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8 -> bgra8_premul: in { 2, 253, 199, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 0, 1 }
+  rgba8 -> bgra8_premul: in { 3, 252, 34, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8 -> bgra8_premul: in { 4, 251, 125, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+rgba8 -> bgra8_premul: 1114112 pixels, 711769 differ; 0 invalid premultiplied, 0 of them differ
+rgba8 -> bgra16: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8_premul -> gray8: in { 127, 128, 54, 128 } wuffs { 119 } ours { 238 }
+  rgba8_premul -> gray8: in { 127, 128, 54, 129 } wuffs { 119 } ours { 236 }
+  rgba8_premul -> gray8: in { 125, 130, 128, 130 } wuffs { 128 } ours { 252 }
+  rgba8_premul -> gray8: in { 127, 128, 54, 130 } wuffs { 119 } ours { 234 }
+rgba8_premul -> gray8: 1114112 pixels, 271273 differ; 836451 invalid premultiplied, 836207 of them differ
+  rgba8_premul -> rgb8: in { 127, 128, 54, 128 } wuffs { 127, 128, 54 } ours { 253, 255, 108 }
+  rgba8_premul -> rgb8: in { 127, 128, 54, 129 } wuffs { 127, 128, 54 } ours { 251, 253, 107 }
+  rgba8_premul -> rgb8: in { 125, 130, 128, 130 } wuffs { 125, 130, 128 } ours { 245, 255, 251 }
+  rgba8_premul -> rgb8: in { 127, 128, 54, 130 } wuffs { 127, 128, 54 } ours { 249, 251, 106 }
+rgba8_premul -> rgb8: 1114112 pixels, 272670 differ; 836451 invalid premultiplied, 836425 of them differ
+  rgba8_premul -> bgr8: in { 127, 128, 54, 128 } wuffs { 54, 128, 127 } ours { 108, 255, 253 }
+  rgba8_premul -> bgr8: in { 127, 128, 54, 129 } wuffs { 54, 128, 127 } ours { 107, 253, 251 }
+  rgba8_premul -> bgr8: in { 125, 130, 128, 130 } wuffs { 128, 130, 125 } ours { 251, 255, 245 }
+  rgba8_premul -> bgr8: in { 127, 128, 54, 130 } wuffs { 54, 128, 127 } ours { 106, 251, 249 }
+rgba8_premul -> bgr8: 1114112 pixels, 272670 differ; 836451 invalid premultiplied, 836425 of them differ
+  rgba8_premul -> rgba8: in { 127, 128, 54, 128 } wuffs { 253, 255, 107, 128 } ours { 253, 255, 108, 128 }
+  rgba8_premul -> rgba8: in { 127, 128, 54, 129 } wuffs { 252, 254, 107, 129 } ours { 251, 253, 107, 129 }
+  rgba8_premul -> rgba8: in { 125, 130, 128, 130 } wuffs { 246, 255, 252, 130 } ours { 245, 255, 251, 130 }
+  rgba8_premul -> rgba8: in { 127, 128, 54, 130 } wuffs { 250, 252, 106, 130 } ours { 249, 251, 106, 130 }
+rgba8_premul -> rgba8: 1114112 pixels, 149872 differ; 836451 invalid premultiplied, 831790 of them differ
+rgba8_premul -> rgba8_premul: 1114112 pixels, 0 differ; 836451 invalid premultiplied, 0 of them differ
+  rgba8_premul -> bgra8: in { 127, 128, 54, 128 } wuffs { 107, 255, 253, 128 } ours { 108, 255, 253, 128 }
+  rgba8_premul -> bgra8: in { 127, 128, 54, 129 } wuffs { 107, 254, 252, 129 } ours { 107, 253, 251, 129 }
+  rgba8_premul -> bgra8: in { 125, 130, 128, 130 } wuffs { 252, 255, 246, 130 } ours { 251, 255, 245, 130 }
+  rgba8_premul -> bgra8: in { 127, 128, 54, 130 } wuffs { 106, 252, 250, 130 } ours { 106, 251, 249, 130 }
+rgba8_premul -> bgra8: 1114112 pixels, 149872 differ; 836451 invalid premultiplied, 831784 of them differ
+rgba8_premul -> bgra8_premul: 1114112 pixels, 0 differ; 836451 invalid premultiplied, 0 of them differ
+  rgba8_premul -> bgra16: in { 127, 128, 54, 128 } wuffs { 107, 107, 255, 255, 253, 253, 128, 128 } ours { 0, 108, 255, 255, 255, 253, 128, 128 }
+  rgba8_premul -> bgra16: in { 127, 128, 54, 129 } wuffs { 107, 107, 254, 254, 252, 252, 129, 129 } ours { 41, 107, 3, 254, 7, 252, 129, 129 }
+  rgba8_premul -> bgra16: in { 125, 130, 128, 130 } wuffs { 252, 252, 255, 255, 246, 246, 130, 130 } ours { 15, 252, 255, 255, 38, 246, 130, 130 }
+  rgba8_premul -> bgra16: in { 127, 128, 54, 130 } wuffs { 106, 106, 252, 252, 250, 250, 130, 130 } ours { 86, 106, 15, 252, 23, 250, 130, 130 }
+rgba8_premul -> bgra16: 1114112 pixels, 272829 differ; 836451 invalid premultiplied, 832066 of them differ
+  bgra8 -> gray8: in { 0, 255, 17, 0 } wuffs { 0 } ours { 155 }
+  bgra8 -> gray8: in { 1, 254, 108, 0 } wuffs { 0 } ours { 182 }
+  bgra8 -> gray8: in { 2, 253, 199, 0 } wuffs { 0 } ours { 208 }
+  bgra8 -> gray8: in { 3, 252, 34, 0 } wuffs { 0 } ours { 158 }
+bgra8 -> gray8: 1114112 pixels, 1109808 differ; 0 invalid premultiplied, 0 of them differ
+  bgra8 -> rgb8: in { 0, 255, 17, 0 } wuffs { 0, 0, 0 } ours { 17, 255, 0 }
+  bgra8 -> rgb8: in { 1, 254, 108, 0 } wuffs { 0, 0, 0 } ours { 108, 254, 1 }
+  bgra8 -> rgb8: in { 2, 253, 199, 0 } wuffs { 0, 0, 0 } ours { 199, 253, 2 }
+  bgra8 -> rgb8: in { 3, 252, 34, 0 } wuffs { 0, 0, 0 } ours { 34, 252, 3 }
+bgra8 -> rgb8: 1114112 pixels, 1109781 differ; 0 invalid premultiplied, 0 of them differ
+  bgra8 -> bgr8: in { 0, 255, 17, 0 } wuffs { 0, 0, 0 } ours { 0, 255, 17 }
+  bgra8 -> bgr8: in { 1, 254, 108, 0 } wuffs { 0, 0, 0 } ours { 1, 254, 108 }
+  bgra8 -> bgr8: in { 2, 253, 199, 0 } wuffs { 0, 0, 0 } ours { 2, 253, 199 }
+  bgra8 -> bgr8: in { 3, 252, 34, 0 } wuffs { 0, 0, 0 } ours { 3, 252, 34 }
+bgra8 -> bgr8: 1114112 pixels, 1109781 differ; 0 invalid premultiplied, 0 of them differ
+bgra8 -> rgba8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgra8 -> rgba8_premul: in { 1, 254, 108, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  bgra8 -> rgba8_premul: in { 2, 253, 199, 1 } wuffs { 0, 0, 0, 1 } ours { 1, 1, 0, 1 }
+  bgra8 -> rgba8_premul: in { 3, 252, 34, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  bgra8 -> rgba8_premul: in { 4, 251, 125, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+bgra8 -> rgba8_premul: 1114112 pixels, 710503 differ; 0 invalid premultiplied, 0 of them differ
+bgra8 -> bgra8: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgra8 -> bgra8_premul: in { 1, 254, 108, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  bgra8 -> bgra8_premul: in { 2, 253, 199, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 1, 1 }
+  bgra8 -> bgra8_premul: in { 3, 252, 34, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  bgra8 -> bgra8_premul: in { 4, 251, 125, 1 } wuffs { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+bgra8 -> bgra8_premul: 1114112 pixels, 710503 differ; 0 invalid premultiplied, 0 of them differ
+bgra8 -> bgra16: 1114112 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgra8_premul -> gray8: in { 127, 128, 54, 128 } wuffs { 106 } ours { 211 }
+  bgra8_premul -> gray8: in { 127, 128, 54, 129 } wuffs { 106 } ours { 209 }
+  bgra8_premul -> gray8: in { 125, 130, 128, 130 } wuffs { 129 } ours { 253 }
+  bgra8_premul -> gray8: in { 127, 128, 54, 130 } wuffs { 106 } ours { 207 }
+bgra8_premul -> gray8: 1114112 pixels, 272074 differ; 835704 invalid premultiplied, 835457 of them differ
+  bgra8_premul -> rgb8: in { 127, 128, 54, 128 } wuffs { 54, 128, 127 } ours { 108, 255, 253 }
+  bgra8_premul -> rgb8: in { 127, 128, 54, 129 } wuffs { 54, 128, 127 } ours { 107, 253, 251 }
+  bgra8_premul -> rgb8: in { 125, 130, 128, 130 } wuffs { 128, 130, 125 } ours { 251, 255, 245 }
+  bgra8_premul -> rgb8: in { 127, 128, 54, 130 } wuffs { 54, 128, 127 } ours { 106, 251, 249 }
+bgra8_premul -> rgb8: 1114112 pixels, 273305 differ; 835704 invalid premultiplied, 835675 of them differ
+  bgra8_premul -> bgr8: in { 127, 128, 54, 128 } wuffs { 127, 128, 54 } ours { 253, 255, 108 }
+  bgra8_premul -> bgr8: in { 127, 128, 54, 129 } wuffs { 127, 128, 54 } ours { 251, 253, 107 }
+  bgra8_premul -> bgr8: in { 125, 130, 128, 130 } wuffs { 125, 130, 128 } ours { 245, 255, 251 }
+  bgra8_premul -> bgr8: in { 127, 128, 54, 130 } wuffs { 127, 128, 54 } ours { 249, 251, 106 }
+bgra8_premul -> bgr8: 1114112 pixels, 273305 differ; 835704 invalid premultiplied, 835675 of them differ
+  bgra8_premul -> rgba8: in { 127, 128, 54, 128 } wuffs { 107, 255, 253, 128 } ours { 108, 255, 253, 128 }
+  bgra8_premul -> rgba8: in { 127, 128, 54, 129 } wuffs { 107, 254, 252, 129 } ours { 107, 253, 251, 129 }
+  bgra8_premul -> rgba8: in { 125, 130, 128, 130 } wuffs { 252, 255, 246, 130 } ours { 251, 255, 245, 130 }
+  bgra8_premul -> rgba8: in { 127, 128, 54, 130 } wuffs { 106, 252, 250, 130 } ours { 106, 251, 249, 130 }
+bgra8_premul -> rgba8: 1114112 pixels, 149835 differ; 835704 invalid premultiplied, 830976 of them differ
+bgra8_premul -> rgba8_premul: 1114112 pixels, 0 differ; 835704 invalid premultiplied, 0 of them differ
+  bgra8_premul -> bgra8: in { 127, 128, 54, 128 } wuffs { 253, 255, 107, 128 } ours { 253, 255, 108, 128 }
+  bgra8_premul -> bgra8: in { 127, 128, 54, 129 } wuffs { 252, 254, 107, 129 } ours { 251, 253, 107, 129 }
+  bgra8_premul -> bgra8: in { 125, 130, 128, 130 } wuffs { 246, 255, 252, 130 } ours { 245, 255, 251, 130 }
+  bgra8_premul -> bgra8: in { 127, 128, 54, 130 } wuffs { 250, 252, 106, 130 } ours { 249, 251, 106, 130 }
+bgra8_premul -> bgra8: 1114112 pixels, 149835 differ; 835704 invalid premultiplied, 830975 of them differ
+bgra8_premul -> bgra8_premul: 1114112 pixels, 0 differ; 835704 invalid premultiplied, 0 of them differ
+  bgra8_premul -> bgra16: in { 127, 128, 54, 128 } wuffs { 253, 253, 255, 255, 107, 107, 128, 128 } ours { 255, 253, 255, 255, 0, 108, 128, 128 }
+  bgra8_premul -> bgra16: in { 127, 128, 54, 129 } wuffs { 252, 252, 254, 254, 107, 107, 129, 129 } ours { 7, 252, 3, 254, 41, 107, 129, 129 }
+  bgra8_premul -> bgra16: in { 125, 130, 128, 130 } wuffs { 246, 246, 255, 255, 252, 252, 130, 130 } ours { 38, 246, 255, 255, 15, 252, 130, 130 }
+  bgra8_premul -> bgra16: in { 127, 128, 54, 130 } wuffs { 250, 250, 252, 252, 106, 106, 130, 130 } ours { 23, 250, 15, 252, 86, 106, 130, 130 }
+bgra8_premul -> bgra16: 1114112 pixels, 273465 differ; 835704 invalid premultiplied, 831249 of them differ
+  gray16 -> gray8: in { 129, 0 } wuffs { 0 } ours { 1 }
+  gray16 -> gray8: in { 130, 0 } wuffs { 0 } ours { 1 }
+  gray16 -> gray8: in { 131, 0 } wuffs { 0 } ours { 1 }
+  gray16 -> gray8: in { 132, 0 } wuffs { 0 } ours { 1 }
+gray16 -> gray8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> rgb8: in { 129, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> rgb8: in { 130, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> rgb8: in { 131, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> rgb8: in { 132, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+gray16 -> rgb8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> bgr8: in { 129, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> bgr8: in { 130, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> bgr8: in { 131, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+  gray16 -> bgr8: in { 132, 0 } wuffs { 0, 0, 0 } ours { 1, 1, 1 }
+gray16 -> bgr8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> rgba8: in { 129, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8: in { 130, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8: in { 131, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8: in { 132, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+gray16 -> rgba8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> rgba8_premul: in { 129, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8_premul: in { 130, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8_premul: in { 131, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> rgba8_premul: in { 132, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+gray16 -> rgba8_premul: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> bgra8: in { 129, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8: in { 130, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8: in { 131, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8: in { 132, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+gray16 -> bgra8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  gray16 -> bgra8_premul: in { 129, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8_premul: in { 130, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8_premul: in { 131, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+  gray16 -> bgra8_premul: in { 132, 0 } wuffs { 0, 0, 0, 255 } ours { 1, 1, 1, 255 }
+gray16 -> bgra8_premul: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+gray16 -> gray16: 65536 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray16 -> rgba16: 65536 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray16 -> rgba16_premul: 65536 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray16 -> bgra16: 65536 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+gray16 -> bgra16_premul: 65536 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> gray8: in { 148, 148, 108, 242, 4, 37, 0, 0 } wuffs { 0 } ours { 170 }
+  bgra16 -> gray8: in { 230, 246, 98, 170, 204, 30, 0, 0 } wuffs { 0 } ours { 137 }
+  bgra16 -> gray8: in { 90, 204, 227, 254, 199, 214, 0, 0 } wuffs { 0 } ours { 236 }
+  bgra16 -> gray8: in { 153, 170, 189, 130, 228, 243, 0, 0 } wuffs { 0 } ours { 168 }
+bgra16 -> gray8: 4194304 pixels, 3657592 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> rgb8: in { 148, 148, 108, 242, 4, 37, 0, 0 } wuffs { 0, 0, 0 } ours { 37, 241, 148 }
+  bgra16 -> rgb8: in { 230, 246, 98, 170, 204, 30, 0, 0 } wuffs { 0, 0, 0 } ours { 31, 170, 246 }
+  bgra16 -> rgb8: in { 90, 204, 227, 254, 199, 214, 0, 0 } wuffs { 0, 0, 0 } ours { 214, 254, 204 }
+  bgra16 -> rgb8: in { 153, 170, 189, 130, 228, 243, 0, 0 } wuffs { 0, 0, 0 } ours { 243, 130, 170 }
+bgra16 -> rgb8: 4194304 pixels, 3662878 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> bgr8: in { 148, 148, 108, 242, 4, 37, 0, 0 } wuffs { 0, 0, 0 } ours { 148, 241, 37 }
+  bgra16 -> bgr8: in { 230, 246, 98, 170, 204, 30, 0, 0 } wuffs { 0, 0, 0 } ours { 246, 170, 31 }
+  bgra16 -> bgr8: in { 90, 204, 227, 254, 199, 214, 0, 0 } wuffs { 0, 0, 0 } ours { 204, 254, 214 }
+  bgra16 -> bgr8: in { 153, 170, 189, 130, 228, 243, 0, 0 } wuffs { 0, 0, 0 } ours { 170, 130, 243 }
+bgra16 -> bgr8: 4194304 pixels, 3662878 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> rgba8: in { 148, 148, 108, 242, 4, 37, 0, 0 } wuffs { 37, 242, 148, 0 } ours { 37, 241, 148, 0 }
+  bgra16 -> rgba8: in { 230, 246, 98, 170, 204, 30, 0, 0 } wuffs { 30, 170, 246, 0 } ours { 31, 170, 246, 0 }
+  bgra16 -> rgba8: in { 176, 6, 128, 28, 212, 20, 0, 0 } wuffs { 20, 28, 6, 0 } ours { 21, 28, 7, 0 }
+  bgra16 -> rgba8: in { 160, 43, 201, 101, 23, 222, 0, 0 } wuffs { 222, 101, 43, 0 } ours { 221, 101, 43, 0 }
+bgra16 -> rgba8: 4194304 pixels, 2143646 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> rgba8_premul: in { 81, 243, 253, 99, 159, 174, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> rgba8_premul: in { 206, 216, 123, 204, 74, 98, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> rgba8_premul: in { 79, 131, 241, 199, 114, 68, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> rgba8_premul: in { 43, 250, 26, 241, 113, 133, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+bgra16 -> rgba8_premul: 4194304 pixels, 2237065 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> bgra8: in { 148, 148, 108, 242, 4, 37, 0, 0 } wuffs { 148, 242, 37, 0 } ours { 148, 241, 37, 0 }
+  bgra16 -> bgra8: in { 230, 246, 98, 170, 204, 30, 0, 0 } wuffs { 246, 170, 30, 0 } ours { 246, 170, 31, 0 }
+  bgra16 -> bgra8: in { 176, 6, 128, 28, 212, 20, 0, 0 } wuffs { 6, 28, 20, 0 } ours { 7, 28, 21, 0 }
+  bgra16 -> bgra8: in { 160, 43, 201, 101, 23, 222, 0, 0 } wuffs { 43, 101, 222, 0 } ours { 43, 101, 221, 0 }
+bgra16 -> bgra8: 4194304 pixels, 2143646 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16 -> bgra8_premul: in { 81, 243, 253, 99, 159, 174, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> bgra8_premul: in { 206, 216, 123, 204, 74, 98, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> bgra8_premul: in { 79, 131, 241, 199, 114, 68, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  bgra16 -> bgra8_premul: in { 43, 250, 26, 241, 113, 133, 129, 0 } wuffs { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+bgra16 -> bgra8_premul: 4194304 pixels, 2237065 differ; 0 invalid premultiplied, 0 of them differ
+bgra16 -> bgra16: 4194304 pixels, 0 differ; 0 invalid premultiplied, 0 of them differ
+  bgra16_premul -> gray8: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 5 } ours { 136 }
+  bgra16_premul -> gray8: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 5 } ours { 128 }
+  bgra16_premul -> gray8: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 4 } ours { 89 }
+  bgra16_premul -> gray8: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 6 } ours { 109 }
+bgra16_premul -> gray8: 4194304 pixels, 1105597 differ; 2621037 invalid premultiplied, 2420924 of them differ
+  bgra16_premul -> rgb8: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 10, 3, 3 } ours { 248, 87, 94 }
+  bgra16_premul -> rgb8: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 9, 3, 4 } ours { 226, 84, 101 }
+  bgra16_premul -> rgb8: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 10, 1, 7 } ours { 197, 24, 144 }
+  bgra16_premul -> rgb8: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 2, 8, 7 } ours { 45, 138, 126 }
+bgra16_premul -> rgb8: 4194304 pixels, 1110861 differ; 2621037 invalid premultiplied, 2421061 of them differ
+  bgra16_premul -> bgr8: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 3, 3, 10 } ours { 94, 87, 248 }
+  bgra16_premul -> bgr8: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 4, 3, 9 } ours { 101, 84, 226 }
+  bgra16_premul -> bgr8: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 7, 1, 10 } ours { 144, 24, 197 }
+  bgra16_premul -> bgr8: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 7, 8, 2 } ours { 126, 138, 45 }
+bgra16_premul -> bgr8: 4194304 pixels, 1110861 differ; 2621037 invalid premultiplied, 2421061 of them differ
+  bgra16_premul -> rgba8: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 249, 87, 94, 10 } ours { 248, 87, 94, 11 }
+  bgra16_premul -> rgba8: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 226, 83, 101, 11 } ours { 226, 84, 101, 11 }
+  bgra16_premul -> rgba8: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 197, 23, 144, 13 } ours { 197, 24, 144, 13 }
+  bgra16_premul -> rgba8: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 45, 138, 126, 14 } ours { 45, 138, 126, 15 }
+bgra16_premul -> rgba8: 4194304 pixels, 834970 differ; 2621037 invalid premultiplied, 2552298 of them differ
+  bgra16_premul -> rgba8_premul: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 10, 3, 3, 10 } ours { 10, 4, 4, 11 }
+  bgra16_premul -> rgba8_premul: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 9, 3, 4, 11 } ours { 10, 4, 4, 11 }
+  bgra16_premul -> rgba8_premul: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 2, 8, 7, 14 } ours { 3, 8, 7, 15 }
+  bgra16_premul -> rgba8_premul: in { 110, 5, 187, 0, 186, 10, 236, 15 } wuffs { 10, 0, 5, 15 } ours { 11, 1, 5, 16 }
+bgra16_premul -> rgba8_premul: 4194304 pixels, 715579 differ; 2621037 invalid premultiplied, 1428101 of them differ
+  bgra16_premul -> bgra8: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 94, 87, 249, 10 } ours { 94, 87, 248, 11 }
+  bgra16_premul -> bgra8: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 101, 83, 226, 11 } ours { 101, 84, 226, 11 }
+  bgra16_premul -> bgra8: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 144, 23, 197, 13 } ours { 144, 24, 197, 13 }
+  bgra16_premul -> bgra8: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 126, 138, 45, 14 } ours { 126, 138, 45, 15 }
+bgra16_premul -> bgra8: 4194304 pixels, 834970 differ; 2621037 invalid premultiplied, 2552298 of them differ
+  bgra16_premul -> bgra8_premul: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 3, 3, 10, 10 } ours { 4, 4, 10, 11 }
+  bgra16_premul -> bgra8_premul: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 4, 3, 9, 11 } ours { 4, 4, 10, 11 }
+  bgra16_premul -> bgra8_premul: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 7, 8, 2, 14 } ours { 7, 8, 3, 15 }
+  bgra16_premul -> bgra8_premul: in { 110, 5, 187, 0, 186, 10, 236, 15 } wuffs { 5, 0, 10, 15 } ours { 5, 1, 11, 16 }
+bgra16_premul -> bgra8_premul: 4194304 pixels, 715579 differ; 2621037 invalid premultiplied, 1428101 of them differ
+  bgra16_premul -> bgra16: in { 239, 3, 166, 3, 94, 10, 165, 10 } wuffs { 153, 94, 190, 87, 83, 249, 165, 10 } ours { 154, 94, 190, 87, 83, 249, 165, 10 }
+  bgra16_premul -> bgra16: in { 98, 4, 162, 3, 207, 9, 22, 11 } wuffs { 53, 101, 227, 83, 127, 226, 22, 11 } ours { 53, 101, 228, 83, 128, 226, 22, 11 }
+  bgra16_premul -> bgra16: in { 111, 7, 56, 1, 36, 10, 34, 13 } wuffs { 230, 144, 193, 23, 171, 197, 34, 13 } ours { 231, 144, 194, 23, 171, 197, 34, 13 }
+  bgra16_premul -> bgra16: in { 102, 7, 25, 8, 163, 2, 249, 14 } wuffs { 126, 126, 115, 138, 20, 45, 249, 14 } ours { 127, 126, 115, 138, 21, 45, 249, 14 }
+bgra16_premul -> bgra16: 4194304 pixels, 906278 differ; 2621037 invalid premultiplied, 2555455 of them differ
+bgra16_premul -> bgra16_premul: 4194304 pixels, 0 differ; 2621037 invalid premultiplied, 0 of them differ
+99 pairs, 51 differ

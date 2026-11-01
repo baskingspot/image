@@ -1,0 +1,5 @@
+ConvertRGBA8ToRGB8/alpha-1024x1024.raw	len=3145728 fnv=fc32adbbb1ccb34a	len=3145728 fnv=19f11640b3822c96
+ConvertRGBA8ToRGB8/alpha-16x16.raw	len=768 fnv=d2a7c3005c435332	len=768 fnv=b3ad49aa2de98a15
+ConvertRGBA8ToRGB8/alpha-256x256.raw	len=196608 fnv=9e9056df1ce5b7f7	len=196608 fnv=3041cf34c97e0c5b
+ConvertRGBA8ToRGB8/alpha-4096x4096.raw	len=50331648 fnv=01d6b8823c038a04	len=50331648 fnv=19b28074f9e07328
+ConvertRGBA8ToRGB8/alpha-64x64.raw	len=12288 fnv=bd1138219e23dbda	len=12288 fnv=5a57f17e4eca913e

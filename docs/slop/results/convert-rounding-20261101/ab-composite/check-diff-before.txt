@@ -1,0 +1,15 @@
+ConvertRGBA16ToRGBA8/alpha-1024x1024.raw	len=4194304 fnv=bf11c3e5c6c71d85	len=4194304 fnv=105579233e1a88f0
+ConvertRGBA16ToRGBA8/alpha-16x16.raw	len=1024 fnv=35fbb63f000f2cbe	len=1024 fnv=e88efe3e0056239e
+ConvertRGBA16ToRGBA8/alpha-256x256.raw	len=262144 fnv=6b9ed548ba8292f9	len=262144 fnv=bc00e30e260dcf77
+ConvertRGBA16ToRGBA8/alpha-4096x4096.raw	len=67108864 fnv=b959906acd73d334	len=67108864 fnv=8ccc2a307fab8994
+ConvertRGBA16ToRGBA8/alpha-64x64.raw	len=16384 fnv=ebadf1aed69ff747	len=16384 fnv=52605a31fdd87dc0
+ConvertRGBA8ToPremul/alpha-1024x1024.raw	len=4194304 fnv=e8ff105c5114d244	len=4194304 fnv=dfcccdb94b1d56b0
+ConvertRGBA8ToPremul/alpha-16x16.raw	len=1024 fnv=3c79effc81ea76a3	len=1024 fnv=0016b5d29c01c17d
+ConvertRGBA8ToPremul/alpha-256x256.raw	len=262144 fnv=1ef99bffbf724dc7	len=262144 fnv=908f3aa82d2b1663
+ConvertRGBA8ToPremul/alpha-4096x4096.raw	len=67108864 fnv=e38c01d1c025aa1c	len=67108864 fnv=5096175307142a34
+ConvertRGBA8ToPremul/alpha-64x64.raw	len=16384 fnv=c2639ee1344b4df4	len=16384 fnv=8b608ab821bb8f24
+ConvertRGBA8ToRGB8/alpha-1024x1024.raw	len=3145728 fnv=19f11640b3822c96	len=3145728 fnv=fc32adbbb1ccb34a
+ConvertRGBA8ToRGB8/alpha-16x16.raw	len=768 fnv=b3ad49aa2de98a15	len=768 fnv=d2a7c3005c435332
+ConvertRGBA8ToRGB8/alpha-256x256.raw	len=196608 fnv=3041cf34c97e0c5b	len=196608 fnv=9e9056df1ce5b7f7
+ConvertRGBA8ToRGB8/alpha-4096x4096.raw	len=50331648 fnv=19b28074f9e07328	len=50331648 fnv=01d6b8823c038a04
+ConvertRGBA8ToRGB8/alpha-64x64.raw	len=12288 fnv=5a57f17e4eca913e	len=12288 fnv=bd1138219e23dbda

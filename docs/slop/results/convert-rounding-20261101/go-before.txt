@@ -1,0 +1,100 @@
+  gray16-gray8: in { 129, 0 } go { 0 } ours { 1 }
+  gray16-gray8: in { 130, 0 } go { 0 } ours { 1 }
+  gray16-gray8: in { 131, 0 } go { 0 } ours { 1 }
+  gray16-gray8: in { 132, 0 } go { 0 } ours { 1 }
+go gray16-gray8: 65536 pixels, 16256 differ; 0 invalid premultiplied, 0 of them differ
+  rgb8-gray8: in { 2, 0, 0 } go { 0 } ours { 1 }
+  rgb8-gray8: in { 3, 0, 0 } go { 0 } ours { 1 }
+  rgb8-gray8: in { 6, 0, 0 } go { 1 } ours { 2 }
+  rgb8-gray8: in { 9, 0, 0 } go { 2 } ours { 3 }
+go rgb8-gray8: 16777216 pixels, 2706082 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16-gray16: in { 197, 243, 85, 153, 184, 81, 0, 0 } go { 0, 0 } ours { 53, 172 }
+  rgba16-gray16: in { 177, 77, 209, 214, 157, 203, 0, 0 } go { 0, 0 } ours { 138, 172 }
+  rgba16-gray16: in { 5, 214, 9, 135, 238, 124, 0, 0 } go { 0, 0 } ours { 128, 157 }
+  rgba16-gray16: in { 240, 81, 220, 198, 134, 228, 0, 0 } go { 0, 0 } ours { 72, 167 }
+go rgba16-gray16: 2097152 pixels, 2097123 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16-gray8: in { 197, 243, 85, 153, 184, 81, 0, 0 } go { 0 } ours { 172 }
+  rgba16-gray8: in { 177, 77, 209, 214, 157, 203, 0, 0 } go { 0 } ours { 172 }
+  rgba16-gray8: in { 5, 214, 9, 135, 238, 124, 0, 0 } go { 0 } ours { 157 }
+  rgba16-gray8: in { 240, 81, 220, 198, 134, 228, 0, 0 } go { 0 } ours { 167 }
+go rgba16-gray8: 2097152 pixels, 2088694 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16-rgba16_premul: in { 249, 26, 103, 211, 179, 178, 1, 0 } go { 0, 0, 0, 0, 0, 0, 1, 0 } ours { 0, 0, 1, 0, 1, 0, 1, 0 }
+  rgba16-rgba16_premul: in { 24, 107, 123, 63, 216, 161, 1, 0 } go { 0, 0, 0, 0, 0, 0, 1, 0 } ours { 0, 0, 0, 0, 1, 0, 1, 0 }
+  rgba16-rgba16_premul: in { 198, 142, 234, 65, 190, 242, 1, 0 } go { 0, 0, 0, 0, 0, 0, 1, 0 } ours { 1, 0, 0, 0, 1, 0, 1, 0 }
+  rgba16-rgba16_premul: in { 66, 170, 70, 105, 190, 118, 1, 0 } go { 0, 0, 0, 0, 0, 0, 1, 0 } ours { 1, 0, 0, 0, 0, 0, 1, 0 }
+go rgba16-rgba16_premul: 2097152 pixels, 1834125 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16-rgba8: in { 197, 243, 85, 153, 184, 81, 0, 0 } go { 0, 0, 0, 0 } ours { 243, 153, 81, 0 }
+  rgba16-rgba8: in { 177, 77, 209, 214, 157, 203, 0, 0 } go { 0, 0, 0, 0 } ours { 77, 214, 203, 0 }
+  rgba16-rgba8: in { 5, 214, 9, 135, 238, 124, 0, 0 } go { 0, 0, 0, 0 } ours { 213, 135, 124, 0 }
+  rgba16-rgba8: in { 240, 81, 220, 198, 134, 228, 0, 0 } go { 0, 0, 0, 0 } ours { 82, 198, 228, 0 }
+go rgba16-rgba8: 2097152 pixels, 1431785 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16-rgba8_premul: in { 221, 236, 209, 29, 162, 211, 129, 0 } go { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  rgba16-rgba8_premul: in { 230, 6, 51, 12, 110, 172, 129, 0 } go { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  rgba16-rgba8_premul: in { 91, 179, 223, 55, 105, 132, 129, 0 } go { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+  rgba16-rgba8_premul: in { 125, 115, 50, 220, 44, 101, 129, 0 } go { 0, 0, 0, 0 } ours { 0, 0, 0, 1 }
+go rgba16-rgba8_premul: 2097152 pixels, 1504218 differ; 0 invalid premultiplied, 0 of them differ
+  rgba16_premul-gray8: in { 66, 2, 151, 3, 87, 6, 209, 7 } go { 3 } ours { 114 }
+  rgba16_premul-gray8: in { 157, 2, 105, 3, 71, 7, 141, 8 } go { 3 } ours { 108 }
+  rgba16_premul-gray8: in { 11, 4, 30, 2, 46, 4, 199, 10 } go { 2 } ours { 69 }
+  rgba16_premul-gray8: in { 2, 6, 38, 8, 242, 4, 175, 17 } go { 7 } ours { 103 }
+go rgba16_premul-gray8: 2097152 pixels, 515715 differ; 1572999 invalid premultiplied, 1572811 of them differ
+  rgba16_premul-rgba16: in { 157, 2, 105, 3, 71, 7, 141, 8 } go { 60, 78, 24, 102, 223, 217, 141, 8 } ours { 61, 78, 24, 102, 223, 217, 141, 8 }
+  rgba16_premul-rgba16: in { 11, 4, 30, 2, 46, 4, 199, 10 } go { 8, 96, 74, 50, 71, 99, 199, 10 } ours { 9, 96, 74, 50, 72, 99, 199, 10 }
+  rgba16_premul-rgba16: in { 2, 6, 38, 8, 242, 4, 175, 17 } go { 248, 86, 245, 117, 151, 71, 175, 17 } ours { 249, 86, 246, 117, 151, 71, 175, 17 }
+  rgba16_premul-rgba16: in { 96, 11, 25, 10, 70, 2, 105, 18 } go { 43, 158, 104, 140, 156, 31, 105, 18 } ours { 44, 158, 105, 140, 157, 31, 105, 18 }
+go rgba16_premul-rgba16: 2097152 pixels, 458463 differ; 1572999 invalid premultiplied, 1572970 of them differ
+  rgba16_premul-rgba8: in { 66, 2, 151, 3, 87, 6, 209, 7 } go { 73, 117, 207, 7 } ours { 74, 117, 207, 8 }
+  rgba16_premul-rgba8: in { 157, 2, 105, 3, 71, 7, 141, 8 } go { 78, 102, 217, 8 } ours { 78, 102, 217, 9 }
+  rgba16_premul-rgba8: in { 11, 4, 30, 2, 46, 4, 199, 10 } go { 96, 50, 99, 10 } ours { 96, 50, 99, 11 }
+  rgba16_premul-rgba8: in { 2, 6, 38, 8, 242, 4, 175, 17 } go { 86, 117, 71, 17 } ours { 87, 118, 71, 18 }
+go rgba16_premul-rgba8: 2097152 pixels, 370669 differ; 1572999 invalid premultiplied, 1572729 of them differ
+  rgba16_premul-rgba8_premul: in { 66, 2, 151, 3, 87, 6, 209, 7 } go { 2, 3, 6, 7 } ours { 2, 4, 6, 8 }
+  rgba16_premul-rgba8_premul: in { 157, 2, 105, 3, 71, 7, 141, 8 } go { 2, 3, 7, 8 } ours { 3, 3, 7, 9 }
+  rgba16_premul-rgba8_premul: in { 11, 4, 30, 2, 46, 4, 199, 10 } go { 4, 2, 4, 10 } ours { 4, 2, 4, 11 }
+  rgba16_premul-rgba8_premul: in { 2, 6, 38, 8, 242, 4, 175, 17 } go { 6, 8, 4, 17 } ours { 6, 8, 5, 18 }
+go rgba16_premul-rgba8_premul: 2097152 pixels, 356627 differ; 1572999 invalid premultiplied, 1070770 of them differ
+  rgba8-gray16: in { 0, 255, 17, 0 } go { 0, 0 } ours { 55, 152 }
+  rgba8-gray16: in { 1, 254, 108, 0 } go { 0, 0 } ours { 88, 162 }
+  rgba8-gray16: in { 2, 253, 199, 0 } go { 0, 0 } ours { 120, 172 }
+  rgba8-gray16: in { 3, 252, 34, 0 } go { 0, 0 } ours { 75, 153 }
+go rgba8-gray16: 1114112 pixels, 1109867 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8-gray8: in { 0, 255, 17, 0 } go { 0 } ours { 152 }
+  rgba8-gray8: in { 1, 254, 108, 0 } go { 0 } ours { 162 }
+  rgba8-gray8: in { 2, 253, 199, 0 } go { 0 } ours { 172 }
+  rgba8-gray8: in { 3, 252, 34, 0 } go { 0 } ours { 153 }
+go rgba8-gray8: 1114112 pixels, 1107904 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8-rgba16: in { 0, 255, 17, 0 } go { 0, 0, 0, 0, 0, 0, 0, 0 } ours { 0, 0, 255, 255, 17, 17, 0, 0 }
+  rgba8-rgba16: in { 1, 254, 108, 0 } go { 0, 0, 0, 0, 0, 0, 0, 0 } ours { 1, 1, 254, 254, 108, 108, 0, 0 }
+  rgba8-rgba16: in { 2, 253, 199, 0 } go { 0, 0, 0, 0, 0, 0, 0, 0 } ours { 2, 2, 253, 253, 199, 199, 0, 0 }
+  rgba8-rgba16: in { 3, 252, 34, 0 } go { 0, 0, 0, 0, 0, 0, 0, 0 } ours { 3, 3, 252, 252, 34, 34, 0, 0 }
+go rgba8-rgba16: 1114112 pixels, 1109266 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8-rgba16_premul: in { 1, 254, 108, 1 } go { 1, 0, 255, 0, 108, 0, 1, 1 } ours { 1, 0, 0, 1, 109, 0, 1, 1 }
+  rgba8-rgba16_premul: in { 2, 253, 199, 1 } go { 2, 0, 254, 0, 200, 0, 1, 1 } ours { 2, 0, 255, 0, 201, 0, 1, 1 }
+  rgba8-rgba16_premul: in { 3, 252, 34, 1 } go { 3, 0, 253, 0, 34, 0, 1, 1 } ours { 3, 0, 254, 0, 34, 0, 1, 1 }
+  rgba8-rgba16_premul: in { 4, 251, 125, 1 } go { 4, 0, 252, 0, 125, 0, 1, 1 } ours { 4, 0, 253, 0, 126, 0, 1, 1 }
+go rgba8-rgba16_premul: 1114112 pixels, 964973 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8-rgba8_premul.draw: in { 1, 254, 108, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8-rgba8_premul.draw: in { 2, 253, 199, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 1, 1 }
+  rgba8-rgba8_premul.draw: in { 3, 252, 34, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8-rgba8_premul.draw: in { 4, 251, 125, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+go rgba8-rgba8_premul.draw: 1114112 pixels, 711185 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8-rgba8_premul: in { 1, 254, 108, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8-rgba8_premul: in { 2, 253, 199, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 1, 1 }
+  rgba8-rgba8_premul: in { 3, 252, 34, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+  rgba8-rgba8_premul: in { 4, 251, 125, 1 } go { 0, 0, 0, 1 } ours { 0, 1, 0, 1 }
+go rgba8-rgba8_premul: 1114112 pixels, 711185 differ; 0 invalid premultiplied, 0 of them differ
+  rgba8_premul-gray8: in { 127, 128, 54, 128 } go { 119 } ours { 238 }
+  rgba8_premul-gray8: in { 127, 128, 54, 129 } go { 119 } ours { 236 }
+  rgba8_premul-gray8: in { 125, 130, 128, 130 } go { 128 } ours { 252 }
+  rgba8_premul-gray8: in { 127, 128, 54, 130 } go { 119 } ours { 234 }
+go rgba8_premul-gray8: 1114112 pixels, 271579 differ; 836356 invalid premultiplied, 836090 of them differ
+  rgba8_premul-rgba16: in { 127, 128, 54, 128 } go { 255, 253, 255, 255, 255, 107, 128, 128 } ours { 255, 253, 255, 255, 0, 108, 128, 128 }
+  rgba8_premul-rgba16: in { 127, 128, 54, 129 } go { 6, 252, 2, 254, 41, 107, 129, 129 } ours { 7, 252, 3, 254, 41, 107, 129, 129 }
+  rgba8_premul-rgba16: in { 125, 130, 128, 130 } go { 38, 246, 255, 255, 14, 252, 130, 130 } ours { 38, 246, 255, 255, 15, 252, 130, 130 }
+  rgba8_premul-rgba16: in { 127, 128, 54, 130 } go { 22, 250, 14, 252, 86, 106, 130, 130 } ours { 23, 250, 15, 252, 86, 106, 130, 130 }
+go rgba8_premul-rgba16: 1114112 pixels, 237758 differ; 836356 invalid premultiplied, 832088 of them differ
+  rgba8_premul-rgba8: in { 127, 128, 54, 128 } go { 253, 255, 107, 128 } ours { 253, 255, 108, 128 }
+  rgba8_premul-rgba8: in { 127, 128, 54, 129 } go { 252, 254, 107, 129 } ours { 251, 253, 107, 129 }
+  rgba8_premul-rgba8: in { 125, 130, 128, 130 } go { 246, 255, 252, 130 } ours { 245, 255, 251, 130 }
+  rgba8_premul-rgba8: in { 127, 128, 54, 130 } go { 250, 252, 106, 130 } ours { 249, 251, 106, 130 }
+go rgba8_premul-rgba8: 1114112 pixels, 150205 differ; 836356 invalid premultiplied, 826265 of them differ
