@@ -170,6 +170,18 @@ Wave 0 (landed at `ef9fb93`): the shared types, conversion, `detect`, the
 generic `Decoder`, the fuzz, oracle, and bench harnesses, the corpus, and the
 QOI decoder.
 
+Running beside wave 1's tail, started early by the owner:
+
+- **JPEG XL decode** (branch `wave4-jxl`): `src/jxl/`, the files
+  adding-a-format.md assigns to jxl, and `docs/slop/jxl.md`. It may propose
+  splitting off a second orb once its entropy decoder lands.
+
+Wave 2, after wave 1's last branches land: JPEG decode, GIF decode, the
+harness pass (the requests below, in the harness cores), and a performance
+orb on the measured gaps: PNG decode against Wuffs first, then
+`image.convert`'s per-call cost, TGA's 50 MP mosaic, Netpbm's small images,
+and QOI against Rust's qoi crate.
+
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
 adds one line per format to each shared registry and a CHANGELOG bullet;
