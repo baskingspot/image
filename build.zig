@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
     // compress: zlib and DEFLATE for PNG, TIFF, and ICO's PNG entries, and
     // Brotli for JPEG XL's brob boxes. Unused until those formats land; Zig
     // compiles only what is referenced.
-    const compress = b.dependency("compress", .{ .target = target, .optimize = optimize });
-    mod.addImport("compress", compress.module("compress"));
+    const compress = b.dependency("compress", .{ .target = target, .optimize = optimize }).module("compress");
+    mod.addImport("compress", compress);
 
     if (b.pkg_hash.len != 0) return;
 
@@ -34,6 +34,13 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the unit tests and each fuzz target once over its seeds");
     test_step.dependOn(&run_mod_tests.step);
 
+    // The fuzz targets import `image`, and `compress` to build inputs (zlib
+    // streams for PNG, say).
+    const fuzz_imports: []const std.Build.Module.Import = &.{
+        .{ .name = "image", .module = mod },
+        .{ .name = "compress", .module = compress },
+    };
+
     // The fuzz targets on Zig's coverage-guided fuzzer
     // (test/fuzz/zig_fuzz.zig). It needs the default test runner, which
     // speaks the build system's fuzzing protocol. Without --fuzz it runs
@@ -44,7 +51,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("test/fuzz/zig_fuzz.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "image", .module = mod }},
+            .imports = fuzz_imports,
         }),
     });
     const run_zig_fuzz = b.addRunArtifact(zig_fuzz);
@@ -58,7 +65,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("test/fuzz/main.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "image", .module = mod }},
+            .imports = fuzz_imports,
         }),
     });
     b.step("fuzz", "Build the fuzz driver").dependOn(&b.addInstallArtifact(fuzz, .{}).step);
@@ -70,7 +77,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/fuzz/targets.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "image", .module = mod }},
+        .imports = fuzz_imports,
     });
     const compare = b.addExecutable(.{
         .name = "oracle-compare",
@@ -95,7 +102,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = bench_optimize,
-        .imports = &.{.{ .name = "compress", .module = compress.module("compress") }},
+        .imports = &.{.{ .name = "compress", .module = compress }},
     });
     const bench_ops = b.addObject(.{
         .name = "bench-image-ops",

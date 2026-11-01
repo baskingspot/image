@@ -6,5 +6,8 @@ const targets = @import("targets.zig");
 
 test {
     _ = targets.harness;
+    // Fuzz modules import compress (build.zig), to build zlib streams and
+    // the like.
+    _ = @import("compress").zlib.encode.compress;
     inline for (targets.all) |T| _ = T;
 }
