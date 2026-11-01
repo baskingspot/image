@@ -112,8 +112,9 @@ height)` saying how much work memory to pass, and `image.EncodeError` as
   libjxl, and stb_image. A differential harness decodes the same files with
   ours and the oracle and compares pixels, frames, and reported metadata.
   Encoders are checked by decoding their output with the oracle and with ours.
-- **Corpora**: PngSuite; the JPEG conformance files and libjpeg-turbo's test
-  images; libwebp's test images; libtiff's test images; the JPEG XL
+- **Corpora**: PngSuite; libjpeg-turbo's and Wuffs's JPEG test images, with
+  generated files for the processes they miss (the ITU T.83 conformance files
+  have no free download, and the owner has no copy); libwebp's test images; libtiff's test images; the JPEG XL
   conformance repository; plus a benchmark corpus of photographs,
   screenshots, icons, line art, and animations at many sizes. Vendor the
   small suites unmodified with checksums in `THIRD_PARTY.md`; fetch large
@@ -182,6 +183,9 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
+- **Conversion rounding** (branch `wave1-convert`): `src/convert.zig` and the
+  `convert` bench files, to match Wuffs's rounding (decided by the owner:
+  match the references unless there is a strong reason not to).
 
 ## Decisions to measure
 
