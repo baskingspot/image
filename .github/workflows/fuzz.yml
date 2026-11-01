@@ -1,0 +1,54 @@
+name: fuzz
+
+# Fuzzing runs here, on a schedule and by hand, not on every push: it takes
+# time in proportion to the formats and finds nothing a push gate needs to
+# block on. A finding fails the run and uploads its inputs from zig-out/fuzz.
+# The steps follow baskingspot/gh-actions' ci.yml, which reads
+# .github/ci.yaml and so cannot run another recipe.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds of `just fuzz`, split across the targets
+        required: false
+        default: "3600"
+
+permissions: {}
+
+# One run at a time; a manual run waits for the scheduled one.
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.35.3/install
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: baskingspot
+          extraPullNames: mattrobenolt
+          skipPush: true
+      - name: Fuzz
+        run: nix develop --command just fuzz-scheduled "$FUZZ_SECONDS"
+        env:
+          FUZZ_SECONDS: ${{ inputs.seconds || '3600' }}
+      - name: Upload the findings
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-findings
+          path: zig-out/fuzz
+          if-no-files-found: ignore

@@ -129,7 +129,11 @@ height)` saying how much work memory to pass, and `image.EncodeError` as
   generated structures through every decoder, under the safety rules in
   AGENTS.md (no crash, hang, out-of-bounds access, or limit breach), plus
   allocation-limit sweeps and encoder round trips. `just fuzz` runs them; lua's
-  `test/fuzz` harness is a model.
+  `test/fuzz` harness is a model. Decided by the owner: fuzzing is not a push
+  gate. `just ci` runs each target once over its seeds (in `just test`), an
+  orb runs `just fuzz` before it pushes a format, and
+  `.github/workflows/fuzz.yml` fuzzes daily and by hand (`just
+fuzz-scheduled`), failing with the inputs as an artifact.
 
 ## Benchmarks
 
@@ -289,8 +293,8 @@ not yet made:
   skips its `zigFuzz` test in Debug until it is fixed).
 - `test/fuzz/main.zig`: `zigFuzz` seeds are used raw, but Smith reads a
   length-prefixed input and a choice, so QOI's seeds are mangled.
-- `fuzz-ci` splits a fixed time across every target, so each gets less as
-  formats land (8 s each with seven targets).
+- `just fuzz` splits its time across every target, so each gets less as
+  formats land; the scheduled run may want a per-target budget instead.
 - `image.convert`'s kernels cost about 25 ns per call in their tails, half a
   166-pixel row; narrow 24- and 32-bit BMPs run 0.69× Wuffs from it.
 - A shared MagickWand helper in the oracle core (ico.c borrows bmp.c's).

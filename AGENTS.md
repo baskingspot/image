@@ -18,7 +18,7 @@ These decoders read untrusted files, so a hostile input must never crash, hang, 
 
 - Decoders allocate nothing: the caller passes the work memory and the pixel buffer, and a decoder states up front how much of each it needs. A dimension or size limit the caller sets is checked before any work.
 - No `@setRuntimeSafety(false)` and no unchecked pointer arithmetic in parsers. A measured hot loop may drop a check only where the bound is proven in the same function, with a comment saying why.
-- Every format gets a fuzz target from its first commit, and the fuzzers run in CI's gates (`docs/slop/plan.md`, Testing).
+- Every format gets a fuzz target from its first commit. Run `just fuzz` before pushing a format change; CI fuzzes on a schedule (`.github/workflows/fuzz.yml`), not on push (`docs/slop/plan.md`, Testing).
 
 ## Performance
 

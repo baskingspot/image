@@ -76,11 +76,11 @@ fuzz SECONDS="600" SEED="" *TARGETS:
 fuzz-zig N="1M":
     zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }}
 
-[doc("CI's fuzzing: the QOI suite, 60 seconds of `just fuzz`, and 100K inputs on Zig's fuzzer")]
+[doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, SECONDS of `just fuzz` split across the targets, and 100K inputs on Zig's fuzzer")]
 [group("fuzz")]
-fuzz-ci:
+fuzz-scheduled SECONDS="3600":
     just corpus qoi-test-images
-    just fuzz 60
+    just fuzz {{ SECONDS }}
     just fuzz-zig 100K
 
 [doc("Build the C oracle, zig-out/bin/image-oracle, linking what test/oracle/formats.def names")]
@@ -291,4 +291,4 @@ bench-summary DIR="zig-out/bench-compare":
 
 [doc("Everything CI runs")]
 [group("ci")]
-ci: test test-be lint fuzz-ci oracle-ci
+ci: test test-be lint oracle-ci
