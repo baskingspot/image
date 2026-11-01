@@ -4,3 +4,5 @@
 zig-out/
 zig-pkg/
 corpus/fetched/
+bench/corpus-gen/
+bench/rust/target/

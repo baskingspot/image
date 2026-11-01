@@ -1,0 +1,31 @@
+# The Rust arms (bench/README.md): `image` and the zune crates, each built
+# as a static library of operations that bench/c/arm.c runs, so every arm
+# shares one harness. `--features image-rs` or `--features zune` picks the
+# arm. The crates for every wave-1 format are here already, so a format adds
+# only its module.
+[package]
+name = "bench-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[features]
+image-rs = ["dep:image"]
+zune = ["dep:zune-core", "dep:zune-qoi", "dep:zune-png", "dep:zune-bmp", "dep:zune-ppm"]
+
+[dependencies]
+image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "bmp", "ico", "tga", "pnm"], optional = true }
+zune-core = { version = "=0.5.3", optional = true }
+zune-qoi = { version = "=0.5.2", optional = true }
+zune-png = { version = "=0.5.2", optional = true }
+zune-bmp = { version = "=0.5.2", optional = true }
+zune-ppm = { version = "=0.5.1", optional = true }
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"

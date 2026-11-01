@@ -1,0 +1,7 @@
+# The C arms (bench/README.md): each is bench/c/arm.c plus every
+# bench/c/<arm>-*.c, linked with what is named here: pkg-config packages or
+# -l flags (`-` for none). One line per arm.
+# arm	link
+wuffs	-
+qoih	-
+stb	-

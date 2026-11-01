@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Builds the benchmark corpus in bench/corpus-gen/ (bench/README.md,
+# "Corpus") and checks it against the checksums in bench/corpus/. The
+# sources are the QOI benchmark suite (qoiformat.org), pinned by its
+# SHA-256, and the qoi_test_images set that `just corpus` fetches. They are
+# unpacked once into bench/corpus-gen/.src/<category>/<name>.png: the first
+# files of each suite category, the test images, 16x16 and 32x32 icons
+# box-filtered from the 64-pixel ones, and one 50-megapixel photo mosaic.
+#
+# Each family of inputs is a script, bench/corpus/<family>.sh, sourced with
+# $src (the sources) and $dst (bench/corpus-gen/<family>/) set; its output
+# must match bench/corpus/<family>.sha256. FAMILIES picks them (default
+# all). Every file name ends in -WxH, the image's size. Idempotent: a family
+# that matches its checksums is left alone. BENCH_CORPUS_PIN=1 writes the
+# checksums instead of checking them.
+set -euo pipefail
+export LC_ALL=C
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+suite_url=https://qoiformat.org/benchmark/qoi_benchmark_suite.tar
+suite_sum=00166f555ca760e23647025e46d9b046e03cd2e22869d4ecb496edc527cd0d7d
+out=corpus-gen
+src=$out/.src
+
+if [ $# -eq 0 ]; then set -- $(cd corpus && ls -- *.sh | sed 's/\.sh$//'); fi
+
+matches() { [ -f "$out/$1/.done" ] && (cd "$out/$1" && sha256sum --quiet --check "../../corpus/$1.sha256"); }
+
+todo=()
+for family in "$@"; do
+  if [ "${BENCH_CORPUS_PIN:-}" = 1 ] || ! matches "$family"; then todo+=("$family"); fi
+done
+[ ${#todo[@]} -gt 0 ] || exit 0
+
+# name WxH, from an image ImageMagick reads.
+size() { magick identify -format '%wx%h' "$1[0]"; }
+# A sanitized file name: letters, digits, and underscores.
+clean() { basename "$1" .png | tr -c 'A-Za-z0-9_\n' '_'; }
+
+if [ ! -f "$src/.done" ]; then
+  mkdir -p "$out/.cache"
+  suite="$out/.cache/qoi_benchmark_suite.tar"
+  if ! echo "$suite_sum  $suite" | sha256sum --quiet --check 2> /dev/null; then
+    echo "fetching $suite_url (1.1 GB)"
+    curl -sSfL --retry 3 -o "$suite.part" "$suite_url"
+    mv "$suite.part" "$suite"
+    echo "$suite_sum  $suite" | sha256sum --quiet --check
+  fi
+  tests=../corpus/fetched/qoi/qoi_test_images
+  [ -d "$tests" ] || ../corpus/fetch qoi-test-images
+  rm -rf "$src" "$out/.tmp"
+  mkdir -p "$src" "$out/.tmp"
+  tar tf "$suite" | LC_ALL=C sort > "$out/.tmp/all.list"
+  # The first files of each category, by name.
+  for spec in icon_64:4 icon_512:3 photo_kodak:3 photo_tecnick:2 photo_wikipedia:3 pngimg:3 \
+    screenshot_game:3 screenshot_web:3 textures_pk:2 textures_plants:2; do
+    cat=${spec%:*}
+    grep "^images/$cat/.*\.png$" "$out/.tmp/all.list" | sed -n "1,${spec#*:}p" > "$out/.tmp/$cat.list"
+    tar xf "$suite" -C "$out/.tmp" -T "$out/.tmp/$cat.list"
+    mkdir -p "$src/$cat"
+    while read -r f; do mv "$out/.tmp/$f" "$src/$cat/$(clean "$f").png"; done < "$out/.tmp/$cat.list"
+  done
+  # All of qoi_test_images but edgecase, whose index use Wuffs reads its own
+  # way (test/oracle/qoi.zig), so the arms could not agree on its pixels.
+  mkdir -p "$src/test"
+  for f in "$tests"/*.png; do
+    [ "$(basename "$f")" = edgecase.png ] || cp "$f" "$src/test/$(clean "$f").png"
+  done
+  # Icons smaller than the suite's: its 64-pixel icons, box-filtered down.
+  for s in 16 32; do
+    mkdir -p "$src/icon_$s"
+    for f in "$src"/icon_64/*.png; do
+      magick "$f" -filter Box -resize "${s}x${s}!" "PNG32:$src/icon_$s/$(basename "$f")"
+    done
+  done
+  # A 50-megapixel photo: the Wikipedia, Tecnick, and Kodak photos tiled 4
+  # by 3 at 2048 pixels square.
+  photos=("$src"/photo_wikipedia/*.png "$src"/photo_tecnick/*.png "$src"/photo_kodak/*.png)
+  tiles=()
+  for i in $(seq 0 11); do tiles+=("${photos[$((i % ${#photos[@]}))]}"); done
+  mkdir -p "$src/photo_mosaic"
+  magick "${tiles[@]}" -resize '2048x2048!' -set page '+%[fx:(t%4)*2048]+%[fx:floor(t/4)*2048]' \
+    -background black -layers mosaic -alpha off "PNG24:$src/photo_mosaic/50mp.png"
+  rm -rf "$out/.tmp"
+  touch "$src/.done"
+fi
+
+for family in "${todo[@]}"; do
+  dst=$out/$family
+  rm -rf "$dst"
+  mkdir -p "$dst"
+  # shellcheck source=/dev/null
+  . "corpus/$family.sh"
+  if [ "${BENCH_CORPUS_PIN:-}" = 1 ]; then
+    (cd "$dst" && find . -type f | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum) > "corpus/$family.sha256"
+  fi
+  (cd "$dst" && sha256sum --quiet --check "../../corpus/$family.sha256")
+  touch "$dst/.done"
+  echo "bench corpus: $family, $(find "$dst" -type f ! -name .done | wc -l) files"
+done

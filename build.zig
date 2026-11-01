@@ -85,4 +85,35 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.step("oracle", "Build the oracle comparison").dependOn(&b.addInstallArtifact(compare, .{}).step);
+
+    // The benchmark's Zig arm, bench-image: bench/zig's operations under
+    // the C arms' harness (bench/c/arm.c). Built with -Dbench-optimize,
+    // ReleaseFast unless set, whatever -Doptimize says.
+    const bench_optimize = b.option(std.builtin.OptimizeMode, "bench-optimize", "The Zig arm's mode") orelse
+        .ReleaseFast;
+    const bench_image = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = bench_optimize,
+        .imports = &.{.{ .name = "compress", .module = compress.module("compress") }},
+    });
+    const bench_ops = b.addObject(.{
+        .name = "bench-image-ops",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bench/zig/root.zig"),
+            .target = target,
+            .optimize = bench_optimize,
+            .imports = &.{.{ .name = "image", .module = bench_image }},
+        }),
+    });
+    const bench = b.addExecutable(.{
+        .name = "bench-image",
+        .root_module = b.createModule(.{ .target = target, .optimize = bench_optimize, .link_libc = true }),
+    });
+    bench.root_module.addCSourceFile(.{
+        .file = b.path("bench/c/arm.c"),
+        .flags = &.{ "-std=gnu11", "-O2", "-DBENCH_EXTERNAL_INIT" },
+    });
+    bench.root_module.addObject(bench_ops);
+    b.step("bench", "Build the benchmark's Zig arm").dependOn(&b.addInstallArtifact(bench, .{}).step);
 }

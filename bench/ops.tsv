@@ -1,0 +1,14 @@
+# The operations every arm reads (bench/README.md): name, row, input
+# directory under bench/corpus-gen/, output bytes per pixel, and whether
+# every arm must write the same bytes (`same`), or may round or composite
+# its own way (`own`, so `just bench-compare` reports differences without
+# failing). Input names end in -WxH, the image's size.
+# name	row	dir	out_bpp	output
+qoi-decode	QoiDecode	qoi	4	same
+qoi-decode-bgra	QoiDecodeBGRA	qoi	4	same
+convert-rgba8-bgra8	ConvertRGBA8ToBGRA8	raw/rgba8	4	same
+convert-rgb8-rgba8	ConvertRGB8ToRGBA8	raw/rgb8	4	same
+convert-rgba8-rgb8	ConvertRGBA8ToRGB8	raw/rgba8	3	own
+convert-rgba8-premul	ConvertRGBA8ToPremul	raw/rgba8	4	own
+convert-gray8-rgba8	ConvertGray8ToRGBA8	raw/gray8	4	same
+convert-rgba16-rgba8	ConvertRGBA16ToRGBA8	raw/rgba16	4	own
