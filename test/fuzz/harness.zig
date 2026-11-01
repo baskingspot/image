@@ -54,13 +54,52 @@ const Result = struct {
     err: ?anyerror = null,
 
     fn eql(a: *const Result, b: *const Result) bool {
-        if (a.count != b.count or a.err != b.err) return false;
+        if (a.count != b.count or errorCode(a.err) != errorCode(b.err)) return false;
         for (a.frames[0..a.count], b.frames[0..b.count]) |x, y| {
             if (!std.meta.eql(x, y)) return false;
         }
         return true;
     }
 };
+
+/// An optional error as an integer, 0 for none, so two can be compared
+/// without `==` on `?anyerror`: Zig 0.16's x86_64 backend, Debug's default,
+/// compares two of those by a non-null flag byte they do not have, reading
+/// past each value, so equal errors can compare unequal.
+fn errorCode(err: ?anyerror) u16 {
+    return if (err) |e| @intFromError(e) else 0;
+}
+
+test "Result.eql" {
+    const truncated: Result = .{ .err = error.Truncated };
+    const truncated_too: Result = .{ .err = error.Truncated };
+    const bad: Result = .{ .err = error.BadHeader };
+    const none: Result = .{};
+    const none_too: Result = .{};
+    // The bytes the miscompiled comparison reads are stack slots two bytes
+    // apart; a pattern that differs there makes it fail every time.
+    dirtyStack();
+    try std.testing.expect(truncated.eql(&truncated_too));
+    dirtyStack();
+    try std.testing.expect(none.eql(&none_too));
+    try std.testing.expect(!truncated.eql(&bad));
+    try std.testing.expect(!truncated.eql(&none));
+    try std.testing.expect(!none.eql(&bad));
+    var one: Result = .{ .count = 1 };
+    one.frames[0] = .{ .frame = .{ .width = 1, .height = 1 }, .hash = 7 };
+    var other = one;
+    try std.testing.expect(one.eql(&other));
+    other.frames[0].hash = 8;
+    try std.testing.expect(!one.eql(&other));
+    try std.testing.expect(!one.eql(&none));
+}
+
+/// Fills the stack below the caller with 00 00 ff ff repeated.
+noinline fn dirtyStack() void {
+    var junk: [8192]u8 = undefined;
+    for (&junk, 0..) |*b, i| b.* = if (i & 2 == 0) 0 else 0xff;
+    std.mem.doNotOptimizeAway(&junk);
+}
 
 const FrameResult = struct {
     frame: image.Frame,
