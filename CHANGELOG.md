@@ -13,4 +13,5 @@ All notable changes to image are recorded here. The format follows
 - `image.detect` names a file's `image.Format` from its first `image.detect_prefix_len` bytes, for every phase-1 format.
 - `image.Decoder` decodes any supported format behind one interface; `Decoder.initDetect` picks the format from the input.
 - `image.qoi.Decoder`, a streaming QOI decoder that writes any pixel format and needs no work memory.
+- `image.EncodeError`, the errors every encoder shares; each format's encoder will be `encode(writer, pixels, options, work)` with `workLen` for its work memory.
 - The package depends on `compress` 0.2.0, which brings `fastmem`.
