@@ -30,6 +30,9 @@ pub const Status = enum(u8) {
     _,
 };
 
+/// A request's input length that means the previous request's input.
+const same_input = std.math.maxInt(u32);
+
 pub const Request = struct {
     /// An op from a format's table in test/oracle/<format>.c.
     op: []const u8,
@@ -55,15 +58,19 @@ pub const RunError = error{ OracleFailed, BadResponse } || mem.Allocator.Error |
 pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     var batch: std.ArrayList(u8) = .empty;
     defer batch.deinit(oracle.gpa);
+    var last: ?[]const u8 = null;
     for (requests) |req| {
         try batch.append(oracle.gpa, @intCast(req.op.len));
         try batch.appendSlice(oracle.gpa, req.op);
         try batch.append(oracle.gpa, @intFromEnum(req.format));
         var nums: [12]u8 = undefined;
         mem.writeInt(u64, nums[0..8], req.max_pixels, .little);
-        mem.writeInt(u32, nums[8..12], @intCast(req.input.len), .little);
+        // The same input as the last request's goes once (oracle.c).
+        const again = if (last) |l| l.ptr == req.input.ptr and l.len == req.input.len else false;
+        mem.writeInt(u32, nums[8..12], if (again) same_input else @intCast(req.input.len), .little);
         try batch.appendSlice(oracle.gpa, &nums);
-        try batch.appendSlice(oracle.gpa, req.input);
+        if (!again) try batch.appendSlice(oracle.gpa, req.input);
+        last = req.input;
     }
 
     var child = try std.process.spawn(oracle.io, .{

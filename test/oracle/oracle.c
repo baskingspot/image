@@ -3,6 +3,10 @@
 //   u8 name length, name (an op from a format's table, such as "qoi-wuffs"),
 //   u8 pixel format (image.PixelFormat), u64 pixel limit, u32 length, bytes
 //
+// where a length of 0xffffffff, with no bytes, means the previous request's
+// input again, so an input asked for in many formats and of many oracles
+// crosses the pipe once;
+//
 // and one response per request on stdout, after all of stdin is read:
 //
 //   u8 status (enum status), u32 width, u32 height, u32 length, pixels
@@ -66,6 +70,8 @@ int main(void) {
     input_len += n;
     if (input_len == cap) input = realloc(input, cap *= 2);
   }
+  const uint8_t *last = NULL;
+  size_t last_len = 0;
   while (input_at < input_len) {
     uint8_t name_len, format, limit_bytes[8], len_bytes[4];
     char name[256];
@@ -78,9 +84,18 @@ int main(void) {
     uint64_t limit = 0;
     for (int i = 7; i >= 0; i--) limit = limit << 8 | limit_bytes[i];
     uint32_t len = len_bytes[0] | len_bytes[1] << 8 | len_bytes[2] << 16 | (uint32_t)len_bytes[3] << 24;
-    if (input_len - input_at < len) {
+    if (len == UINT32_MAX) {
+      if (!last) {
+        fprintf(stderr, "oracle: no previous input\n");
+        return 1;
+      }
+    } else if (input_len - input_at < len) {
       fprintf(stderr, "oracle: truncated request\n");
       return 1;
+    } else {
+      last = input + input_at;
+      last_len = len;
+      input_at += len;
     }
     const struct op *op = find(name);
     if (!op) {
@@ -88,10 +103,8 @@ int main(void) {
       return 1;
     }
     struct image img = {0};
-    enum status s = format <= PF_RGBA_F32_PREMUL
-                        ? op->decode(input + input_at, len, format, limit, &img)
-                        : STATUS_SKIPPED;
-    input_at += len;
+    enum status s = format <= PF_RGBA_F32_PREMUL ? op->decode(last, last_len, format, limit, &img)
+                                                 : STATUS_SKIPPED;
     if (s != STATUS_OK) img.width = img.height = img.len = 0;
     fputc(s, stdout);
     put32(stdout, img.width);
