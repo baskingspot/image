@@ -38,6 +38,7 @@ pub const Decoder = @import("Decoder.zig");
 // The formats, one line each.
 pub const bmp = @import("bmp/root.zig");
 pub const ico = @import("ico/root.zig");
+pub const png = @import("png/root.zig");
 pub const qoi = @import("qoi/root.zig");
 pub const tga = @import("tga/root.zig");
 pub const netpbm = @import("netpbm/root.zig");

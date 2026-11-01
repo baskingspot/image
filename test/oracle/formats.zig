@@ -3,6 +3,7 @@
 
 pub const bmp = @import("bmp.zig");
 pub const ico = @import("ico.zig");
+pub const png = @import("png.zig");
 pub const qoi = @import("qoi.zig");
 pub const tga = @import("tga.zig");
 pub const netpbm = @import("netpbm.zig");

@@ -2,6 +2,7 @@
 // then what its oracles link, which `just oracle-build` reads from this
 // comment: pkg-config packages (libpng, spng, libjpeg, libwebp, libtiff-4,
 // libjxl, MagickWand) or -l flags (-lgif), and `-` for none.
+FORMAT(png) // link: libpng spng
 FORMAT(qoi) // link: -
 FORMAT(bmp) // link: MagickWand
 FORMAT(ico) // link: -
