@@ -65,20 +65,22 @@ corpus-sums *DIRS:
         (cd "$d" && find . -type f | sed 's|^\./||' | LC_ALL=C sort | xargs -r sha256sum) > "$d.sha256"
     done
 
-[doc("Run every fuzz target (or TARGETS) for SECONDS in all, ReleaseSafe; findings go to zig-out/fuzz/")]
+[doc("Run every fuzz target (or TARGETS) for SECONDS in all, or SECONDS each when written N/target (such as 60/target), ReleaseSafe; findings go to zig-out/fuzz/")]
 [group("fuzz")]
 fuzz SECONDS="600" SEED="" *TARGETS:
     zig build fuzz -Doptimize=ReleaseSafe
-    zig-out/bin/fuzz run {{ TARGETS }} --seconds {{ SECONDS }} {{ if SEED == "" { "" } else { "--seed " + SEED } }}
+    zig-out/bin/fuzz run {{ TARGETS }} \
+        {{ if SECONDS =~ '/target$' { "--seconds-each " + trim_end_match(SECONDS, "/target") } else { "--seconds " + SECONDS } }} \
+        {{ if SEED == "" { "" } else { "--seed " + SEED } }}
 
 [doc("Run the fuzz targets on Zig's coverage-guided fuzzer for N inputs (such as 1M)")]
 [group("fuzz")]
 fuzz-zig N="1M":
     zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }}
 
-[doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, SECONDS of `just fuzz` split across the targets, and 100K inputs on Zig's fuzzer")]
+[doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, `just fuzz SECONDS` (N in all or N/target each), and 100K inputs on Zig's fuzzer")]
 [group("fuzz")]
-fuzz-scheduled SECONDS="3600":
+fuzz-scheduled SECONDS="240/target":
     just corpus qoi-test-images
     just fuzz {{ SECONDS }}
     just fuzz-zig 100K

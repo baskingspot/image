@@ -103,8 +103,11 @@ compares within it instead.
   structurally valid files most of the time and slightly broken ones
   otherwise; it is where most bugs are found, so make it reach every chunk,
   marker, or box type. `corpus` names the seed directories (`corpus/fetched`,
-  `corpus/vendor`, and `bench/corpus-gen/<fmt>`), `extensions` the file
-  endings to take. `just fuzz 600 "" <fmt>` runs one target.
+  `corpus/vendor`, and `bench/corpus-gen/<fmt>`; files of 64 MiB or more
+  are left out), `extensions` the file endings to take. `seeds` are plain
+  files; `harness.zigFuzz` encodes them for Zig's fuzzer. `just fuzz 600 ""
+<fmt>` runs one target, and `just fuzz 60/target` gives every target 60
+  seconds.
 - **Oracle.** Each oracle op decodes the input into the requested pixel format
   or rejects it. Ours must agree with every oracle that the others agree with;
   where the references disagree, `test/oracle/<fmt>.zig` documents why, and

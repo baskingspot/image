@@ -9,7 +9,10 @@
 //! too. A finding is written to `<out>/<target>/` as the input, a
 //! minimized input, and a description, and the driver exits 1.
 //!
-//!   fuzz run [TARGET...] [--seconds N] [--seed N] [--out DIR]
+//! `--seconds N` is the whole run, split across the targets; `--seconds-each
+//! N` gives every target N seconds, however many there are.
+//!
+//!   fuzz run [TARGET...] [--seconds N | --seconds-each N] [--seed N] [--out DIR]
 //!   fuzz repro TARGET FILE [CHOICE]
 //!   fuzz gen TARGET SEED            (a generated input, on stdout)
 
@@ -26,7 +29,7 @@ const memory_limit = 4 << 30;
 const max_findings = 10;
 
 const usage =
-    \\usage: fuzz run [TARGET...] [--seconds N] [--seed N] [--out DIR]
+    \\usage: fuzz run [TARGET...] [--seconds N | --seconds-each N] [--seed N] [--out DIR]
     \\       fuzz repro TARGET FILE [CHOICE]
     \\       fuzz gen TARGET SEED
     \\
@@ -53,11 +56,14 @@ pub fn main(init: std.process.Init) !void {
     var it = try init.minimal.args.iterateAllocator(gpa);
     _ = it.skip();
     var seconds: u64 = 60;
+    var each: ?u64 = null;
     var seed: ?u64 = null;
     var out: []const u8 = "zig-out/fuzz";
     while (it.next()) |a| {
         if (std.mem.eql(u8, a, "--seconds")) {
             seconds = try std.fmt.parseInt(u64, it.next() orelse return fail(), 10);
+        } else if (std.mem.eql(u8, a, "--seconds-each")) {
+            each = try std.fmt.parseInt(u64, it.next() orelse return fail(), 10);
         } else if (std.mem.eql(u8, a, "--seed")) {
             seed = try std.fmt.parseInt(u64, it.next() orelse return fail(), 10);
         } else if (std.mem.eql(u8, a, "--out")) {
@@ -76,10 +82,8 @@ pub fn main(init: std.process.Init) !void {
         }
         const first_seed = seed orelse @as(u64, @intCast(nowMs())) *% 0x9e3779b97f4a7c15;
         var findings: u32 = 0;
-        for (names) |n| {
-            const share = @max(1, seconds / names.len);
-            findings += try dispatchRun(n, share, first_seed, out);
-        }
+        const share = each orelse @max(1, seconds / names.len);
+        for (names) |n| findings += try dispatchRun(n, share, first_seed, out);
         if (findings != 0) std.process.exit(1);
         return;
     }

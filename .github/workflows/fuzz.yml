@@ -11,9 +11,9 @@ on:
   workflow_dispatch:
     inputs:
       seconds:
-        description: Seconds of `just fuzz`, split across the targets
+        description: Seconds of `just fuzz`, N in all or N/target for each target
         required: false
-        default: "3600"
+        default: "240/target"
 
 permissions: {}
 
@@ -44,7 +44,7 @@ jobs:
       - name: Fuzz
         run: nix develop --command just fuzz-scheduled "$FUZZ_SECONDS"
         env:
-          FUZZ_SECONDS: ${{ inputs.seconds || '3600' }}
+          FUZZ_SECONDS: ${{ inputs.seconds || '240/target' }}
       - name: Upload the findings
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
