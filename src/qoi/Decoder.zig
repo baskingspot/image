@@ -131,11 +131,12 @@ const Out = enum { rgba, rgbx, rgb };
 fn pixels(d: *Decoder, dst: PixelBuffer) Error!void {
     const h = d.header;
     var s: Stream = .{};
-    // Write rows straight into the buffer when it holds RGBA or RGB, and
-    // through a converter from a span of RGBA otherwise.
+    // Write rows straight into the buffer when it holds RGBA, or RGB from a
+    // three-channel file, and through a converter from a span of RGBA
+    // otherwise (RGB from four channels composites onto black).
     const direct: ?Out = switch (dst.format) {
         .rgba8 => if (h.channels == 4) .rgba else .rgbx,
-        .rgb8 => .rgb,
+        .rgb8 => if (h.channels == 3) .rgb else null,
         else => null,
     };
     if (direct) |out| switch (out) {

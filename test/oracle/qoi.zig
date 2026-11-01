@@ -18,8 +18,9 @@
 //!   chunks carry; Wuffs and this package treat the file as RGB and write
 //!   opaque pixels. `comparable` leaves those answers of qoi.h out, since
 //!   they would hide index splits on the same inputs.
-//! - Asked for RGB from a four-channel file, Wuffs composites over black;
-//!   qoi.h and this package drop the alpha (`image.convert`'s rule).
+//! - Asked for RGB from a four-channel file, Wuffs and this package
+//!   composite over black (`image.convert`'s rule); qoi.h drops the alpha.
+//!   `comparable` leaves those answers of qoi.h out too.
 //!
 //! The official edgecase.qoi is in the first split: Wuffs decodes it
 //! differently from qoi.h.
@@ -35,10 +36,14 @@ pub const oracles = [_][]const u8{ "qoi-wuffs", "qoi-qoih" };
 pub const formats = [_]image.PixelFormat{ .rgba8, .rgb8, .bgra8 };
 
 /// Whether `op`'s answer in `format` counts: not qoi.h's alpha for a
-/// three-channel file.
+/// three-channel file, nor its dropped alpha for a four-channel one.
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
-    const three = input.len > 12 and input[12] == 3;
-    return !(three and format.hasAlpha() and std.mem.eql(u8, op, "qoi-qoih"));
+    if (input.len <= 12 or !std.mem.eql(u8, op, "qoi-qoih")) return true;
+    return switch (input[12]) {
+        3 => !format.hasAlpha(),
+        4 => format.hasAlpha(),
+        else => true,
+    };
 }
 
 /// The input `op` sees: for qoi.h, colorspace 0 in place of any value it

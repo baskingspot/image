@@ -89,9 +89,9 @@ format follows):
   rounding is Wuffs's (results/convert-rounding-20261101.md): 16 to 8 bits
   takes the high byte, and premultiplying (`c·a / 65535`) and
   unpremultiplying (`c·65535 / a`, clamped) truncate, keeping 8 bits from an
-  8-bit source. Dropping alpha drops it (no compositing), the one place the
-  results differ from Wuffs's, which composites onto black; whether to
-  composite is open. Gray is luma 19595/38470/7471.
+  8-bit source. A format without alpha gets the color composited onto
+  black, as in Wuffs and Go (decision 7), so every pair Wuffs has matches
+  it. Gray is luma 19595/38470/7471.
 - Encoding mirrors it (src/encode.zig): `encode(writer, src: PixelBuffer,
 options, work)` in each format's namespace, with `workLen(options, width,
 height)` saying how much work memory to pass, and `image.EncodeError` as
@@ -214,9 +214,9 @@ orb asks for a change to them, or for text in this file, in its report.
    from a JPEG (lossless JPEG recompression).
 6. **GIF quantization.** Which quantizer (median cut, octree, k-means) and
    dither, measured on quality and speed against gifski and ImageMagick.
-7. **Dropping alpha.** Converting to a format without alpha drops it, as
-   qoi.h, stb_image, and libpng do; Wuffs and Go composite onto black. Measured
-   (results/convert-rounding-20261101.md, `composite.patch`): compositing
-   matches Wuffs on all 99 shared pairs and costs RGBA8 to RGB8 a
-   premultiply, 0.17–0.52× the drop, still 1.49–1.66× Wuffs. Waiting on the
-   owner.
+7. **Dropping alpha. Decided by the owner: composite onto black, as Wuffs
+   and Go do** (qoi.h, stb_image, and libpng drop the alpha instead).
+   Measured (results/convert-rounding-20261101.md, `composite.patch`):
+   compositing matches Wuffs on all 99 shared pairs and costs RGBA8 to RGB8 a
+   premultiply, 0.17–0.52× the drop, still 1.49–1.66× Wuffs. An oracle that
+   drops alpha is left out of RGB comparisons for sources with alpha.
