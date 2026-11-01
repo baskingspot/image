@@ -85,9 +85,13 @@ format follows):
   RGBA, and BGRA, straight and premultiplied, and RGBA f32. `PixelBuffer` is
   pixels, format, size, and stride. `image.convert` (`Converter`, `convert`,
   `convertBuffer`) converts between any two, with SIMD kernels for the
-  common pairs and a general path through 16-bit or f32 RGBA; dropping alpha
-  drops it (no compositing), gray is luma 19595/38470/7471, 16 to 8 bits
-  rounds c / 257, and 8-bit premultiplication rounds exactly.
+  common pairs and a general path through 16-bit or f32 RGBA. Its integer
+  rounding is Wuffs's (results/convert-rounding-20261101.md): 16 to 8 bits
+  takes the high byte, and premultiplying (`c·a / 65535`) and
+  unpremultiplying (`c·65535 / a`, clamped) truncate, keeping 8 bits from an
+  8-bit source. Dropping alpha drops it (no compositing), the one place the
+  results differ from Wuffs's, which composites onto black; whether to
+  composite is open. Gray is luma 19595/38470/7471.
 - Encoding mirrors it (src/encode.zig): `encode(writer, src: PixelBuffer,
 options, work)` in each format's namespace, with `workLen(options, width,
 height)` saying how much work memory to pass, and `image.EncodeError` as
@@ -183,9 +187,10 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
-- **Conversion rounding** (branch `wave1-convert`): `src/convert.zig` and the
-  `convert` bench files, to match Wuffs's rounding (decided by the owner:
-  match the references unless there is a strong reason not to).
+- **Conversion rounding** (landed at `938b0c4`): `src/convert.zig` matches
+  Wuffs's rounding (decided by the owner: match the references unless there
+  is a strong reason not to). `src/convert.zig` is the orchestrating
+  thread's again.
 
 ## Decisions to measure
 
@@ -209,3 +214,9 @@ orb asks for a change to them, or for text in this file, in its report.
    from a JPEG (lossless JPEG recompression).
 6. **GIF quantization.** Which quantizer (median cut, octree, k-means) and
    dither, measured on quality and speed against gifski and ImageMagick.
+7. **Dropping alpha.** Converting to a format without alpha drops it, as
+   qoi.h, stb_image, and libpng do; Wuffs and Go composite onto black. Measured
+   (results/convert-rounding-20261101.md, `composite.patch`): compositing
+   matches Wuffs on all 99 shared pairs and costs RGBA8 to RGB8 a
+   premultiply, 0.17–0.52× the drop, still 1.49–1.66× Wuffs. Waiting on the
+   owner.
