@@ -13,6 +13,8 @@ mod image_ico;
 #[cfg(feature = "image-rs")]
 mod image_netpbm;
 #[cfg(feature = "image-rs")]
+mod image_png;
+#[cfg(feature = "image-rs")]
 mod image_qoi;
 #[cfg(feature = "image-rs")]
 mod image_tga;
@@ -20,6 +22,8 @@ mod image_tga;
 mod zune_bmp;
 #[cfg(feature = "zune")]
 mod zune_netpbm;
+#[cfg(feature = "zune")]
+mod zune_png;
 #[cfg(feature = "zune")]
 mod zune_qoi;
 
@@ -56,6 +60,8 @@ pub extern "C" fn bench_init() {
         #[cfg(feature = "image-rs")]
         image_ico::OPS,
         #[cfg(feature = "image-rs")]
+        image_png::OPS,
+        #[cfg(feature = "image-rs")]
         image_qoi::OPS,
         #[cfg(feature = "image-rs")]
         image_tga::OPS,
@@ -63,6 +69,8 @@ pub extern "C" fn bench_init() {
         image_netpbm::OPS,
         #[cfg(feature = "zune")]
         zune_bmp::OPS,
+        #[cfg(feature = "zune")]
+        zune_png::OPS,
         #[cfg(feature = "zune")]
         zune_qoi::OPS,
         #[cfg(feature = "zune")]

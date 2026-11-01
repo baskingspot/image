@@ -11,6 +11,7 @@ bmp-encode-rgb	BmpEncodeRGB	raw/rgb8	4	own
 bmp-encode-rgba	BmpEncodeRGBA	raw/rgba8	5	own
 bmp-encode-gray	BmpEncodeGray	raw/gray8	6	own
 ico-decode	IcoDecode	ico	4	same
+png-decode	PngDecode	png	4	same
 qoi-decode	QoiDecode	qoi	4	same
 qoi-decode-bgra	QoiDecodeBGRA	qoi	4	same
 convert-rgba8-bgra8	ConvertRGBA8ToBGRA8	raw/rgba8	4	same
