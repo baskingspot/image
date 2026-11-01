@@ -19,6 +19,7 @@ name = "bench-rust"
 version = "0.0.0"
 dependencies = [
  "image",
+ "qoi",
  "zune-bmp",
  "zune-core",
  "zune-jpeg",

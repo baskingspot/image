@@ -25,3 +25,4 @@ All notable changes to image are recorded here. The format follows
 - `image.EncodeError`, the errors every encoder shares; each format's encoder will be `encode(writer, pixels, options, work)` with `workLen` for its work memory.
 - The package depends on `compress` at commit fd03d72 (after 0.2.0, for its faster inflate), which brings `fastmem`.
 - `image.wbmp`: WBMP type 0, a streaming `wbmp.Decoder` that writes any pixel format, and `wbmp.encode`, which stores gray of at least 128 as white.
+- `image.qoi.encode`, `qoi.workLen`, and `qoi.EncodeOptions`: a QOI encoder that writes the same bytes as the reference encoder (qoi.h) and needs no work memory.

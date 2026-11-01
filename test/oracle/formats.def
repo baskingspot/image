@@ -5,6 +5,7 @@
 FORMAT(png) // link: libpng spng
 FORMAT(jpeg) // link: libjpeg
 FORMAT(qoi) // link: -
+FORMAT(qoi_encode) // link: -
 FORMAT(bmp) // link: MagickWand
 FORMAT(ico) // link: -
 FORMAT(tga) // link: MagickWand
