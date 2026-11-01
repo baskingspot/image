@@ -1,0 +1,17 @@
+image/arm, geomean              rows image MP/s    wuffs      stb image-rs     ±   <1    ~   slowest vs wuffs
+TgaDecode/icon                    13     2911.7     1.68     2.78     7.07    1%    0    0   1.46 [1.42, 1.49] icon_16-actions_address_book_new-16x16.tga
+TgaDecode/1mp                     23     4306.0     1.14     2.86    11.93    1%   10    0   0.90 [0.88, 0.91] pngimg-academy_awards_PNG9-447x1192.tga
+TgaDecode/large                    8     2532.2     1.00     2.48     7.37    3%    3    3   0.71 [0.70, 0.75] photo_mosaic-50mp-8192x6144.tga
+TgaDecodeRLE/icon                 13     1001.0     2.57     4.64     3.63    1%    0    0   1.04 [1.03, 1.05] icon_16-actions_appointment_new-16x16.tga
+TgaDecodeRLE/1mp                  23     1707.4     4.45     6.37     7.36    0%    0    0   1.14 [1.14, 1.14] photo_wikipedia-002-1260x806.tga
+TgaDecodeRLE/large                 8     1181.3     3.85     5.11     5.18    1%    0    0   1.86 [1.85, 1.88] photo_wikipedia-001-1276x850.tga
+TgaDecodeBGRA/icon                13     3068.9     1.49        -        -    8%    0    0   1.40 [1.32, 1.49] icon_64-actions_appointment_new-64x64.tga
+TgaDecodeBGRA/1mp                 23     4674.2     1.06        -        -    0%    3    8   0.99 [0.98, 1.00] photo_wikipedia-003-1436x730.tga
+TgaDecodeBGRA/large                8     2761.9     1.00        -        -    1%    0    7   0.97 [0.91, 1.13] screenshot_web-apple_com-1313x4755.tga
+TgaEncode/icon                    13     2810.9        -    11.45     2.97     -    0    0   -
+TgaEncode/1mp                     23     3885.4        -    12.25     5.13     -    0    0   -
+TgaEncode/large                    8     2643.0        -     8.81     4.84     -    0    0   -
+TgaEncodeRLE/icon                 13      643.8        -     3.10     5.47     -    0    0   -
+TgaEncodeRLE/1mp                  23      637.1        -     2.74     5.23     -    0    0   -
+TgaEncodeRLE/large                 8      484.3        -     2.36     4.48     -    0    0   -
+all                              220     2043.8     1.75     4.68     5.84         16   18

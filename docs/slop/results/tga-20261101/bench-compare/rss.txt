@@ -1,0 +1,6 @@
+peak RSS (MiB)            image    wuffs     qoih      stb image-rs     zune       go
+tga-decode                337.9    338.7        -    483.4    338.6        -        -
+tga-decode-rle            324.7    325.6        -    470.5    325.4        -        -
+tga-decode-bgra           337.9    338.7        -        -        -        -        -
+tga-encode                385.8        -        -    386.3    531.8        -        -
+tga-encode-rle            385.8        -        -    386.3    531.8        -        -

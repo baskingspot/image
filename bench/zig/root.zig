@@ -9,6 +9,7 @@ pub const bmp = @import("bmp.zig");
 pub const convert = @import("convert.zig");
 pub const ico = @import("ico.zig");
 pub const qoi = @import("qoi.zig");
+pub const tga = @import("tga.zig");
 
 const Self = @This();
 

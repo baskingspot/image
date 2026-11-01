@@ -19,3 +19,8 @@ convert-rgba8-rgb8	ConvertRGBA8ToRGB8	raw/rgba8	3	own
 convert-rgba8-premul	ConvertRGBA8ToPremul	raw/rgba8	4	same
 convert-gray8-rgba8	ConvertGray8ToRGBA8	raw/gray8	4	same
 convert-rgba16-rgba8	ConvertRGBA16ToRGBA8	raw/rgba16	4	same
+tga-decode	TgaDecode	tga/none	4	same
+tga-decode-rle	TgaDecodeRLE	tga/rle	4	same
+tga-decode-bgra	TgaDecodeBGRA	tga/none	4	same
+tga-encode	TgaEncode	tga/rgba	5	own
+tga-encode-rle	TgaEncodeRLE	tga/rgba	5	own
