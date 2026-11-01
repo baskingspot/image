@@ -115,7 +115,11 @@ paired ratios with 95% intervals, identical buffer placement for every arm.
 ## Order of work
 
 Each wave fans out to orbs with disjoint file ownership; this file records
-the owner of each file while a wave runs.
+the owner of each file while a wave runs. Files have one owner at a time.
+Work that needs another owner's file asks for the change in its report
+instead of editing the file; a private helper is fine until the merge. Each
+orb pushes a signed branch rebased on the latest `origin/main`, and the
+orchestrating thread fast-forwards `main` to it after rerunning the gates.
 
 0. **Foundations.** Pixel formats and SIMD conversion, the shared config,
    frame, limit, and metadata types, `detect`, the oracle and fuzz harnesses,
@@ -129,6 +133,16 @@ the owner of each file while a wave runs.
    foundations land.
 5. **Encoders**: PNG and APNG, JPEG, GIF, TIFF, WebP lossless, then JPEG XL
    lossless and WebP lossy.
+
+### Owners
+
+Wave 0, running as one orb (branch `wave0-foundations`): every file in the
+repository, including `src/`, `build.zig`, `build.zig.zon`, `justfile`, the
+flake, `bench/`, the fuzz and oracle harnesses, the corpus scripts,
+`THIRD_PARTY.md`, and `docs/slop/` except this Owners section, which the
+orchestrating thread keeps. Wave 0 also writes the QOI decoder, as the worked
+example that proves the API, the harnesses, and decision 1 end to end; QOI
+encode stays in wave 1.
 
 ## Decisions to measure
 
