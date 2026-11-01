@@ -10,10 +10,12 @@
 //! go to the blob sink as they pass.
 //!
 //! Strict, as Wuffs is: the CRC-32 of every critical chunk (IHDR, PLTE,
-//! IDAT, IEND) is checked, and so is the image data's Adler-32. Ancillary
-//! chunks' CRCs are not checked, as in Wuffs; libpng and libspng accept a
-//! bad one too. The image data must decompress to exactly the rows the
-//! image needs, with nothing after the zlib stream in its chunks. Chunks
+//! IDAT, IEND) is checked, and so is the image data's Adler-32, unless
+//! `Options.ignore_checksums` is set. Ancillary chunks' CRCs are not
+//! checked, as in Wuffs; libpng and libspng accept a bad one too. The image
+//! data must decompress to exactly the rows the image needs, with nothing
+//! after the zlib stream in its chunks; an interlaced frame one row tall is
+//! the exception, as in Wuffs: data after its last row is skipped. Chunks
 //! that shape the pixels (IHDR, PLTE, tRNS, IDAT, IEND, acTL, fcTL, fdAT)
 //! must follow the specification; a chunk that cannot change the pixels (a
 //! metadata chunk with a malformed body, a tRNS beside an alpha channel) is
@@ -47,10 +49,18 @@ const filter = @import("filter.zig");
 
 const Decoder = @This();
 
-pub const Options = decode.Options;
+pub const Options = struct {
+    limits: decode.Limits = .{},
+    blob_sink: ?decode.BlobSink = null,
+    /// Skip the CRC-32 of critical chunks and the image data's Adler-32,
+    /// as Wuffs's IGNORE_CHECKSUM quirk does, so a file whose only fault is
+    /// a checksum decodes. Off by default.
+    ignore_checksums: bool = false,
+};
 
 pub const Error = decode.Error || error{
-    /// A critical chunk's CRC-32 does not match its type and data.
+    /// A critical chunk's CRC-32 does not match its type and data (not
+    /// with `Options.ignore_checksums`).
     BadCrc,
     /// A chunk's length, contents, or position breaks the specification:
     /// a missing or misplaced PLTE or IDAT, a malformed
@@ -62,12 +72,14 @@ pub const Error = decode.Error || error{
     /// The image data is not a valid zlib stream, or names a preset
     /// dictionary.
     BadZlib,
-    /// The image data's Adler-32 does not match.
+    /// The image data's Adler-32 does not match (not with
+    /// `Options.ignore_checksums`).
     BadChecksum,
     /// The image data ends before the frame's last row.
     NotEnoughData,
     /// The image data holds more than the frame's rows, or its chunks hold
-    /// bytes after the zlib stream.
+    /// bytes after the zlib stream. Not for an interlaced frame one row
+    /// tall, whose data past its last row is skipped, as in Wuffs.
     TooMuchData,
 };
 
@@ -308,7 +320,7 @@ fn beginChunk(d: *Decoder) Error!Chunk {
     // an unknown ancillary chunk is skipped and an unknown critical one is
     // Unsupported either way.
     const t = std.mem.readInt(u32, b[4..8], .big);
-    d.check_crc = isCritical(t);
+    d.check_crc = isCritical(t) and !d.options.ignore_checksums;
     if (d.check_crc) d.crc = crc32.update(crc32.init, b[4..8]);
     d.left = len;
     return .{ .len = len, .type = t };
@@ -833,7 +845,9 @@ fn zlibError(zr: *const zlib.Reader, dr: *const DataReader) Error {
     if (dr.err) |e| return e;
     return switch (zr.err orelse return error.BadZlib) {
         error.Truncated => if (dr.ended) error.NotEnoughData else error.Truncated,
-        error.WrongChecksum => error.BadChecksum,
+        // Only the end of the stream checks it: before the last row, the
+        // rows are short whether or not the checksum is ignored.
+        error.WrongChecksum => if (dr.d.options.ignore_checksums) error.NotEnoughData else error.BadChecksum,
         error.ReadFailed => error.ReadFailed,
         else => error.BadZlib,
     };
@@ -881,9 +895,19 @@ fn pixels(d: *Decoder, region: PixelBuffer, work: []u8, kind: u32, over: bool) E
         }
     }
     // The zlib stream ends here, its Adler-32 checked as it ends.
-    if (in.peekByte()) |_| return error.TooMuchData else |e| switch (e) {
+    if (in.peekByte()) |_| {
+        if (!h.interlaced or region.height != 1) return error.TooMuchData;
+        // Wuffs reads an interlaced frame one row tall only to its last
+        // row, so data after it is skipped unread, Adler-32 and all; the
+        // chunks' CRCs are still checked.
+        _ = dr.reader.discardRemaining() catch return dr.err.?;
+        return;
+    } else |e| switch (e) {
         error.EndOfStream => {},
-        error.ReadFailed => return zlibError(&zr, &dr),
+        error.ReadFailed => {
+            const sum = if (zr.err) |z| z == error.WrongChecksum else false;
+            if (!sum or !d.options.ignore_checksums) return zlibError(&zr, &dr);
+        },
     }
     if (dr.ended) return;
     if (dr.reader.bufferedLen() != 0 or d.left != 0) return error.TooMuchData;
@@ -1246,8 +1270,12 @@ fn setBits(row: []u8, x: usize, bits: u32, v: u64) void {
 }
 
 fn testDecode(file: []const u8, format: PixelFormat, out: []u8) !decode.Config {
+    return testDecodeWith(file, format, out, .{});
+}
+
+fn testDecodeWith(file: []const u8, format: PixelFormat, out: []u8, options: Options) !decode.Config {
     var r: Io.Reader = .fixed(file);
-    var d: Decoder = .init(&r, .{});
+    var d: Decoder = .init(&r, options);
     const config = try d.decodeConfig();
     const work = try testing.allocator.alloc(u8, config.work_len);
     defer testing.allocator.free(work);
@@ -1400,6 +1428,49 @@ fn rgbFile(t: *TestPng, z: []const u8, extra: []const u8) !void {
     try t.chunk("IEND", "");
 }
 
+test "an interlaced frame one row tall skips data after its last row" {
+    const a = testing.allocator;
+    // 5 by 1 RGB, interlaced: passes 1, 2, 4, and 6 hold rows of 1, 1, 1,
+    // and 2 pixels, 19 bytes with their filter types; 5 by 2 adds pass 7's
+    // row of 5 pixels.
+    const zeros: [64]u8 = @splat(0);
+    const Case = struct { h: u32, rows: usize, suffix: []const u8 = "", flip: bool = false, err: ?Error };
+    const cases = [_]Case{
+        .{ .h = 1, .rows = 19, .err = null },
+        .{ .h = 1, .rows = 40, .err = null },
+        // The skipped data's Adler-32 and the bytes after its stream go
+        // unread, as in Wuffs.
+        .{ .h = 1, .rows = 40, .flip = true, .suffix = "abc", .err = null },
+        // A stream that ends at the last row is checked as any other.
+        .{ .h = 1, .rows = 19, .flip = true, .err = error.BadChecksum },
+        .{ .h = 1, .rows = 19, .suffix = "\x00", .err = error.TooMuchData },
+        .{ .h = 2, .rows = 35, .err = null },
+        .{ .h = 2, .rows = 40, .err = error.TooMuchData },
+    };
+    var out: [5 * 2 * 3]u8 = undefined;
+    for (cases) |c| {
+        const z = try zlibOf(zeros[0..c.rows]);
+        defer a.free(z);
+        if (c.flip) z[z.len - 1] ^= 1;
+        const data = try std.mem.concat(a, u8, &.{ z, c.suffix });
+        defer a.free(data);
+        var t: TestPng = .{};
+        defer t.deinit();
+        try t.head(5, c.h, 8, 2, true);
+        var seq: u32 = 0;
+        try t.chunks("IDAT", data, 7, &seq);
+        try t.chunk("IEND", "");
+        const dst = out[0 .. 15 * c.h];
+        @memset(dst, 0xaa);
+        if (c.err) |e| {
+            try testing.expectError(e, testDecode(t.bytes.items, .rgb8, dst));
+        } else {
+            _ = try testDecode(t.bytes.items, .rgb8, dst);
+            try testing.expect(std.mem.allEqual(u8, dst, 0));
+        }
+    }
+}
+
 test "malformed streams" {
     const a = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
@@ -1425,6 +1496,9 @@ test "malformed streams" {
         @memcpy(copy, file);
         copy[at] ^= 1;
         try testing.expectError(error.BadCrc, testDecode(copy, .rgb8, &out));
+        @memset(&out, 0);
+        _ = try testDecodeWith(copy, .rgb8, &out, .{ .ignore_checksums = true });
+        try testing.expectEqualSlices(u8, &raw, &out);
     }
 
     const Case = struct { rows: []const u8, err: Error, suffix: []const u8 = "" };
@@ -1463,6 +1537,26 @@ test "malformed streams" {
         defer t.deinit();
         try rgbFile(&t, zb, "");
         try testing.expectError(c.err, testDecode(t.bytes.items, .rgb8, &out));
+        if (c.err != error.BadChecksum) continue;
+        @memset(&out, 0);
+        _ = try testDecodeWith(t.bytes.items, .rgb8, &out, .{ .ignore_checksums = true });
+        try testing.expectEqualSlices(u8, &raw, &out);
+    }
+    // Ignoring the Adler-32 still finds the rows short or too many.
+    for ([_]Case{
+        .{ .rows = zeros[0..32], .err = error.NotEnoughData },
+        .{ .rows = &zeros, .err = error.TooMuchData },
+        .{ .rows = zeros[0..48], .err = error.TooMuchData, .suffix = "\x00" },
+    }) |c| {
+        const zc = try zlibOf(c.rows);
+        defer a.free(zc);
+        zc[zc.len - 1] ^= 1;
+        const data = try std.mem.concat(a, u8, &.{ zc, c.suffix });
+        defer a.free(data);
+        var t: TestPng = .{};
+        defer t.deinit();
+        try rgbFile(&t, data, "");
+        try testing.expectError(c.err, testDecodeWith(t.bytes.items, .rgb8, &out, .{ .ignore_checksums = true }));
     }
 
     // An ancillary chunk's CRC is not checked, and an unknown one is

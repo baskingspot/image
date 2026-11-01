@@ -31,10 +31,11 @@
 //! - libpng reads to IEND (`png_read_end`) and rejects a file cut after
 //!   the image; Wuffs, libspng, and this package return the first frame,
 //!   and this package fails only when the next call reads on.
-//! - Wuffs does not check for image data after the last row of an
-//!   interlaced image one row tall (it rejects it at any other height), and
-//!   libpng and libspng never check; this package rejects it at every
-//!   height, so no answer counts for such a file.
+//! - Wuffs reads an interlaced image one row tall only to its last row, so
+//!   it accepts image data after it, unchecked, where it rejects it at any
+//!   other height. This package does the same (the owner's decision), and
+//!   libpng and libspng accept such data at every height, so all four
+//!   agree on such a file.
 //! - The specification has decoders mask a gray or truecolor tRNS key to
 //!   the bit depth, as libpng and this package do; libspng compares it
 //!   unmasked and Wuffs rejects it. `adapt` hands both the key already
@@ -61,24 +62,7 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
         if (!wuffs) return false;
         if (input.len > 28 and input[28] == 1) return false;
     }
-    if (oneRowTooMuch(input)) return false;
     return true;
-}
-
-var row_pixels: [4 << 16]u8 = undefined;
-var work: [1 << 20]u8 = undefined;
-
-/// Whether `input` is an interlaced image one row tall that this package
-/// rejects with `TooMuchData`.
-fn oneRowTooMuch(input: []const u8) bool {
-    if (input.len < 29 or input[28] != 1 or std.mem.readInt(u32, input[20..24], .big) != 1) return false;
-    var r: std.Io.Reader = .fixed(input);
-    var d: Decoder = .init(&r, .{});
-    const c = d.decodeConfig() catch return false;
-    if (c.work_len > work.len) return false;
-    const dst = image.PixelBuffer.init(&row_pixels, .rgba8, c.width, c.height) catch return false;
-    _ = d.decodeFrame(dst, work[0..c.work_len]) catch |e| return e == error.TooMuchData;
-    return false;
 }
 
 /// Whether `input` has a chunk of type `kind` before its first IDAT.

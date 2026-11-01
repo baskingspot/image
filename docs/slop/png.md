@@ -39,13 +39,34 @@ records what it does where the specification leaves room, and why. Results:
   reference reads. APNG's chunks are ancillary by name, so acTL, fcTL, and
   fdAT are not checked either; Wuffs decodes a frame whose fdAT CRC is wrong
   too (checked by hand on a two-chunk APNG). The zlib stream's
-  Adler-32 is checked (`BadChecksum`). There is no option to skip either
-  check yet; a caller who wants Wuffs's `IGNORE_CHECKSUM` quirk can ask.
+  Adler-32 is checked (`BadChecksum`).
+- **`Options.ignore_checksums`** (owner, decision 9), off by default, skips
+  both, as Wuffs's `IGNORE_CHECKSUM` quirk does: critical chunks' CRCs are
+  not computed at all, and a wrong Adler-32 at the stream's end is
+  accepted. `compress`'s `zlib.Reader` has no way to skip the Adler-32, so
+  it is still computed and its mismatch ignored; skipping it would need a
+  `zlib.Reader` option that leaves flate's checksum hook unset and reads
+  the trailer without comparing. The rest is unchanged: a stream that ends
+  before the last row is still `NotEnoughData` even when its checksum is
+  also wrong. Skipping the CRCs saves about 4.5% of a decode at every size
+  (`results/png-ignore-checksums-20261101.md`).
 - **Image data must be exact.** The zlib stream must decompress to exactly
   the rows the frame needs: fewer is `NotEnoughData`, more (or bytes after
   the zlib stream in the data chunks) is `TooMuchData`. Empty IDAT or fdAT
   chunks after a frame's data are allowed and skipped, as libpng allows
   them; a non-empty one is `TooMuchData`.
+- **The one exception: an interlaced frame one row tall** (owner, decision
+  9), as in Wuffs. Wuffs reads such an image only to its last row: when the
+  zlib stream has more data there, the rest of the stream, its Adler-32,
+  and any bytes after it in the data chunks go unread, and the image
+  decodes; at every other height, interlaced or not, the same file is
+  rejected. When the stream ends at the last row it is checked as usual
+  (a bad Adler-32 or bytes after it are still errors). The decoder does
+  the same, and still checks the CRCs of the data chunks it skips. Checked
+  against Wuffs on hand-built files: extra data, extra data with a bad
+  Adler-32, extra data with bytes after the stream, and bytes after a
+  stream that ends at the last row, at heights 1 and 2 and widths 1, 5,
+  and 9.
 - **The APNG default image.** When acTL comes before IDAT but no fcTL does,
   the IDAT image is not part of the animation, and the decoder skips it, as
   Wuffs does and as the APNG section says decoders that support APNG do:

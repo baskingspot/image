@@ -2,7 +2,9 @@
 //! corpus files and generated files that reach every chunk the decoder
 //! reads, still and animated. Mutation breaks CRCs, so `check` sometimes
 //! rewrites every chunk's CRC first, letting a mutated file get past the
-//! chunk layer.
+//! chunk layer. The properties run with `ignore_checksums` off or on, and
+//! the two settings must agree wherever the strict decode got without a
+//! checksum error.
 
 const std = @import("std");
 const image = @import("image");
@@ -16,12 +18,90 @@ pub const extensions = [_][]const u8{ ".png", ".apng" };
 var fixed: [1 << 20]u8 = undefined;
 
 pub fn check(input: []const u8, choice: u64) !void {
+    var file = input;
     if (choice >> 63 == 1 and input.len <= fixed.len) {
         @memcpy(fixed[0..input.len], input);
         fixCrcs(fixed[0..input.len]);
-        return harness.checkDecoder(image.png.Decoder, fixed[0..input.len], choice);
+        file = fixed[0..input.len];
     }
-    return harness.checkDecoder(image.png.Decoder, input, choice);
+    try compareLax(file);
+    if (choice >> 62 & 1 == 1) return harness.checkDecoder(Lax, file, choice);
+    return harness.checkDecoder(image.png.Decoder, file, choice);
+}
+
+/// `image.png.Decoder` with `ignore_checksums` set.
+const Lax = struct {
+    d: image.png.Decoder,
+
+    pub const Options = image.png.Decoder.Options;
+    pub const Error = image.png.Decoder.Error;
+
+    pub fn init(reader: *std.Io.Reader, options: Options) Lax {
+        var o = options;
+        o.ignore_checksums = true;
+        return .{ .d = .init(reader, o) };
+    }
+
+    pub fn decodeConfig(l: *Lax) Error!image.Config {
+        return l.d.decodeConfig();
+    }
+
+    pub fn decodeFrame(l: *Lax, dst: image.PixelBuffer, work: []u8) Error!?image.Frame {
+        return l.d.decodeFrame(dst, work);
+    }
+};
+
+const Run = struct {
+    err: ?image.png.Decoder.Error = null,
+    count: usize = 0,
+    frames: [harness.limits.max_frames]image.Frame = undefined,
+    hashes: [harness.limits.max_frames]u64 = undefined,
+
+    fn same(a: *const Run, b: *const Run, n: usize) bool {
+        for (0..n) |i| {
+            if (!std.meta.eql(a.frames[i], b.frames[i]) or a.hashes[i] != b.hashes[i]) return false;
+        }
+        return true;
+    }
+};
+
+var canvas: [harness.limits.max_pixels * 8]u8 = undefined;
+var work_memory: [1 << 20]u8 = undefined;
+
+/// Decodes every frame of `input` in its native format.
+fn run(input: []const u8, ignore_checksums: bool) Run {
+    var result: Run = .{};
+    var r: std.Io.Reader = .fixed(input);
+    var d: image.png.Decoder = .init(&r, .{ .limits = harness.limits, .ignore_checksums = ignore_checksums });
+    const config = d.decodeConfig() catch |e| {
+        result.err = e;
+        return result;
+    };
+    if (config.work_len > work_memory.len) return result;
+    const dst = image.PixelBuffer.init(&canvas, config.native, config.width, config.height) catch return result;
+    const len = image.PixelBuffer.len(config.native, config.width, config.height).?;
+    @memset(canvas[0..len], 0);
+    while (result.count < result.frames.len) : (result.count += 1) {
+        const frame = d.decodeFrame(dst, work_memory[0..config.work_len]) catch |e| {
+            result.err = e;
+            return result;
+        } orelse return result;
+        result.frames[result.count] = frame;
+        result.hashes[result.count] = std.hash.Wyhash.hash(0, canvas[0..len]);
+    }
+    return result;
+}
+
+/// With checksums ignored, a decode matches the strict one up to its first
+/// checksum error, and entirely when it has none.
+fn compareLax(input: []const u8) !void {
+    const strict = run(input, false);
+    const lax = run(input, true);
+    if (strict.err) |e| if (e == error.BadCrc or e == error.BadChecksum) {
+        if (lax.count < strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
+        return;
+    };
+    if (lax.err != strict.err or lax.count != strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
 }
 
 /// Rewrites the CRC of every whole chunk after the signature.
