@@ -24,3 +24,17 @@ tga-decode-rle	TgaDecodeRLE	tga/rle	4	same
 tga-decode-bgra	TgaDecodeBGRA	tga/none	4	same
 tga-encode	TgaEncode	tga/rgba	5	own
 tga-encode-rle	TgaEncodeRLE	tga/rgba	5	own
+netpbm-decode-ppm	NetpbmDecodePPM	netpbm/ppm	3	same
+netpbm-decode-ppm-rgba	NetpbmDecodePPMRGBA	netpbm/ppm	4	same
+netpbm-decode-pgm	NetpbmDecodePGM	netpbm/pgm	1	same
+netpbm-decode-ppm16	NetpbmDecodePPM16	netpbm/ppm16	6	same
+netpbm-decode-ppm16-bgra	NetpbmDecodePPM16BGRA	netpbm/ppm16	8	same
+netpbm-decode-pam	NetpbmDecodePAM	netpbm/pam	4	same
+netpbm-decode-pbm	NetpbmDecodePBM	netpbm/pbm	1	same
+netpbm-decode-plain	NetpbmDecodePlain	netpbm/plain	3	same
+netpbm-decode-pfm	NetpbmDecodePFM	netpbm/pfm	16	own
+netpbm-encode-ppm	NetpbmEncodePPM	netpbm/raw-rgb8	3	own
+netpbm-encode-pgm	NetpbmEncodePGM	netpbm/raw-gray8	1	own
+netpbm-encode-pam	NetpbmEncodePAM	netpbm/raw-rgba8	5	own
+netpbm-encode-ppm16	NetpbmEncodePPM16	netpbm/raw-rgb16	7	own
+netpbm-encode-plain	NetpbmEncodePlain	netpbm/raw-rgb8	13	own
