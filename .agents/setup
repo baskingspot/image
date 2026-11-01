@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Prepares an Amp orb for this repository: Nix, the flake's dev shell, and the
+# Zig packages, so a new orb starts with `just ci` ready. Idempotent; a warm
+# rerun only checks.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+step() { printf '==> %s (%ss)\n' "$1" "$SECONDS"; }
+
+nix_profile="$HOME/.nix-profile"
+if [[ ! -x "$nix_profile/bin/nix" ]]; then
+	step "installing Nix"
+	curl -sSfL https://nixos.org/nix/install | sh -s -- --no-daemon --yes
+fi
+# The installer cannot update this running script's environment.
+# shellcheck disable=SC1091
+source "$nix_profile/etc/profile.d/nix.sh"
+
+mkdir -p "$HOME/.config/nix"
+if ! grep -qs '^experimental-features = .*flakes' "$HOME/.config/nix/nix.conf"; then
+	echo 'experimental-features = nix-command flakes' >>"$HOME/.config/nix/nix.conf"
+fi
+
+step "building the dev shell"
+nix develop --command true
+
+step "fetching Zig packages"
+nix develop --command zig build --fetch
+
+# Amp and supervised services start in non-interactive login shells, so give
+# those the dev shell's environment when they start in the repository.
+profile_marker="# baskingspot/image Nix dev shell"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+	cat >>"$HOME/.bash_profile" <<EOF
+
+$profile_marker
+if [[ -z "\${IN_NIX_SHELL:-}" && "\${PWD}" == "$repo_root" ]]; then
+  eval "\$("$nix_profile/bin/nix" print-dev-env "$repo_root")"
+fi
+EOF
+fi
+
+step "done"
