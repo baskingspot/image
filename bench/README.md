@@ -23,6 +23,8 @@ ratio and interval.
 | `wuffs`    | Wuffs's decoders and pixel swizzler | `bench/c/wuffs-*.c`                                 |
 | `qoih`     | qoi.h, the reference QOI codec      | `bench/c/qoih-*.c`                                  |
 | `stb`      | stb_image                           | `bench/c/stb-*.c`                                   |
+| `libpng`   | libpng                              | `bench/c/libpng-*.c`                                |
+| `spng`     | libspng                             | `bench/c/spng-*.c`                                  |
 | `image-rs` | Rust's `image` crate                | `bench/rust`, feature `image-rs`                    |
 | `zune`     | the zune crates                     | `bench/rust`, feature `zune`                        |
 | `go`       | Go's `image` packages               | `bench/go`                                          |

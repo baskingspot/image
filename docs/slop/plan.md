@@ -174,16 +174,45 @@ orchestrating thread owns everything else: the shared `src/` files
 harness cores, `build.zig`, the justfile, the flake, CI, and this file. An
 orb asks for a change to them, or for text in this file, in its report.
 
-- **PNG and APNG decode** (branch `wave1-png`): `src/png/` and its harness
-  files. Inflate improvements go to `baskingspot/compress`, on a branch there.
-- **BMP, ICO and CUR, decode and encode** (branch `wave1-bmp`): `src/bmp/`,
-  `src/ico/`, and their harness files. One owner, so ICO's BMP payloads share
-  BMP's DIB reader. Also decides how ICO reads directory offsets that do not
-  ascend, which TIFF will face in wave 3.
-- **TGA, decode and encode** (branch `wave1-tga`): `src/tga/` and its harness
-  files.
-- **Netpbm, decode and encode** (branch `wave1-netpbm`): `src/netpbm/` and
-  its harness files.
+- **PNG and APNG decode** (landed; png.md has the design). Work memory is
+  the 64 KiB inflate window, an 8 KiB chunk stage, and two rows, so nothing
+  scales with height. Checksums are strict, as in Wuffs: CRC-32 of critical
+  chunks (`BadCrc`) and the zlib Adler-32 (`BadChecksum`); ancillary CRCs are
+  not checked, as Wuffs, libpng, and libspng do not. Image data must
+  decompress to exactly the frame. An APNG's default image outside the
+  animation is skipped, as Wuffs and the APNG spec do, and `frame_count` is
+  acTL's; an APNG's native format always has alpha, and frame 0 clears
+  outside its region to transparent black. Palette indices past the palette
+  decode as opaque black. Metadata is reported, never applied; iCCP and eXIf
+  go to the blob sink. Inflate is compress's; its fast path is on compress's
+  `image-png-inflate` branch (0.38× Wuffs on compress 0.2.0, 0.79× with it).
+- **BMP, ICO and CUR, decode and encode** (landed; bmp.md and ico.md).
+  `src/bmp/dib.zig` is shared by both. ICO reads entries forward in directory
+  order; an entry behind the reader needs an `ico.Seeker` (`fixed` over a
+  `Reader.fixed`, at no copy, or `file`) and is `error.EntryBehind` without
+  one, and `Options.entry` decodes one entry without seeking (a PNG entry
+  through `image.png`, read through IEND; an APNG entry stops after its first
+  frame). Whether this
+  becomes `image.Seeker` for TIFF too is open with the owner. PNG entries
+  decode only through `Options.entry` until png has a `workLen` bound, and
+  PNG-entry encoding waits for wave 5.
+- **TGA, decode and encode** (landed; tga.md). Every image type in the 2.0
+  spec. The color map is the only work memory. The footer and extension area
+  follow the pixels, so the `decodeFrame` call that returns null reads them,
+  and `Decoder.trailer()` reports gamma (as PNG's gAMA, 100000 / gamma),
+  aspect ratio, key color, and attributes type. A 16-bit attribute bit is
+  alpha only when the descriptor names attribute bits; an index outside the
+  map is opaque black, as in Wuffs. The encoder writes top-left 8-bit gray,
+  24-bit BGR, or 32-bit BGRA, uncompressed or RLE, with a 2.0 footer.
+- **Netpbm, decode and encode** (landed; netpbm.md). Native format is 8-bit
+  for maxval ≤255 and 16-bit above, PBM is gray8, PFM is rgba_f32; any other
+  maxval scales exactly, round(v·255/m) or round(v·65535/m). Raw files are
+  frame sequences whose images must match the first (`FrameMismatch`;
+  Netpbm's tools allow mixed sizes), with `frame_count` null; plain and PFM
+  files hold one image. PFM's scale sign is the byte order and its magnitude
+  is not applied. The encoder defaults to PGM, PPM, or PAM (for alpha) at
+  maxval 255 or 65535, and float sources to a 16-bit RGB_ALPHA PAM, since
+  `checkEncoder` uses default options.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
@@ -226,3 +255,26 @@ orb asks for a change to them, or for text in this file, in its report.
    Oracles that composite (Wuffs) are left out of answers without alpha for
    sources with alpha. An explicit background option in `convert` can come
    later if callers need one.
+
+## Harness requests
+
+Changes the format orbs asked for in files the orchestrating thread owns,
+not yet made:
+
+- `bench-compare` and `bench/c/arm.c`: let an arm skip a row it fails.
+- `test/oracle/compare.zig`'s `loadCorpus` fails on files over 64 MiB; skip
+  them, so the fuzz and oracle corpora can include `bench/corpus-gen`.
+- `test/fuzz/harness.zig` `Result.eql`: in Zig 0.16 Debug, comparing
+  `?anyerror` fields through pointers returns false for equal values (TGA
+  skips its `zigFuzz` test in Debug until it is fixed).
+- `test/fuzz/main.zig`: `zigFuzz` seeds are used raw, but Smith reads a
+  length-prefixed input and a choice, so QOI's seeds are mangled.
+- `fuzz-ci` splits a fixed time across every target, so each gets less as
+  formats land (8 s each with seven targets).
+- `image.convert`'s kernels cost about 25 ns per call in their tails, half a
+  166-pixel row; narrow 24- and 32-bit BMPs run 0.69× Wuffs from it.
+- A shared MagickWand helper in the oracle core (ico.c borrows bmp.c's).
+- Let fuzz modules import compress (test/fuzz/png.zig has its own zlib
+  writer), and have compress export CRC-32 so `src/png/crc32.zig` can go.
+- A generic hook on `image.Decoder` for metadata that follows the frames
+  (TGA's footer, PNG's chunks after IDAT).
