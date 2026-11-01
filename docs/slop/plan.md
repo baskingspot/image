@@ -75,7 +75,9 @@ format follows):
   when there are no more. Errors are sticky: after one, every call returns
   it.
 - Input is pulled from a `std.Io.Reader` whose buffer holds at least
-  `image.min_buffer_len` (64) bytes; decoders never seek (decision 1).
+  `image.min_buffer_len` (64) bytes; decoders read forward and never seek
+  on their own (decision 1); formats that store offsets (ICO, TIFF) go back
+  only through a caller's `image.Seeker` (decision 8).
 - `Limits` (width, height, pixels, frames, work memory) are options checked
   before any work; `Limits.none` lifts them. `DecodeOptions` also carries a
   `BlobSink` that receives ICC, EXIF, and XMP bytes as the decoder passes
@@ -181,7 +183,9 @@ orb asks for a change to them, or for text in this file, in its report.
   not checked, as Wuffs, libpng, and libspng do not. Image data must
   decompress to exactly the frame. An APNG's default image outside the
   animation is skipped, as Wuffs and the APNG spec do, and `frame_count` is
-  acTL's; an APNG's native format always has alpha, and frame 0 clears
+  acTL's, with no option to decode the default image until a caller needs
+  one (owner); an APNG's native format always has alpha (owner: keep, as
+  Wuffs does), and frame 0 clears
   outside its region to transparent black. Palette indices past the palette
   decode as opaque black. Metadata is reported, never applied; iCCP and eXIf
   go to the blob sink. Inflate is compress's, pinned to commit fd03d72 for
@@ -193,8 +197,8 @@ orb asks for a change to them, or for text in this file, in its report.
   `Reader.fixed`, at no copy, or `file`) and is `error.EntryBehind` without
   one, and `Options.entry` decodes one entry without seeking (a PNG entry
   through `image.png`, read through IEND; an APNG entry stops after its first
-  frame). Whether this
-  becomes `image.Seeker` for TIFF too is open with the owner. PNG entries
+  frame). It becomes the
+  shared `image.Seeker` (decision 8). PNG entries
   decode only through `Options.entry` until png has a `workLen` bound, and
   PNG-entry encoding waits for wave 5.
 - **TGA, decode and encode** (landed; tga.md). Every image type in the 2.0
@@ -217,6 +221,12 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
+- **Seeker** (branch `wave1-seeker`, the BMP/ICO orb): moves `ico.Seeker`
+  to `image.Seeker` in `src/decode.zig`, adds `DecodeOptions.seeker`, and
+  passes it through `image.Decoder`; it owns `src/decode.zig`,
+  `src/Decoder.zig`, and `src/ico/` for this.
+- **PNG strictness** (branch `wave1-png-strict`, the PNG orb): decision 9 in
+  `src/png/` and its harness files.
 - **Conversion rounding** (landed at `938b0c4`): `src/convert.zig` matches
   Wuffs's rounding (decided by the owner: match the references unless there
   is a strong reason not to). `src/convert.zig` is the orchestrating
@@ -256,6 +266,15 @@ orb asks for a change to them, or for text in this file, in its report.
    Oracles that composite (Wuffs) are left out of answers without alpha for
    sources with alpha. An explicit background option in `convert` can come
    later if callers need one.
+8. **Offsets that do not ascend (ICO, TIFF). Decided by the owner: forward,
+   with a caller's seeker.** Data behind the reader needs an `image.Seeker`
+   (`fixed` over a `Reader.fixed`, at no copy, or `file`) passed in
+   `DecodeOptions.seeker`, and is an error without one. Sorting offsets
+   cannot serve TIFF's IFD chain, and buffering the whole file breaks
+   caller-owned memory (ico.md).
+9. **PNG strictness. Decided by the owner:** an `ignore_checksums` option,
+   off by default, as Wuffs's IGNORE_CHECKSUM quirk; and one-row interlaced
+   images with extra data are accepted, as Wuffs does.
 
 ## Harness requests
 
