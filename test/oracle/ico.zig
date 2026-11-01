@@ -8,22 +8,35 @@
 //!   this package, asked for one entry, reads only that entry. `adapt`
 //!   hands Magick the file with its count set to 1, which leaves entry 0's
 //!   directory record and data where they were.
-//! - Magick takes an entry as PNG when its bytes 1 to 3 are "PNG",
-//!   whatever byte 0 is; this package needs the whole eight-byte signature.
-//!   Until `image.png` lands this package rejects PNG entries, so
-//!   `comparable` leaves out Magick's answer for any entry Magick reads as
-//!   PNG, and afterwards for one whose signature is not exact.
+//! - Magick takes an entry as PNG when its bytes 1 to 3 are "PNG", and
+//!   writes the rest of the signature and the IHDR length (bytes 0 to 11)
+//!   itself; this package reads them as they are. `comparable` leaves out
+//!   Magick's answer for an entry whose first 12 bytes are not exact, and
+//!   for every PNG entry when the build has no `image.png`.
+//! - Magick's PNG reader (libpng) rejects a chunk type that is not four
+//!   letters; Wuffs, libspng, and `image.png` skip it as an unknown
+//!   ancillary chunk when its first byte is lowercase. `comparable` leaves
+//!   out Magick's answer for a PNG entry with such a chunk.
+//! - Magick's PNG reader (libpng) warns on an ancillary chunk whose CRC-32
+//!   is wrong or whose contents are invalid (a gAMA of 0 or over 2^31), and
+//!   the oracle rejects on any exception. This package does not check
+//!   ancillary CRCs, as Wuffs and libspng do not, and ignores a malformed
+//!   metadata chunk, which it never applies to the pixels. `adapt` hands
+//!   Magick the PNG without the ancillary chunks that cannot change the
+//!   pixels, and with the CRCs of the rest (tRNS and APNG's) corrected.
 //! - Magick reads 40 header bytes whatever biSize says, and the color table
 //!   right after them, and ignores biCompression; this package takes the
 //!   uncompressed BITMAPINFOHEADER the format names and rejects any other
 //!   size or compression. Magick takes the directory's size for a biWidth
-//!   or biHeight of 0; this package takes an entry's size from its own
-//!   header alone and rejects a zero. `comparable` leaves out Magick's answer for
-//!   these.
+//!   of 0 or a biHeight below 2 (half of it is 0); this package takes an
+//!   entry's size from its own header alone and rejects those.
+//!   `comparable` leaves out Magick's answer for these.
 //! - Magick rejects an entry whose directory size runs past the end of the
 //!   file; this package reads forward without knowing the file's size and
 //!   takes an entry's extent from its own header. `adapt` cuts the size to
-//!   the end of the file.
+//!   the end of the file. Magick also reads a PNG entry only as far as its
+//!   directory size says, where this package reads it to IEND, so `adapt`
+//!   gives a PNG entry the rest of the file.
 //! - Magick reads entry data that starts inside the directory, which this
 //!   package rejects. `comparable` leaves out Magick's answer for it.
 //! - A color table has biClrUsed entries. Below 2^bits it can leave
@@ -55,11 +68,14 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
     const count = std.mem.readInt(u16, input[4..6], .little);
     if (input.len - data.len < 6 + 16 * @as(u32, count)) return false;
     if (data.len < 4) return true;
-    if (std.mem.eql(u8, data[1..4], "PNG")) return @hasDecl(image, "png") and data[0] == 0x89;
+    if (std.mem.eql(u8, data[1..4], "PNG")) {
+        return @hasDecl(image, "png") and std.mem.startsWith(u8, data, png_signature ++ "\x00\x00\x00\x0d") and
+            lettersOnly(data);
+    }
     if (std.mem.readInt(u32, data[0..4], .little) != 40) return false;
     if (data.len < 20) return true;
     if (std.mem.readInt(u32, data[4..8], .little) == 0) return false;
-    if (std.mem.readInt(u32, data[8..12], .little) == 0) return false;
+    if (std.mem.readInt(u32, data[8..12], .little) < 2) return false;
     if (std.mem.readInt(u32, data[16..20], .little) != 0) return false;
     if (data.len < 36) return true;
     const bits = std.mem.readInt(u16, data[14..16], .little);
@@ -68,7 +84,8 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
 }
 
 /// The input Magick sees: the file with entry 0 alone, its directory size
-/// cut to the end of the file, and a 32-bit entry 0's mask padded out.
+/// cut to the end of the file, a 32-bit entry 0's mask padded out, and a
+/// PNG entry 0's ancillary chunks cleaned (`cleanPng`).
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
     _ = op;
     if (entry0(input) == null) return input;
@@ -76,9 +93,60 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
     @memcpy(copy[0..input.len], input);
     @memset(copy[input.len..], 0);
     std.mem.writeInt(u16, copy[4..6], @min(1, std.mem.readInt(u16, copy[4..6], .little)), .little);
-    const left: u32 = @intCast(copy.len - std.mem.readInt(u32, copy[18..22], .little));
-    std.mem.writeInt(u32, copy[14..18], @min(left, std.mem.readInt(u32, copy[14..18], .little)), .little);
-    return copy;
+    const offset = std.mem.readInt(u32, copy[18..22], .little);
+    const left: u32 = @intCast(copy.len - offset);
+    const size = @min(left, std.mem.readInt(u32, copy[14..18], .little));
+    const removed: u32 = @intCast(left - cleanPng(copy[offset..]));
+    const png = std.mem.startsWith(u8, copy[offset..], png_signature);
+    std.mem.writeInt(u32, copy[14..18], if (png) left - removed else size, .little);
+    return copy[0 .. copy.len - removed];
+}
+
+const png_signature = "\x89PNG\r\n\x1a\n";
+
+/// Whether every whole chunk's type in `png`, up to IEND, is four ASCII
+/// letters.
+fn lettersOnly(png: []const u8) bool {
+    var at: usize = png_signature.len;
+    while (png.len - at >= 12) {
+        const len = std.mem.readInt(u32, png[at..][0..4], .big);
+        const kind = png[at + 4 ..][0..4];
+        for (kind) |c| if (!std.ascii.isAlphabetic(c)) return false;
+        if (len > png.len - at - 12 or std.mem.eql(u8, kind, "IEND")) return true;
+        at += 12 + len;
+    }
+    return true;
+}
+
+/// Drops the ancillary chunks that cannot change the pixels from `png`, a
+/// PNG stream that may be cut short, and corrects the CRC-32 of the ones
+/// that can (tRNS and APNG's), moving what follows down. Returns the new
+/// length; `png` is left as it is when it does not start with the
+/// signature.
+fn cleanPng(png: []u8) usize {
+    if (!std.mem.startsWith(u8, png, png_signature)) return png.len;
+    var at: usize = png_signature.len;
+    var out = at;
+    while (png.len - at >= 12) {
+        const len = std.mem.readInt(u32, png[at..][0..4], .big);
+        if (len > png.len - at - 12) break;
+        const kind = png[at + 4 ..][0..4];
+        const end = std.mem.eql(u8, kind, "IEND");
+        // Ancillary chunks have a lowercase first letter.
+        const ancillary = kind[0] & 0x20 != 0;
+        const keep = !ancillary or std.mem.eql(u8, kind, "tRNS") or std.mem.eql(u8, kind, "acTL") or
+            std.mem.eql(u8, kind, "fcTL") or std.mem.eql(u8, kind, "fdAT");
+        if (keep) {
+            @memmove(png[out..][0 .. 12 + len], png[at..][0 .. 12 + len]);
+            const typed = png[out + 4 ..][0 .. 4 + len];
+            if (ancillary) std.mem.writeInt(u32, png[out + 8 + len ..][0..4], std.hash.Crc32.hash(typed), .big);
+            out += 12 + len;
+        }
+        at += 12 + len;
+        if (end) break;
+    }
+    @memmove(png[out..][0 .. png.len - at], png[at..]);
+    return out + (png.len - at);
 }
 
 /// Entry 0's data, when its offset is inside the file.
