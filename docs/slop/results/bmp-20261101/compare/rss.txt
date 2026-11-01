@@ -1,0 +1,8 @@
+peak RSS (MiB)            image    wuffs     qoih      stb image-rs     zune       go
+bmp-decode                385.9    386.8        -    609.0    386.7    386.6   1716.3
+bmp-decode-rle             35.0     35.9        -        -     35.8        -        -
+bmp-decode-bgra           385.9    386.8        -        -        -        -        -
+bmp-encode-rgb            114.0        -        -    114.5    114.8        -        -
+bmp-encode-rgba           146.0        -        -    146.5    146.8        -    225.4
+bmp-encode-gray           114.0        -        -    114.5    114.8        -    139.7
+ico-decode                  2.5        -        -        -      3.4        -        -

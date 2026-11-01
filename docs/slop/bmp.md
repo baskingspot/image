@@ -66,4 +66,8 @@ Rows are written bottom first, as every reader expects. No work memory.
 
 ## Measurements
 
-docs/slop/results/bmp-20261101.md.
+docs/slop/results/bmp-20261101.md: decode 1.30× Wuffs on icons (1.45× to
+BGRA), at parity from a megapixel up (0.97 to 1.02), and RLE 1.3 to 2.6×;
+peak RSS is the caller's buffers. The rows that lose to Wuffs (down to 0.69)
+are narrow 24-bit and 32-bit images, where `image.convert`'s per-call tail
+cost is half of a short row; the fix belongs in src/convert.zig.

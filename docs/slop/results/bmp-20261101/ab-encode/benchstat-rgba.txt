@@ -1,0 +1,17 @@
+                                  │    old.txt    │               new.txt               │
+                                  │    sec/op     │    sec/op     vs base               │
+BmpEncodeRGBA/alpha-1024x1024.raw   377.1µ ±  28%   361.3µ ±  9%       ~ (p=0.315 n=10)
+BmpEncodeRGBA/alpha-16x16.raw       229.4n ± 109%   221.9n ± 88%       ~ (p=0.190 n=10)
+BmpEncodeRGBA/alpha-256x256.raw     14.79µ ±   5%   14.67µ ±  4%       ~ (p=0.684 n=10)
+BmpEncodeRGBA/alpha-4096x4096.raw   13.68m ±   3%   13.80m ±  1%       ~ (p=0.280 n=10)
+BmpEncodeRGBA/alpha-64x64.raw       1.149µ ±   7%   1.116µ ±  7%       ~ (p=0.123 n=10)
+geomean                             28.89µ          28.29µ        -2.08%
+
+                                  │   old.txt    │               new.txt               │
+                                  │     MP/s     │     MP/s      vs base               │
+BmpEncodeRGBA/alpha-1024x1024.raw   2.781k ± 22%   2.902k ±  8%       ~ (p=0.315 n=10)
+BmpEncodeRGBA/alpha-16x16.raw       1.116k ± 52%   1.154k ± 47%       ~ (p=0.190 n=10)
+BmpEncodeRGBA/alpha-256x256.raw     4.431k ±  5%   4.466k ±  4%       ~ (p=0.684 n=10)
+BmpEncodeRGBA/alpha-4096x4096.raw   1.226k ±  3%   1.216k ±  1%       ~ (p=0.280 n=10)
+BmpEncodeRGBA/alpha-64x64.raw       3.563k ±  7%   3.671k ±  7%       ~ (p=0.123 n=10)
+geomean                             2.269k         2.317k        +2.13%

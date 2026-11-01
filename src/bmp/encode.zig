@@ -81,9 +81,12 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: Options, work: []u8) Err
     _ = work;
     try src.check();
     const l = layout(options.format, src.format, src.width, src.height) orelse return error.ImageTooLarge;
-    var table: Table = .{};
+    var table: Table = undefined;
     const gray = src.format.isGray();
-    if (l.format == .indexed8 and !gray) try table.collect(src);
+    if (l.format == .indexed8 and !gray) {
+        table = .{};
+        try table.collect(src);
+    }
     const colors: u32 = if (l.format != .indexed8) 0 else if (gray) 256 else table.count;
     // A table of fewer than 256 colors is written short.
     const table_len = colors * 4;
@@ -96,10 +99,10 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: Options, work: []u8) Err
     writeInfo(head[14..], l.header_len, src.width, src.height, l.format, colors, l.row_len * src.height);
     try w.writeAll(head[0 .. 14 + l.header_len]);
     if (l.format == .indexed8) {
-        for (0..colors) |i| {
-            const c: [4]u8 = if (gray) .{ @intCast(i), @intCast(i), @intCast(i), 0 } else table.colors[i];
-            try w.writeAll(&c);
+        if (gray) {
+            for (&table.colors, 0..) |*c, i| c.* = .{ @intCast(i), @intCast(i), @intCast(i), 0 };
         }
+        try w.writeAll(std.mem.sliceAsBytes(table.colors[0..colors]));
     }
     try writeRows(w, src, l.format, if (l.format == .indexed8 and !gray) &table else null, l.row_len);
 }
@@ -155,6 +158,12 @@ fn writeRows(w: *Io.Writer, src: PixelBuffer, format: Options.Format, table: ?*c
     while (y > 0) {
         y -= 1;
         const row = src.row(y);
+        if (src.format == out and table == null) {
+            // Already what the file stores.
+            try w.writeAll(row[0 .. src.width * out_bpp]);
+            try w.splatByteAll(0, pad);
+            continue;
+        }
         var x: usize = 0;
         while (x < src.width) {
             const n = @min(src.width - x, span);

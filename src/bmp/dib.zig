@@ -328,12 +328,19 @@ pub const Palette = [256][4]u8;
 /// Reads `entries` color table entries of `h.entry_len` bytes, keeping the
 /// first 256.
 pub fn readPalette(in: *Input, h: Header, entries: u32, palette: *Palette) Error!void {
-    palette.* = @splat(.{ 0, 0, 0, 255 });
     const kept = @min(entries, 256);
-    for (palette[0..kept]) |*c| {
-        const e = try in.take(h.entry_len);
-        c.* = .{ e[0], e[1], e[2], 255 };
+    var i: usize = 0;
+    while (i < kept) {
+        const m = @min(kept - i, in.maxTake(h.entry_len) / h.entry_len);
+        const src = try in.take(m * h.entry_len);
+        if (h.entry_len == 4) {
+            opaque4(std.mem.sliceAsBytes(palette[i..][0..m]), src);
+        } else {
+            for (palette[i..][0..m], 0..) |*c, k| c.* = .{ src[3 * k], src[3 * k + 1], src[3 * k + 2], 255 };
+        }
+        i += m;
     }
+    @memset(palette[kept..], .{ 0, 0, 0, 255 });
     try in.skip(@as(u64, entries - kept) * h.entry_len);
 }
 

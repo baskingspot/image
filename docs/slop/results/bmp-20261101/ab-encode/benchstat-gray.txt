@@ -1,0 +1,17 @@
+                                  │    old.txt    │               new.txt                │
+                                  │    sec/op     │    sec/op     vs base                │
+BmpEncodeGray/photo-1024x1024.raw    81.31µ ±  6%   74.43µ ±  3%   -8.46% (p=0.000 n=10)
+BmpEncodeGray/photo-16x16.raw       1029.2n ±  2%   268.0n ±  6%  -73.96% (p=0.000 n=10)
+BmpEncodeGray/photo-256x256.raw      5.579µ ± 10%   3.336µ ± 12%  -40.20% (p=0.000 n=10)
+BmpEncodeGray/photo-4096x4096.raw    3.098m ±  5%   3.075m ±  5%        ~ (p=0.315 n=10)
+BmpEncodeGray/photo-64x64.raw       1431.8n ±  5%   457.7n ± 19%  -68.03% (p=0.000 n=10)
+geomean                              18.33µ         9.870µ        -46.16%
+
+                                  │   old.txt   │                new.txt                │
+                                  │    MP/s     │     MP/s      vs base                 │
+BmpEncodeGray/photo-1024x1024.raw   12.90k ± 5%   14.09k ±  3%    +9.24% (p=0.000 n=10)
+BmpEncodeGray/photo-16x16.raw        248.7 ± 2%    955.3 ±  5%  +284.06% (p=0.000 n=10)
+BmpEncodeGray/photo-256x256.raw     11.75k ± 9%   19.64k ± 10%   +67.23% (p=0.000 n=10)
+BmpEncodeGray/photo-4096x4096.raw   5.416k ± 4%   5.455k ±  5%         ~ (p=0.315 n=10)
+BmpEncodeGray/photo-64x64.raw       2.861k ± 5%   8.948k ± 16%  +212.79% (p=0.000 n=10)
+geomean                             3.575k        6.640k         +85.74%
