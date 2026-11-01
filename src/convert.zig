@@ -2,9 +2,9 @@
 //!
 //! Every pair of `PixelFormat`s converts. Integer formats convert through
 //! 16-bit RGBA, and any pair with a float side through `f32` RGBA. Integer
-//! results are Wuffs's pixel swizzler's on every pair it has
-//! (docs/slop/results/convert-rounding-20261101.md), with these
-//! definitions:
+//! results are Wuffs's pixel swizzler's on every pair it has that keeps
+//! alpha or has none to drop (docs/slop/results/convert-rounding-20261101.md),
+//! with these definitions:
 //!
 //! - Widening an 8-bit sample multiplies by 257; narrowing a 16-bit one
 //!   takes its high byte. A float sample is `c / max` one way and `c * max`
@@ -16,9 +16,9 @@
 //!   premultiplying is `c * a * 257 / 65280` truncated and unpremultiplying
 //!   `c * 65535 / a / 256`. Float conversions multiply and divide without
 //!   rounding or clamping.
-//! - A format without alpha gets the color composited onto black: a
-//!   straight source is premultiplied and a premultiplied one's alpha is
-//!   dropped. A source without alpha is opaque.
+//! - A format without alpha drops the (unpremultiplied) alpha; a source
+//!   without alpha is opaque. Wuffs composites onto black there instead,
+//!   the one place the integer results differ from its.
 //! - Gray from color is `(19595 R + 38470 G + 7471 B + 32768) >> 16` on
 //!   16-bit samples (Rec. 601 luma), and `0.299 R + 0.587 G + 0.114 B` with
 //!   those weights in float. Color from gray repeats the gray sample.
@@ -91,10 +91,10 @@ const chunk = 64;
 
 /// The general path for one pair: an unpack from the source and a pack to
 /// the destination, through 16-bit or float RGBA. The pivot is
-/// premultiplied (`premul`) when the destination is premultiplied or has no
-/// alpha, and straight otherwise; the unpack premultiplies or
-/// unpremultiplies to match, so a premultiplied source's samples above
-/// their alpha come through a premultiplied pivot as they are.
+/// premultiplied (`premul`) when the destination is, and straight
+/// otherwise; the unpack premultiplies or unpremultiplies to match, so
+/// premultiplied to premultiplied passes samples above their alpha through
+/// as they are.
 const Stages = union(enum) {
     int: struct {
         unpack: *const fn (in: []const u8, pivot: *[chunk][4]u16, m: usize) void,
@@ -106,7 +106,7 @@ const Stages = union(enum) {
     },
 
     fn init(dst: PixelFormat, src: PixelFormat) Stages {
-        const premul = dst.isPremultiplied() or !dst.hasAlpha();
+        const premul = dst.isPremultiplied();
         if (dst.sample() == .f32 or src.sample() == .f32) {
             return switch (premul) {
                 inline else => |p| .{ .float = .{
@@ -335,12 +335,8 @@ fn fast(dst: PixelFormat, src: PixelFormat) ?Converter.Kernel {
         if (src.channelCount() == 3 and dst.channelCount() == 4) {
             return if (swapped) Expand3(true).run else Expand3(false).run;
         }
-        if (src.channelCount() == 4 and dst.channelCount() == 3) {
-            return switch (swapped) {
-                inline else => |sw| switch (src.isPremultiplied()) {
-                    inline else => |p| Drop4(sw, !p).run,
-                },
-            };
+        if (src.channelCount() == 4 and dst.channelCount() == 3 and !src.isPremultiplied()) {
+            return if (swapped) Drop4(true).run else Drop4(false).run;
         }
         if (src == .gray8 and !dst.isGray()) {
             return switch (dst.channelCount()) {
@@ -471,30 +467,24 @@ fn Expand3(comptime swap: bool) type {
     };
 }
 
-/// RGBA or BGRA to RGB or BGR: premultiplied alpha dropped, straight alpha
-/// composited onto black (`composite`).
-fn Drop4(comptime swap: bool, comptime composite: bool) type {
+/// RGBA or BGRA to RGB or BGR, dropping straight alpha.
+fn Drop4(comptime swap: bool) type {
     return struct {
         const lanes = 16;
         const dst: PixelFormat = if (swap) .bgr8 else .rgb8;
-        const src: PixelFormat = if (composite) .rgba8 else .rgba8_premul;
         fn run(out: []u8, in: []const u8, n: usize) void {
-            blocks(dst, src, lanes, out, in, n, block);
+            blocks(dst, .rgba8, lanes, out, in, n, block);
         }
         fn block(o: *[lanes * 3]u8, i: *const [lanes * 4]u8) void {
-            const order = comptime m: {
+            const mask = comptime m: {
                 var m: [lanes * 3]i32 = undefined;
-                var a: [lanes * 4]i32 = undefined;
                 for (0..lanes) |p| {
                     for (0..3) |ch| m[p * 3 + ch] = p * 4 + (if (swap) 2 - ch else ch);
-                    for (0..4) |ch| a[p * 4 + ch] = p * 4 + 3;
                 }
-                break :m .{ m, a };
+                break :m m;
             };
-            var v: @Vector(lanes * 4, u8) = i.*;
-            // Whole pixels premultiply faster than the 48 color lanes.
-            if (composite) v = premultiply(lanes * 4, v, @shuffle(u8, v, undefined, order[1]));
-            o.* = @shuffle(u8, v, undefined, order[0]);
+            const v: @Vector(lanes * 4, u8) = i.*;
+            o.* = @shuffle(u8, v, undefined, mask);
         }
     };
 }
@@ -521,21 +511,18 @@ fn Premultiply(comptime swap: bool) type {
             };
             const v: @Vector(lanes * 4, u8) = i.*;
             const full: @Vector(1, u8) = .{255};
+            const c: @Vector(lanes * 4, u16) = @shuffle(u8, v, undefined, order[0]);
             // The alpha lanes multiply by 255, which leaves them unchanged.
-            o.* = premultiply(lanes * 4, @shuffle(u8, v, undefined, order[0]), @shuffle(u8, v, full, order[1]));
+            const a: @Vector(lanes * 4, u16) = @shuffle(u8, v, full, order[1]);
+            // The general path's `((c * 257) * (a * 257) / 65535) >> 8` is
+            // `c * a * 257 / 65280` truncated, and for every product `t` of
+            // two bytes that is this, with no sum past 65534; the test
+            // against Wuffs's values checks all of them.
+            const t = c * a;
+            const p: @Vector(lanes * 4, u8) = @intCast((t + ((t + (t >> @splat(8))) >> @splat(7))) >> @splat(8));
+            o.* = p;
         }
     };
-}
-
-/// The general path's 8-bit premultiply, `((c * 257) * (a * 257) / 65535) >> 8`,
-/// which is `c * a * 257 / 65280` truncated. For every product `t` of two
-/// bytes that is `(t + ((t + (t >> 8)) >> 7)) >> 8` in 16-bit lanes, as the
-/// test against Wuffs's values checks over all of them.
-inline fn premultiply(comptime n: usize, c: @Vector(n, u8), a: @Vector(n, u8)) @Vector(n, u8) {
-    const V = @Vector(n, u16);
-    const t = @as(V, c) * @as(V, a);
-    // No sum passes 65534.
-    return @intCast((t + ((t + (t >> @splat(8))) >> @splat(7))) >> @splat(8));
 }
 
 /// Gray to RGB, RGBA, or BGRA (the same bytes), opaque.
@@ -659,7 +646,6 @@ test "8-bit premultiply, unpremultiply, and narrowing match Wuffs" {
     for (&straight, 0..) |*p, i| p.* = .{ @truncate(i), @truncate(~i), @truncate(i *% 91 +% 17), @intCast(i >> 8) };
     const bytes = std.mem.sliceAsBytes(&straight);
     var out: [256 * 256][4]u8 = undefined;
-    var out3: [256 * 256][3]u8 = undefined;
     var out16: [256 * 256][4]u16 = undefined;
     for ([_]bool{ true, false }) |simd| {
         const run = struct {
@@ -669,15 +655,9 @@ test "8-bit premultiply, unpremultiply, and narrowing match Wuffs" {
             }
         }.run;
         run(simd, std.mem.sliceAsBytes(&out), .rgba8_premul, bytes, .rgba8);
-        run(simd, std.mem.sliceAsBytes(&out3), .rgb8, bytes, .rgba8);
-        for (straight, out, out3) |in, p, q| {
+        for (straight, out) |in, p| {
             const a: u32 = in[3];
-            for (0..3) |ch| {
-                const want = in[ch] * a * 257 / (255 * 256);
-                try testing.expectEqual(want, p[ch]);
-                // Dropping straight alpha composites onto black.
-                try testing.expectEqual(want, q[ch]);
-            }
+            for (0..3) |ch| try testing.expectEqual(in[ch] * a * 257 / (255 * 256), p[ch]);
             try testing.expectEqual(a, p[3]);
         }
         // The same bytes read as premultiplied, valid or not.
@@ -720,11 +700,8 @@ test "gray and color" {
     try testing.expectEqual(150, out[0]);
     convert(&out, .rgba8, &[2]u8{ 9, 200 }, .gray_alpha8, 1);
     try testing.expectEqualSlices(u8, &.{ 9, 9, 9, 200 }, out[0..4]);
-    // Dropping alpha composites onto black.
-    convert(&out, .bgr8, &[4]u8{ 1, 2, 3, 255 }, .rgba8, 1);
-    try testing.expectEqualSlices(u8, &.{ 3, 2, 1 }, out[0..3]);
     convert(&out, .bgr8, &[4]u8{ 1, 2, 3, 0 }, .rgba8, 1);
-    try testing.expectEqualSlices(u8, &.{ 0, 0, 0 }, out[0..3]);
+    try testing.expectEqualSlices(u8, &.{ 3, 2, 1 }, out[0..3]);
 }
 
 test "float samples" {
