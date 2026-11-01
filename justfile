@@ -188,10 +188,16 @@ bench-compare ROUNDS="10" *OPS: bench-corpus bench-build
     # The outputs must match before the timings mean anything: every arm's
     # checksums against this package's, on the rows both have. An `own`
     # operation (bench/ops.tsv) may differ, and the differences are listed.
+    # An arm skips the inputs it fails (`# SKIP <Row>/<input>`), which drop
+    # out of its rows; this package must not fail any.
     for arm in "${arms[@]}"; do
         zig-out/bin/bench-$arm check "${ops[@]}" > "$out/check-$arm.txt" 2> "$out/stderr-$arm.txt" ||
             { cat "$out/stderr-$arm.txt"; exit 1; }
     done
+    if grep '^# SKIP [^ ]*/' "$out/check-image.txt"; then
+        echo "image failed the inputs above"
+        exit 1
+    fi
     {
         echo "cpu: $(lscpu | sed -n 's/^Model name: *//p'), $(nproc) threads"
         echo "image: ReleaseFast, native; C arms: cc -O3 -march=native; rust: target-cpu=native; go: GOAMD64=v3"
@@ -209,9 +215,11 @@ bench-compare ROUNDS="10" *OPS: bench-corpus bench-build
                 status=1
             fi
         fi
-        printf '%-9s %4d rows, %d differ on own operations, %d operations skipped\n' "$arm" \
-            "$(grep -vc '^#' "$out/check-$arm.txt" || true)" "$(wc -l < "$out/check-diff-$arm.txt")" \
-            "$(grep -c '^# SKIP' "$out/check-$arm.txt" || true)"
+        printf '%-9s %4d rows, %d differ on own operations, %d operations skipped, %d inputs failed and skipped\n' \
+            "$arm" "$(grep -vc '^#' "$out/check-$arm.txt" || true)" "$(wc -l < "$out/check-diff-$arm.txt")" \
+            "$(grep -c '^# SKIP Benchmark' "$out/check-$arm.txt" || true)" \
+            "$(grep -c '^# SKIP [^ ]*/' "$out/check-$arm.txt" || true)"
+        grep '^# SKIP [^ ]*/' "$out/check-$arm.txt" | sed 's/^# SKIP /          skipped /' || true
     done
     [ "$status" = 0 ] || exit 1
     # Peak RSS of one pass over each operation's inputs: the inputs and
@@ -224,7 +232,7 @@ bench-compare ROUNDS="10" *OPS: bench-corpus bench-build
             printf '%-22s' "$op"
             for arm in "${arms[@]}"; do
                 command time -f %M -o "$out/rss-run.txt" zig-out/bin/bench-$arm check "$op" > "$out/rss-check.txt" 2> /dev/null
-                if grep -q '^# SKIP' "$out/rss-check.txt"; then printf '%9s' -; continue; fi
+                if grep -q '^# SKIP Benchmark' "$out/rss-check.txt"; then printf '%9s' -; continue; fi
                 awk '{ printf "%9.1f", $1 / 1024 }' "$out/rss-run.txt"
             done
             echo

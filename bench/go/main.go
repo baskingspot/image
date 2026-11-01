@@ -6,6 +6,9 @@
 //	bench-go check [OP...]   one call per input: `<Row>/<input>\tlen=N fnv=H`
 //	bench-go bench [OP...]   each input timed for BENCHTIME_MS
 //	bench-go serve           `OP INPUT N` lines on stdin, a row each
+//
+// An input the operation fails (returns 0 for) is `# SKIP <Row>/<input>:
+// failed`, in place of its line, and is not timed.
 package main
 
 import (
@@ -126,10 +129,9 @@ func load(o *opLine, input string) {
 
 var sink int
 
-// n calls after one untimed call, or as many as fill BENCHTIME_MS when n
-// is 0, grown as testing.B grows them.
+// n calls, or as many as fill BENCHTIME_MS when n is 0, grown as
+// testing.B grows them.
 func timed(f opFunc, n int) (int, time.Duration) {
-	sink = f(in, out)
 	if n > 0 {
 		t := time.Now()
 		for i := 0; i < n; i++ {
@@ -156,8 +158,18 @@ func timed(f opFunc, n int) (int, time.Duration) {
 	}
 }
 
+// skip reports an input the operation failed, in place of its line.
+func skip(prefix string, o *opLine, input string) {
+	fmt.Printf("# SKIP %s%s/%s: failed\n", prefix, o.row, input)
+}
+
 func row(o *opLine, input string, n int) {
 	load(o, input)
+	// One untimed call, which must succeed.
+	if funcs[o.name](in, out) == 0 {
+		skip("Benchmark", o, input)
+		return
+	}
 	n, d := timed(funcs[o.name], n)
 	per := float64(d.Nanoseconds()) / float64(n)
 	fmt.Printf("Benchmark%s/%s\t%d\t%.1f ns/op\t%.2f MP/s\n", o.row, input, n, per, float64(pixelsOf(input))/per*1000)
@@ -182,6 +194,10 @@ func eachInput(o *opLine, check bool) {
 		}
 		load(o, name)
 		n := funcs[o.name](in, out)
+		if n == 0 {
+			skip("", o, name)
+			continue
+		}
 		h := fnv.New64a()
 		h.Write(out[:n])
 		fmt.Printf("%s/%s\tlen=%d fnv=%016x\n", o.row, name, n, h.Sum64())

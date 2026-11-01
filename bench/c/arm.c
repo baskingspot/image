@@ -6,7 +6,9 @@
 //
 // Run from the repository root. Every buffer is an anonymous mapping of its
 // own, the input BENCH_IN_OFFSET bytes into its first page and the output
-// BENCH_OUT_OFFSET bytes into its, both written before timing.
+// BENCH_OUT_OFFSET bytes into its, both written before timing. An input the
+// operation fails (returns 0 for) is `# SKIP <Row>/<input>: failed`, in
+// place of its line, and is not timed.
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <stdio.h>
@@ -153,11 +155,11 @@ static uint64_t fnv(const uint8_t *p, size_t n) {
   return h;
 }
 
-// N calls after one untimed call, or as many as fill BENCHTIME_MS when N is
-// 0, grown as Go's testing.B grows them. Returns the calls made and sets
-// *ns to their total time.
+// N calls, or as many as fill BENCHTIME_MS when N is 0, grown as Go's
+// testing.B grows them. Returns the calls made and sets *ns to their total
+// time.
 static uint64_t timed(bench_fn fn, uint64_t n, uint64_t *ns) {
-  volatile size_t sink = fn(in_buf, in_len, out_buf, out_cap);
+  volatile size_t sink = 0;
   if (n) {
     uint64_t t = now_ns();
     for (uint64_t i = 0; i < n; i++) {
@@ -185,9 +187,19 @@ static uint64_t timed(bench_fn fn, uint64_t n, uint64_t *ns) {
   return n;
 }
 
+static void skip(const char *prefix, const struct opline *o, const char *input) {
+  printf("# SKIP %s%s/%s: failed\n", prefix, o->row, input);
+  fflush(stdout);
+}
+
 static void row(const struct opline *o, const char *input, uint64_t n) {
   bench_fn fn = find_fn(o->name);
   load(o, input);
+  // One untimed call, which must succeed.
+  if (!fn(in_buf, in_len, out_buf, out_cap)) {
+    skip("Benchmark", o, input);
+    return;
+  }
   uint64_t ns = 0;
   n = timed(fn, n, &ns);
   double per = (double)ns / n;
@@ -215,8 +227,11 @@ static void each_input(const struct opline *o, int check, uint64_t n) {
     if (check) {
       load(o, name);
       size_t len = find_fn(o->name)(in_buf, in_len, out_buf, out_cap);
-      printf("%s/%s\tlen=%zu fnv=%016llx\n", o->row, name, len,
-             (unsigned long long)fnv(out_buf, len));
+      if (len)
+        printf("%s/%s\tlen=%zu fnv=%016llx\n", o->row, name, len,
+               (unsigned long long)fnv(out_buf, len));
+      else
+        skip("", o, name);
     } else {
       row(o, name, n);
     }

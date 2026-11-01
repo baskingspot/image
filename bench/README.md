@@ -48,7 +48,10 @@ bench-<arm> serve           `OP INPUT N` lines on stdin, a row each
 ```
 
 An operation writes its output into the caller's buffer and returns its
-length. Its inputs are the files in its directory of `bench/corpus-gen/`, as
+length, or 0 when it fails the input. An arm skips the inputs it fails,
+`# SKIP <Row>/<input>: failed` in place of their lines, and those rows drop
+out of its comparisons; `just bench-compare` lists them, and fails only when
+this package fails one. Its inputs are the files in its directory of `bench/corpus-gen/`, as
 `bench/ops.tsv` says, and every input's name ends in `-WxH`, its size, so
 throughput is in megapixels per second for every operation.
 
