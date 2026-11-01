@@ -39,6 +39,7 @@ pub const Decoder = @import("Decoder.zig");
 pub const bmp = @import("bmp/root.zig");
 pub const ico = @import("ico/root.zig");
 pub const qoi = @import("qoi/root.zig");
+pub const tga = @import("tga/root.zig");
 
 test {
     std.testing.refAllDecls(@This());

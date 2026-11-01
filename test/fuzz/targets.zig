@@ -11,6 +11,8 @@ pub const bmp_encode = @import("bmp_encode.zig");
 pub const ico = @import("ico.zig");
 pub const ico_encode = @import("ico_encode.zig");
 pub const qoi = @import("qoi.zig");
+pub const tga = @import("tga.zig");
+pub const tga_encode = @import("tga_encode.zig");
 
 const Self = @This();
 

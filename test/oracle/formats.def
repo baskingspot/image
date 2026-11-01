@@ -5,3 +5,4 @@
 FORMAT(qoi) // link: -
 FORMAT(bmp) // link: MagickWand
 FORMAT(ico) // link: -
+FORMAT(tga) // link: MagickWand
