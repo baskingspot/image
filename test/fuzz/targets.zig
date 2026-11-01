@@ -18,6 +18,8 @@ pub const tga = @import("tga.zig");
 pub const tga_encode = @import("tga_encode.zig");
 pub const netpbm = @import("netpbm.zig");
 pub const netpbm_encode = @import("netpbm_encode.zig");
+pub const wbmp = @import("wbmp.zig");
+pub const wbmp_encode = @import("wbmp_encode.zig");
 
 const Self = @This();
 

@@ -9,3 +9,4 @@ pub const jpeg = @import("jpeg.zig");
 pub const qoi = @import("qoi.zig");
 pub const tga = @import("tga.zig");
 pub const netpbm = @import("netpbm.zig");
+pub const wbmp = @import("wbmp.zig");

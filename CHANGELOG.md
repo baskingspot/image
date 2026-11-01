@@ -24,3 +24,4 @@ All notable changes to image are recorded here. The format follows
 - `image.gif.Decoder`, a streaming GIF87a and GIF89a decoder: interlacing, transparency, local and global color tables, animation frames with their region, disposal (restore to previous included), and blend, delays in flicks, and the NETSCAPE2.0 loop count; `Decoder.decodeFrameConfig` reports the next frame before it is drawn, and it needs about 68 KiB of work memory.
 - `image.EncodeError`, the errors every encoder shares; each format's encoder will be `encode(writer, pixels, options, work)` with `workLen` for its work memory.
 - The package depends on `compress` at commit fd03d72 (after 0.2.0, for its faster inflate), which brings `fastmem`.
+- `image.wbmp`: WBMP type 0, a streaming `wbmp.Decoder` that writes any pixel format, and `wbmp.encode`, which stores gray of at least 128 as white.

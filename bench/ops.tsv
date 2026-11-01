@@ -16,6 +16,9 @@ gif-decode-anim	GifDecodeAnim	gif/anim	4	same
 png-decode	PngDecode	png	4	same
 qoi-decode	QoiDecode	qoi	4	same
 qoi-decode-bgra	QoiDecodeBGRA	qoi	4	same
+wbmp-decode	WbmpDecode	wbmp	1	same
+wbmp-decode-rgba	WbmpDecodeRGBA	wbmp	4	same
+wbmp-encode	WbmpEncode	wbmp_encode	1	own
 convert-rgba8-bgra8	ConvertRGBA8ToBGRA8	raw/rgba8	4	same
 convert-rgb8-rgba8	ConvertRGB8ToRGBA8	raw/rgb8	4	same
 convert-rgba8-rgb8	ConvertRGBA8ToRGB8	raw/rgba8	3	own

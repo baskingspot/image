@@ -45,6 +45,7 @@ pub const jpeg = @import("jpeg/root.zig");
 pub const qoi = @import("qoi/root.zig");
 pub const tga = @import("tga/root.zig");
 pub const netpbm = @import("netpbm/root.zig");
+pub const wbmp = @import("wbmp/root.zig");
 
 test {
     std.testing.refAllDecls(@This());
