@@ -1,0 +1,2 @@
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) Processor @ 2.60GHz

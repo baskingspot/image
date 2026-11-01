@@ -2,7 +2,7 @@
 # AGENTS.md holds the working conventions.
 
 markdown := "README.md AGENTS.md CHANGELOG.md THIRD_PARTY.md bench/README.md corpus/README.md docs/slop .github"
-zig_sources := "src build.zig build.zig.zon test bench/zig"
+zig_sources := "src build.zig build.zig.zon test bench/zig docs/slop/results"
 
 # The arms `just bench-compare` runs, this package's first; the C arms come
 # from bench/c/arms.tsv.

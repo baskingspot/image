@@ -55,27 +55,46 @@ Shared by every format:
 ## API
 
 Modeled on Wuffs's, in Zig's terms. Nothing allocates: callers own every
-buffer.
+buffer. As built in wave 0 (src/; adding-a-format.md is the contract a new
+format follows):
 
-- One namespace per format (`image.png`, `image.jpeg`, ...) and a generic
-  layer (`image.detect`, `image.Decoder` over any format) on top.
-- Decoding is two calls. `decodeConfig` reads the header: dimensions, native
-  pixel format, frame count when known, metadata locations, and the work
-  memory the decode needs (`work_len`). Then `decodeFrame(dst, work)` writes
-  one frame into the caller's pixel buffer, using the caller's work buffer.
-  Animated and multi-page formats call `decodeFrame` again for each frame.
-- Limits are options the caller sets before any work: maximum width, height,
-  pixel count, frame count, and work memory. A file over a limit is an error,
-  not an allocation.
-- Input streams through `std.Io.Reader` and encoder output through
-  `std.Io.Writer`, as `compress` does. A decoder never needs the whole file
-  in memory, and never seeks unless the format requires it (TIFF and ICO do;
-  they take a seekable source).
-- Encoding mirrors it: `encode(writer, pixels, options, work)`, with
-  `workLen(options)` saying how much work memory to pass.
-- Errors are one error set per format with specific causes (bad checksum,
-  truncated, unsupported feature, over a limit), plus the reader's and
-  writer's errors.
+- One namespace per format (`image.qoi`, later `image.png`, ...), each with a
+  `Decoder`, and a generic layer on top: `image.detect(prefix) ?Format`
+  names any phase-1 format from its first `image.detect_prefix_len` (18)
+  bytes, and `image.Decoder` (`init(format, reader, options)` or
+  `initDetect(reader, options)`) decodes any format this build has, a tagged
+  union over the format decoders with the same calls. `Decoder.supports`
+  says which formats are in.
+- Decoding is two calls on a decoder made by `init(reader, options)`, which
+  reads nothing. `decodeConfig` reads the header and returns `Config`:
+  canvas size, `native` pixel format (lossless and cheapest to write),
+  `frame_count` and `loop_count` when known, `work_len`, `is_opaque`,
+  `background`, and `Metadata`. Then `decodeFrame(dst: PixelBuffer, work)`
+  writes the next frame into the caller's buffer, in any pixel format, and
+  returns its `Frame` (region, duration in flicks, disposal, blend), or null
+  when there are no more. Errors are sticky: after one, every call returns
+  it.
+- Input is pulled from a `std.Io.Reader` whose buffer holds at least
+  `image.min_buffer_len` (64) bytes; decoders never seek (decision 1).
+- `Limits` (width, height, pixels, frames, work memory) are options checked
+  before any work; `Limits.none` lifts them. `DecodeOptions` also carries a
+  `BlobSink` that receives ICC, EXIF, and XMP bytes as the decoder passes
+  them; `Metadata` reports orientation (`image.exif` parses it), transfer,
+  chromaticities, and density.
+- `PixelFormat` has 20 formats: 8- and 16-bit gray, gray-alpha, RGB, BGR,
+  RGBA, and BGRA, straight and premultiplied, and RGBA f32. `PixelBuffer` is
+  pixels, format, size, and stride. `image.convert` (`Converter`, `convert`,
+  `convertBuffer`) converts between any two, with SIMD kernels for the
+  common pairs and a general path through 16-bit or f32 RGBA; dropping alpha
+  drops it (no compositing), gray is luma 19595/38470/7471, 16 to 8 bits
+  rounds c / 257, and 8-bit premultiplication rounds exactly.
+- Encoding mirrors it (src/encode.zig): `encode(writer, src: PixelBuffer,
+options, work)` in each format's namespace, with `workLen(options, width,
+height)` saying how much work memory to pass, and `image.EncodeError` as
+  the shared error set. QOI encode in wave 1 is the first.
+- Errors are one set per format: `image.DecodeError` (truncated, bad
+  signature or header, unsupported, over a limit, buffer or work memory too
+  small, the reader's failure) plus the format's own causes.
 
 ## Dependencies
 
@@ -146,10 +165,13 @@ encode stays in wave 1.
 
 ## Decisions to measure
 
-1. **Streaming model.** `std.Io.Reader` pulls are the default, for
-   consistency with `compress`. Measure their per-call cost on small images
-   against a Wuffs-style resumable push decoder before the API settles in
-   wave 0.
+1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
+   wave 0 against a Wuffs-style resumable push decoder on the QOI decoder
+   (results/streaming-20261101.md): within ±1.3% per call on 16×16 to 64×64
+   icons, 3–4% slower than pull over a megapixel, a 4 KiB-chunked reader
+   costs pull 1.5%, and push needs resumption state at every level of a
+   format. Decoders need a reader buffer of at least `min_buffer_len` (64)
+   bytes.
 2. **JPEG IDCT and upsampling.** libjpeg-turbo's integer IDCT and fancy
    upsampling decide whether our pixels can match it exactly. Default: match
    libjpeg-turbo's output bit for bit, so it is a strict oracle.
