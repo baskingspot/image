@@ -39,9 +39,11 @@
             .hash = "testingx-0.2.0-ib95-5lNAwA8WZQH6Q6eDm2hgfC3ixFJuhkOrR8gcZAm",
             .lazy = true,
         },
+        // Pinned to a commit after 0.2.0 for its inflate fast path, which
+        // PNG decode needs; move to the next release when there is one.
         .compress = .{
-            .url = "https://baskingspot.dev/compress/v0.2.0.tar.gz",
-            .hash = "compress-0.2.0-VxR1WlYeOwA0bZhNNKz26y0rqAqo4PHrxHrnmOKjvb1O",
+            .url = "git+https://github.com/baskingspot/compress#fd03d72bf76e827558d46e59d06a052fa08738f7",
+            .hash = "compress-0.2.0-VxR1Wg9QOwCrO4mDAFV-6Pu-pBUc6Y5hU_AAmGgRG-Ga",
         },
     },
     // Specifies the set of files and directories that are included in this package.

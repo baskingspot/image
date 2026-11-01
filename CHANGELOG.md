@@ -20,4 +20,4 @@ All notable changes to image are recorded here. The format follows
 - `image.png.Decoder`, a streaming PNG and APNG decoder: every color type and bit depth, Adam7, tRNS, APNG frames with their region, disposal, and blend, and gAMA, cHRM, sRGB, pHYs, bKGD, iCCP, and eXIf reported; CRCs of critical chunks and the Adler-32 are checked, and it needs about 72 KiB plus two rows of work memory.
 - Decoders pull from a `std.Io.Reader` whose buffer holds at least `image.min_buffer_len` (64) bytes, and never seek.
 - `image.EncodeError`, the errors every encoder shares; each format's encoder will be `encode(writer, pixels, options, work)` with `workLen` for its work memory.
-- The package depends on `compress` 0.2.0, which brings `fastmem`.
+- The package depends on `compress` at commit fd03d72 (after 0.2.0, for its faster inflate), which brings `fastmem`.
