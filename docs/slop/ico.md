@@ -17,7 +17,8 @@ rules that differ.
 - `Options.entry = i`: entry `i` alone, on a canvas of its own size, which
   comes from its header. A PNG entry decodes through `image.png` this way
   (behind `@hasDecl`, so the build works without it); without it, PNG
-  entries are `error.Unsupported`.
+  entries are `error.Unsupported`. A still PNG is read through IEND, whose
+  CRC is checked as in a PNG file; an APNG entry gives its first frame.
 - An entry's size is its header's: a DIB's width and half its height, or a
   PNG's IHDR. The directory's sizes and byte count are not trusted, since
   encoders get them wrong.

@@ -258,6 +258,10 @@ pub fn Generic(comptime Png: type) type {
                     .bmp => |h| try decodeBmp(&d.in, h, dst),
                     .png => |*p| if (has_png) {
                         _ = (try p.decodeFrame(dst, work)) orelse return error.Truncated;
+                        // A still image ends with IEND, which the next call
+                        // reads and checks, as a PNG file's caller would.
+                        // An animated one stops after its first frame.
+                        if (d.png_config.frame_count == 1) _ = try p.decodeFrame(dst, work);
                     },
                 }
                 return .{ .index = i, .width = dst.width, .height = dst.height };
@@ -398,4 +402,49 @@ test "malformed files" {
     d = .init(&r, .{});
     _ = try d.decodeConfig();
     try testing.expectError(error.EntryTooLarge, d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 1, 1), &.{}));
+}
+
+const PngDecoder = @import("../png/Decoder.zig");
+const PngTestDecoder = Generic(PngDecoder);
+
+/// A 2 by 1 RGBA PNG: (1, 2, 3, 4) and (5, 6, 7, 8).
+const png_2x1 = "\x89PNG\r\n\x1a\n" ++
+    "\x00\x00\x00\x0dIHDR\x00\x00\x00\x02\x00\x00\x00\x01\x08\x06\x00\x00\x00\xf4\x22\x7f\x8a" ++
+    "\x00\x00\x00\x14IDAT\x78\x01\x01\x09\x00\xf6\xff" ++
+    "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x00\x81\x00\x25\x25\x2b\x1e\x22" ++
+    "\x00\x00\x00\x00IEND\xae\x42\x60\x82";
+
+/// An ICO whose one entry is `png`, its directory saying 16 by 16.
+inline fn testPngFile(comptime png: []const u8) []const u8 {
+    return le(u16, 0) ++ le(u16, 1) ++ le(u16, 1) ++ "\x10\x10\x00\x00" ++ le(u16, 1) ++ le(u16, 32) ++
+        le(u32, png.len) ++ le(u32, 22) ++ png;
+}
+
+fn testDecodePng(comptime D: type, file: []const u8, options: D.Options, out: []u8) !decode.Config {
+    var r: Io.Reader = .fixed(file);
+    var d: D = .init(&r, options);
+    const config = try d.decodeConfig();
+    const work = try testing.allocator.alloc(u8, config.work_len);
+    defer testing.allocator.free(work);
+    const dst = try PixelBuffer.init(out, .rgba8, config.width, config.height);
+    _ = (try d.decodeFrame(dst, work)).?;
+    try testing.expectEqual(null, try d.decodeFrame(dst, work));
+    return config;
+}
+
+test "a picked PNG entry decodes through image.png, IEND included" {
+    var out: [8]u8 = undefined;
+    const config = try testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{ .entry = 0 }, &out);
+    // The PNG's own size, not the directory's.
+    try testing.expectEqual(.{ 2, 1 }, .{ config.width, config.height });
+    try testing.expectEqual(PixelFormat.rgba8, config.native);
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, &out);
+    // IEND is checked as in a PNG file.
+    const bad_iend = png_2x1[0 .. png_2x1.len - 1] ++ "\x83";
+    try testing.expectError(error.BadCrc, testDecodePng(PngTestDecoder, testPngFile(bad_iend), .{ .entry = 0 }, &out));
+    // Without image.png, or without `Options.entry`, a PNG entry is
+    // unsupported.
+    try testing.expectError(error.Unsupported, testDecodePng(TestDecoder, testPngFile(png_2x1), .{ .entry = 0 }, &out));
+    var big: [16 * 16 * 4]u8 = undefined;
+    try testing.expectError(error.Unsupported, testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{}, &big));
 }
