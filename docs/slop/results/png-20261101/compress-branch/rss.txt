@@ -1,0 +1,2 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng image-rs     zune       go
+png-decode                239.3    384.2        -    576.5    239.9    239.7    578.7    431.3    901.9

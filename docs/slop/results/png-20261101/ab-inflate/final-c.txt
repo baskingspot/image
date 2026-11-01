@@ -1,0 +1,6 @@
+/home/user/workspace/repo/bench/corpus-gen/png/photo_kodak-kodim01-768x512.png wuffs 288.6 MB/s zlib 184.1 MB/s (1180160 1180160)
+/home/user/workspace/repo/bench/corpus-gen/png/photo_mosaic-50mp-8192x6144.png wuffs 480.0 MB/s zlib 277.2 MB/s (151001088 151001088)
+/home/user/workspace/repo/bench/corpus-gen/png/screenshot_web-amazon_com-1313x6097.png wuffs 812.3 MB/s zlib 457.3 MB/s (32027541 32027541)
+/home/user/workspace/repo/bench/corpus-gen/png/icon_512-actions_address_book_new-512x512.png wuffs 1648.9 MB/s zlib 703.7 MB/s (1049088 1049088)
+/home/user/workspace/repo/bench/corpus-gen/png/textures_plants-plant_02-1024x1316.png wuffs 893.6 MB/s zlib 512.1 MB/s (5391652 5391652)
+done

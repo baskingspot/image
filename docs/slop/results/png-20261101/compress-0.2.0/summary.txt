@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s    wuffs      stb   libpng     spng image-rs     zune       go     ±   <1    ~   slowest vs wuffs
+PngDecode/icon                    17       30.1     0.35     0.37     0.64     0.58     0.33     0.30     1.15    2%   17    0   0.25 [0.22, 0.25] variant_palette-actions_address_book_new-64x64.png
+PngDecode/1mp                     27       62.5     0.40     0.56     0.75     0.71     0.36     0.38     1.68    1%   26    0   0.26 [0.22, 0.30] textures_pk-_pkf_water1-128x128.png
+PngDecode/large                    8       46.2     0.37     0.58     0.60     0.57     0.28     0.35     1.23    4%    8    0   0.29 [0.24, 0.29] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.png
+all                               52       47.0     0.38     0.49     0.69     0.64     0.33     0.35     1.41         51    0
