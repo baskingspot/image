@@ -294,7 +294,43 @@ pub fn zigFuzz(comptime T: type) !void {
             try T.check(input, smith.value(u64));
         }
     };
-    try std.testing.fuzz({}, Run.run, .{ .corpus = &T.seeds });
+    const corpus = comptime blk: {
+        var list: [T.seeds.len][]const u8 = undefined;
+        for (&list, T.seeds) |*s, seed| s.* = smithInput(seed);
+        break :blk list;
+    };
+    try std.testing.fuzz({}, Run.run, .{ .corpus = &corpus });
+}
+
+/// `seed` as `std.testing.Smith` reads the input and choice `zigFuzz`
+/// takes: a little-endian u32 length, the bytes, and a u64 choice, 0. A
+/// seed that already starts with its own length is taken as it is, for
+/// targets written before `zigFuzz` encoded seeds.
+fn smithInput(comptime seed: []const u8) []const u8 {
+    if (seed.len >= 4 and std.mem.readInt(u32, seed[0..4], .little) == seed.len - 4) return seed;
+    var len: [4]u8 = undefined;
+    std.mem.writeInt(u32, &len, seed.len, .little);
+    const out = len ++ seed[0..seed.len].* ++ [_]u8{0} ** 8;
+    return &out;
+}
+
+test smithInput {
+    const Seen = struct {
+        var input: [16]u8 = undefined;
+        var len: usize = 0;
+        var choice: u64 = 0;
+        fn run(_: void, smith: *std.testing.Smith) anyerror!void {
+            len = smith.slice(&input);
+            choice = smith.value(u64);
+        }
+    };
+    var smith: std.testing.Smith = .{ .in = comptime smithInput("qoif\x00\x01") };
+    try Seen.run({}, &smith);
+    try std.testing.expectEqualStrings("qoif\x00\x01", Seen.input[0..Seen.len]);
+    try std.testing.expectEqual(0, Seen.choice);
+    // Already encoded: as it is.
+    const abc = "\x03\x00\x00\x00abc";
+    try std.testing.expectEqualStrings(abc, comptime smithInput(abc));
 }
 
 /// The largest image `checkEncoder` makes, per side.
