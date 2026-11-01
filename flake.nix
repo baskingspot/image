@@ -19,7 +19,27 @@
       ];
 
       perSystem =
-        { pkgs, config, ... }:
+        {
+          pkgs,
+          lib,
+          config,
+          ...
+        }:
+        let
+          # Wuffs's C library, the single-file release: nixpkgs packages only
+          # its Go toolchain, at 0.3, which has no QOI. Pinned to the
+          # v0.4.0-alpha.12 tag.
+          wuffs-c = pkgs.stdenvNoCC.mkDerivation {
+            pname = "wuffs-c";
+            version = "0.4.0-alpha.12";
+            src = pkgs.fetchurl {
+              url = "https://raw.githubusercontent.com/google/wuffs/7f70dda95c77b10c087c0908790837b5e9c15713/release/c/wuffs-v0.4.c";
+              sha256 = "0kghsn4xsvs3v7fnjxbjfy2li95yja1al1n9qfdnvga7fd2nd025";
+            };
+            dontUnpack = true;
+            installPhase = "install -Dm644 $src $out/include/wuffs-v0.4.c";
+          };
+        in
         {
           devShells.default = pkgs.mkShell {
             inputsFrom = with config.devShells; [
@@ -28,7 +48,42 @@
             ];
 
             # Project-specific tools.
-            packages = with pkgs; [ ];
+            packages = with pkgs; [
+              # The oracles and C comparison arms (bench/README.md), built
+              # with the shell's cc and found with pkg-config or, for the
+              # header-only ones, on the include path.
+              pkg-config
+              libpng
+              libspng
+              libjpeg_turbo
+              giflib
+              libwebp
+              libtiff
+              libjxl
+              stb
+              wuffs-c
+              # qoi.h, the reference QOI decoder, and its qoiconv, which
+              # encodes the QOI benchmark corpus with the reference encoder;
+              # imagemagick resizes and converts that corpus's sources.
+              qoi
+              (lib.getBin qoi)
+              imagemagick
+              # The Rust (image, zune-image) and Go (image) arms.
+              cargo
+              rustc
+              rustfmt
+              go
+              # `just bench-compare`: goperf supplies benchstat, util-linux
+              # taskset, time is GNU time for peak RSS, and curl and unzip
+              # fetch the corpora.
+              goperf
+              util-linux
+              time
+              curl
+              unzip
+              # `just test-be` runs the tests on a big-endian target.
+              qemu-user
+            ];
           };
         };
     };

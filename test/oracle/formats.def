@@ -1,0 +1,5 @@
+// One line per format with oracles: FORMAT(name) for name_ops in name.c,
+// then what its oracles link, which `just oracle-build` reads from this
+// comment: pkg-config packages (libpng, spng, libjpeg, libwebp, libtiff-4,
+// libjxl, MagickWand) or -l flags (-lgif), and `-` for none.
+FORMAT(qoi) // link: -

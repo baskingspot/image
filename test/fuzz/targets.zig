@@ -1,0 +1,28 @@
+//! The fuzz targets, one line per target. Each is a file with `name`,
+//! `corpus` (seed directories), `extensions`, `seeds`, `check(input,
+//! choice)`, and `generate(random, buf)`; test/fuzz/qoi.zig is the model.
+
+const std = @import("std");
+
+pub const harness = @import("harness.zig");
+
+pub const qoi = @import("qoi.zig");
+
+const Self = @This();
+
+/// Every target: the declarations above with a `check`.
+pub const all: []const type = blk: {
+    const decls = @typeInfo(Self).@"struct".decls;
+    var list: [decls.len]type = undefined;
+    var n: usize = 0;
+    for (decls) |d| {
+        if (std.mem.eql(u8, d.name, "all")) continue;
+        const target = @field(Self, d.name);
+        if (@TypeOf(target) == type and @hasDecl(target, "check")) {
+            list[n] = target;
+            n += 1;
+        }
+    }
+    const final = list[0..n].*;
+    break :blk &final;
+};

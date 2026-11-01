@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Regenerates corpus/vendor/generated/ from PngSuite with the dev shell's
+# ImageMagick and qoiconv: the formats whose public suites leave cases
+# uncovered (Netpbm's every type, TGA's every image type, ICO and CUR with
+# BMP and PNG entries, WBMP, and small QOI files). Each format's cases are a
+# script, corpus/gen/<format>.sh; FORMATS picks them (default all). The
+# output is committed with its checksums, so a newer ImageMagick does not
+# change the corpus; rerun this only to add cases, then `just corpus-sums`.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+src=vendor/pngsuite
+out=vendor/generated
+im() { magick "$@"; }
+
+if [ $# -eq 0 ]; then set -- $(cd gen && ls -- *.sh | sed 's/\.sh$//'); fi
+for name in "$@"; do
+  # shellcheck source=/dev/null
+  . "gen/$name.sh"
+done

@@ -31,5 +31,58 @@ pub fn build(b: *std.Build) void {
     const mod_tests = b.addTest(.{ .root_module = mod, .test_runner = runner });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     run_mod_tests.addArg(b.fmt("--seed=0x{x}", .{b.graph.random_seed}));
-    b.step("test", "Run the unit tests").dependOn(&run_mod_tests.step);
+    const test_step = b.step("test", "Run the unit tests and each fuzz target once over its seeds");
+    test_step.dependOn(&run_mod_tests.step);
+
+    // The fuzz targets on Zig's coverage-guided fuzzer
+    // (test/fuzz/zig_fuzz.zig). It needs the default test runner, which
+    // speaks the build system's fuzzing protocol. Without --fuzz it runs
+    // each target once over its seeds, as part of `test`.
+    const zig_fuzz = b.addTest(.{
+        .name = "fuzz-zig",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/fuzz/zig_fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "image", .module = mod }},
+        }),
+    });
+    const run_zig_fuzz = b.addRunArtifact(zig_fuzz);
+    test_step.dependOn(&run_zig_fuzz.step);
+    b.step("fuzz-zig", "Run the fuzz targets on Zig's fuzzer (with --fuzz)").dependOn(&run_zig_fuzz.step);
+
+    // The fuzz driver `just fuzz` runs (test/fuzz/main.zig).
+    const fuzz = b.addExecutable(.{
+        .name = "fuzz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/fuzz/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "image", .module = mod }},
+        }),
+    });
+    b.step("fuzz", "Build the fuzz driver").dependOn(&b.addInstallArtifact(fuzz, .{}).step);
+
+    // The differential harness `just oracle` runs (test/oracle/compare.zig)
+    // against the C oracle the justfile builds. It takes its corpora and
+    // fuzzed inputs from the fuzz targets.
+    const fuzz_targets = b.createModule(.{
+        .root_source_file = b.path("test/fuzz/targets.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "image", .module = mod }},
+    });
+    const compare = b.addExecutable(.{
+        .name = "oracle-compare",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/oracle/compare.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "image", .module = mod },
+                .{ .name = "fuzz", .module = fuzz_targets },
+            },
+        }),
+    });
+    b.step("oracle", "Build the oracle comparison").dependOn(&b.addInstallArtifact(compare, .{}).step);
 }

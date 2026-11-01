@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Fetches the suites corpus/sources.tsv lists into corpus/fetched/ and checks
+# every vendored file against the checksums beside its directory. Idempotent: an
+# archive already downloaded and checked is not fetched again, and a DEST
+# that exists is not extracted again. NAMES picks sources (default all).
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+# Each vendored directory D has its checksums beside it, in D.sha256.
+find vendor -name "*.sha256" | while read -r sums; do
+  (cd "${sums%.sha256}" && sha256sum --quiet --check "../$(basename "$sums")")
+done
+
+mkdir -p fetched/.archives
+grep -v '^#' sources.tsv | while IFS=$'\t' read -r name sum url select dest; do
+  if [ $# -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
+  archive="fetched/.archives/$name-${sum:0:12}"
+  if [ ! -f "$archive" ]; then
+    echo "fetching $name: $url"
+    curl -sSfL --retry 3 -o "$archive.part" "$url"
+    mv "$archive.part" "$archive"
+  fi
+  if ! echo "$sum  $archive" | sha256sum --quiet --check; then
+    echo "corpus: $name does not match its SHA-256 in sources.tsv" >&2
+    rm -f "$archive"
+    exit 1
+  fi
+  [ -d "fetched/$dest" ] && continue
+  tmp=$(mktemp -d)
+  case "$url" in
+    *.zip) unzip -q "$archive" -d "$tmp" ;;
+    *) tar -xzf "$archive" -C "$tmp" ;;
+  esac
+  top=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)
+  mkdir -p "$(dirname "fetched/$dest")"
+  mv "$(realpath "$top/$select")" "fetched/$dest"
+  rm -rf "$tmp"
+  echo "corpus: $name in corpus/fetched/$dest ($(find "fetched/$dest" -type f | wc -l) files)"
+done
