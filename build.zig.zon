@@ -39,6 +39,10 @@
             .hash = "testingx-0.2.0-ib95-5lNAwA8WZQH6Q6eDm2hgfC3ixFJuhkOrR8gcZAm",
             .lazy = true,
         },
+        .compress = .{
+            .url = "https://baskingspot.dev/compress/v0.2.0.tar.gz",
+            .hash = "compress-0.2.0-VxR1WlYeOwA0bZhNNKz26y0rqAqo4PHrxHrnmOKjvb1O",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

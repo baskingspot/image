@@ -11,6 +11,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // compress: zlib and DEFLATE for PNG, TIFF, and ICO's PNG entries, and
+    // Brotli for JPEG XL's brob boxes. Unused until those formats land; Zig
+    // compiles only what is referenced.
+    const compress = b.dependency("compress", .{ .target = target, .optimize = optimize });
+    mod.addImport("compress", compress.module("compress"));
 
     if (b.pkg_hash.len != 0) return;
 
