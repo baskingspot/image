@@ -8,7 +8,6 @@ const decoder = @import("Decoder.zig");
 
 pub const Decoder = decoder.Generic(if (@hasDecl(image, "png")) image.png.Decoder else void);
 pub const Entry = decoder.Entry;
-pub const Seeker = decoder.Seeker;
 pub const max_entries = decoder.max_entries;
 
 const encoder = @import("encode.zig");

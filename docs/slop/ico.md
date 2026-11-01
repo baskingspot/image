@@ -39,11 +39,16 @@ needs a caller-supplied seeker, and is `error.EntryBehind` without one.**
 `Options.entry` never needs one, because the picked entry is the only data
 read after the directory.
 
-- `ico.Seeker` is a context and a `seek(offset)` function that moves the
-  reader so its next byte is the input's byte `offset` and drops what it
-  buffered. `Seeker.fixed(reader)` serves a `std.Io.Reader.fixed` over the
-  whole file (no copy: the caller who has the file in memory already has a
-  seekable source), and `Seeker.file(file_reader)` a file.
+- The seeker is the shared `image.Seeker`, passed in `Options.seeker`
+  (`DecodeOptions.seeker` through `image.Decoder`): a context and a
+  `seek(offset)` function that moves the reader so its next byte is the
+  input's byte `offset`, counted from the input's first byte, and drops
+  what it buffered. `Seeker.fixed(reader)` serves a `std.Io.Reader.fixed`
+  over the whole file (no copy: the caller who has the file in memory
+  already has a seekable source), and `Seeker.file(file_reader)` a file.
+  It began here as `ico.Seeker` and moved to `src/decode.zig` when the owner
+  took it for TIFF too (plan.md decision 8); `ico.Seeker` is gone, with no
+  alias, since nothing released named it.
 - Forward gaps are skipped with `discard`, so a file whose entries ascend,
   which is every encoder's output we have seen, decodes from any stream.
 - An entry whose data starts inside the directory is `error.BadHeader`,
@@ -63,11 +68,9 @@ Why not the alternatives:
   30 lines and nothing on the forward path.
 
 For TIFF (wave 3): the same contract fits IFD offsets and strip offsets.
-The type is private to `src/ico/` until the orchestrating thread moves it;
-the request is `image.Seeker` in `src/decode.zig` with the same two
-constructors, and `DecodeOptions.seeker: ?Seeker`, so `image.Decoder`
-passes it through (today the generic decoder cannot give ICO one, and
-out-of-order ICO files fail there with `EntryBehind`).
+The fuzz target (`test/fuzz/ico.zig`, `checkSeeking`) decodes every input
+with and without a seeker and requires the same frames up to the first
+`EntryBehind`, so hostile offsets reach the seek path.
 
 ## PNG entries in the all-entries mode
 

@@ -10,9 +10,10 @@
 //!
 //! The input is read forward. The directory's offsets can point anywhere,
 //! so an entry whose data starts before the reader's position needs
-//! `Options.seeker` to move back (`error.EntryBehind` without one); an
-//! entry picked with `Options.entry` never does, since it is the only data
-//! read after the directory. docs/slop/ico.md has the reasons.
+//! `Options.seeker`, an `image.Seeker`, to move back (`error.EntryBehind`
+//! without one); an entry picked with `Options.entry` never does, since it
+//! is the only data read after the directory. docs/slop/ico.md has the
+//! reasons.
 //!
 //! An entry's own header gives its size, as Windows and ImageMagick read
 //! it: a DIB's width and half its height (the AND mask's rows are counted
@@ -30,35 +31,6 @@ const decode = @import("../decode.zig");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const dib = @import("../bmp/dib.zig");
-
-/// A way back in the input, for entries stored out of order: `seek` moves
-/// the reader so that its next byte is the input's byte `offset`, counted
-/// from the first byte the decoder read, and drops what it had buffered.
-pub const Seeker = struct {
-    context: *anyopaque,
-    seek: *const fn (context: *anyopaque, offset: u64) error{ReadFailed}!void,
-
-    /// For a reader made by `std.Io.Reader.fixed` over the whole input,
-    /// before any of it was consumed.
-    pub fn fixed(r: *Io.Reader) Seeker {
-        return .{ .context = r, .seek = seekFixed };
-    }
-
-    /// For a file reader whose first byte is the input's.
-    pub fn file(r: *Io.File.Reader) Seeker {
-        return .{ .context = r, .seek = seekFile };
-    }
-
-    fn seekFixed(context: *anyopaque, offset: u64) error{ReadFailed}!void {
-        const r: *Io.Reader = @ptrCast(@alignCast(context));
-        r.seek = @intCast(@min(offset, r.end));
-    }
-
-    fn seekFile(context: *anyopaque, offset: u64) error{ReadFailed}!void {
-        const r: *Io.File.Reader = @ptrCast(@alignCast(context));
-        r.seekTo(offset) catch return error.ReadFailed;
-    }
-};
 
 /// One directory entry.
 pub const Entry = struct {
@@ -90,11 +62,11 @@ pub fn Generic(comptime Png: type) type {
         pub const Options = struct {
             limits: decode.Limits = .{},
             blob_sink: ?decode.BlobSink = null,
+            /// Moves back to an entry whose data is behind the reader.
+            seeker: ?decode.Seeker = null,
             /// Decode only this entry, as the only frame, on a canvas its
             /// size.
             entry: ?u16 = null,
-            /// Moves back to an entry whose data is behind the reader.
-            seeker: ?Seeker = null,
         };
 
         pub const Error = dib.Error || (if (has_png) Png.Error else error{}) || error{

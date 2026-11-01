@@ -1,6 +1,7 @@
 //! The ICO and CUR fuzz target: the decoder properties in harness.zig, on
 //! mutated corpus files and generated directories of DIB entries, both
-//! decoding every entry and decoding the first on its own.
+//! decoding every entry (with and without a seeker) and decoding the first
+//! on its own.
 
 const std = @import("std");
 const image = @import("image");
@@ -14,6 +15,47 @@ pub const extensions = [_][]const u8{ ".ico", ".cur" };
 pub fn check(input: []const u8, choice: u64) !void {
     try harness.checkDecoder(image.ico.Decoder, input, choice);
     try harness.checkDecoder(FirstEntry, input, choice);
+    try checkSeeking(input);
+}
+
+/// Two canvases, each the largest a directory can give.
+var canvases: [2][256 * 256 * 4]u8 = undefined;
+
+/// Decoding every entry with a seeker gives what decoding without one does
+/// until that fails with `EntryBehind`, and never fails that way itself.
+fn checkSeeking(input: []const u8) !void {
+    var fr: std.Io.Reader = .fixed(input);
+    var sr: std.Io.Reader = .fixed(input);
+    var f: image.ico.Decoder = .init(&fr, .{});
+    var s: image.ico.Decoder = .init(&sr, .{ .seeker = .fixed(&sr) });
+    const sc = s.decodeConfig();
+    const config = f.decodeConfig() catch |e| {
+        if (sc) |_| return error.SeekDiffers else |e2| if (e2 != e) return error.SeekDiffers;
+        return;
+    };
+    if (!std.meta.eql(config, sc catch return error.SeekDiffers)) return error.SeekDiffers;
+    const len = image.PixelBuffer.len(.bgra8, config.width, config.height).?;
+    @memset(canvases[0][0..len], 0);
+    @memset(canvases[1][0..len], 0);
+    const fd = try image.PixelBuffer.init(&canvases[0], .bgra8, config.width, config.height);
+    const sd = try image.PixelBuffer.init(&canvases[1], .bgra8, config.width, config.height);
+    while (true) {
+        const want = f.decodeFrame(fd, &.{}) catch |e| {
+            if (e == error.EntryBehind) {
+                while (s.decodeFrame(sd, &.{}) catch |e2| {
+                    if (e2 == error.EntryBehind) return error.SeekDiffers;
+                    return;
+                }) |_| {}
+                return;
+            }
+            if (s.decodeFrame(sd, &.{})) |_| return error.SeekDiffers else |e2| if (e2 != e) return error.SeekDiffers;
+            return;
+        };
+        const got = s.decodeFrame(sd, &.{}) catch return error.SeekDiffers;
+        if (!std.meta.eql(want, got)) return error.SeekDiffers;
+        if (!std.mem.eql(u8, canvases[0][0..len], canvases[1][0..len])) return error.SeekDiffers;
+        if (want == null) return;
+    }
 }
 
 /// The decoder with `Options.entry` 0, under the generic contract.

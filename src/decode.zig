@@ -62,12 +62,57 @@ pub const Limits = struct {
 };
 
 /// Options every decoder takes. A format with more options has its own
-/// `Options` with these fields and its own after them.
+/// `Options` with `limits` and `blob_sink`, `seeker` if it can move back,
+/// and its own after them; `image.Decoder` passes on the fields it has.
 pub const Options = struct {
     limits: Limits = .{},
     /// Receives the bytes of each metadata blob (ICC profile, EXIF, XMP) as
     /// the decoder reads past it; see `BlobSink`.
     blob_sink: ?BlobSink = null,
+    /// Lets a format whose offsets can point behind the reader (ICO's
+    /// directory, TIFF's IFDs) move back; see `Seeker`. Formats read
+    /// forward without one, and those that never move back ignore it or
+    /// lack the field.
+    seeker: ?Seeker = null,
+};
+
+/// A caller's way to move the input reader to any byte of the input, for
+/// formats that store offsets. The decoder still reads forward wherever it
+/// can, skipping gaps with `discard`, and calls `seek` only for data behind
+/// its position; without a seeker that data is the format's error.
+///
+/// `seek(offset)` must leave the reader the decoder was given so that its
+/// next byte is the input's byte `offset`, and drop whatever it had
+/// buffered. `offset` counts from the input's first byte: the reader's
+/// next byte when the decoder was made, before the decoder read anything.
+/// An offset past the input's end is not an error here: the reader then
+/// reports end of stream and the decoder `Truncated`. `seek` fails with
+/// `ReadFailed` only when the source cannot move.
+pub const Seeker = struct {
+    context: *anyopaque,
+    seek: *const fn (context: *anyopaque, offset: u64) error{ReadFailed}!void,
+
+    /// For a reader made by `std.Io.Reader.fixed` over the whole input,
+    /// before any of it was consumed. A caller holding the file in memory
+    /// gets seeking without a copy.
+    pub fn fixed(r: *std.Io.Reader) Seeker {
+        return .{ .context = r, .seek = seekFixed };
+    }
+
+    /// For a file reader whose byte 0 is the input's first byte.
+    pub fn file(r: *std.Io.File.Reader) Seeker {
+        return .{ .context = r, .seek = seekFile };
+    }
+
+    fn seekFixed(context: *anyopaque, offset: u64) error{ReadFailed}!void {
+        const r: *std.Io.Reader = @ptrCast(@alignCast(context));
+        r.seek = @intCast(@min(offset, r.end));
+    }
+
+    fn seekFile(context: *anyopaque, offset: u64) error{ReadFailed}!void {
+        const r: *std.Io.File.Reader = @ptrCast(@alignCast(context));
+        r.seekTo(offset) catch return error.ReadFailed;
+    }
 };
 
 /// The errors every decoder can return. Each format's error set is these

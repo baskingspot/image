@@ -23,6 +23,7 @@ pub const Chromaticities = decode.Chromaticities;
 pub const Density = decode.Density;
 pub const Blob = decode.Blob;
 pub const BlobSink = decode.BlobSink;
+pub const Seeker = decode.Seeker;
 pub const flicks_per_second = decode.flicks_per_second;
 pub const min_buffer_len = decode.min_buffer_len;
 pub const exif = @import("exif.zig");

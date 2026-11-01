@@ -75,7 +75,7 @@ pub fn init(f: Format, reader: *Io.Reader, options: decode.Options) error{Unsupp
             const D = Impl(tag);
             var o: D.Options = .{};
             inline for (@typeInfo(decode.Options).@"struct".fields) |field| {
-                @field(o, field.name) = @field(options, field.name);
+                if (@hasField(D.Options, field.name)) @field(o, field.name) = @field(options, field.name);
             }
             return .{ .impl = @unionInit(Union, @tagName(tag), D.init(reader, o)) };
         },
@@ -136,4 +136,33 @@ test "detect and decode" {
     r = .fixed(file);
     d = try .init(.qoi, &r, .{ .limits = .{ .max_pixels = 0 } });
     try testing.expectError(error.ImageTooLarge, d.decodeConfig());
+}
+
+test "a seeker reaches the format's decoder" {
+    if (comptime !supports(.ico)) return error.SkipZigTest;
+    // An ICO of two 1 by 1, 32-bit entries: the directory lists A at 86,
+    // then B at 38, behind it. A's pixel is (3, 2, 1, 255), B's (6, 5, 4, 128).
+    const info = "\x28\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x01\x00\x20\x00" ++ "\x00" ** 24;
+    const file = "\x00\x00\x01\x00\x02\x00" ++
+        "\x01\x01\x00\x00\x01\x00\x20\x00\x30\x00\x00\x00\x56\x00\x00\x00" ++
+        "\x01\x01\x00\x00\x01\x00\x20\x00\x30\x00\x00\x00\x26\x00\x00\x00" ++
+        info ++ "\x04\x05\x06\x80" ++ "\x00" ** 4 ++
+        info ++ "\x01\x02\x03\xff" ++ "\x00" ** 4;
+    var out: [4]u8 = undefined;
+    const dst = try PixelBuffer.init(&out, .rgba8, 1, 1);
+    for ([_]bool{ true, false }) |seek| {
+        var r: Io.Reader = .fixed(file);
+        var d: Decoder = try .initDetect(&r, .{ .seeker = if (seek) .fixed(&r) else null });
+        try testing.expectEqual(Format.ico, d.format());
+        try testing.expectEqual(2, (try d.decodeConfig()).frame_count);
+        _ = (try d.decodeFrame(dst, &.{})).?;
+        try testing.expectEqualSlices(u8, &.{ 3, 2, 1, 255 }, &out);
+        if (seek) {
+            try testing.expectEqual(1, (try d.decodeFrame(dst, &.{})).?.index);
+            try testing.expectEqualSlices(u8, &.{ 6, 5, 4, 128 }, &out);
+            try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+        } else {
+            try testing.expectError(error.EntryBehind, d.decodeFrame(dst, &.{}));
+        }
+    }
 }

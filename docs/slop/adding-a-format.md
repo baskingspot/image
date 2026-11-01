@@ -72,11 +72,17 @@ flake already has every phase-1 oracle and comparison library.
 
 Rules every decoder keeps (AGENTS.md has the reasons):
 
-- No allocation, no `@setRuntimeSafety(false)`, no seeking: input is
-  forward-only. A format that stores offsets (ICO's directory, TIFF's IFDs)
-  reads what it can in order, skipping forward with `discard`; how to handle
-  an offset that points backward is that format's decision to record in
-  plan.md.
+- No allocation and no `@setRuntimeSafety(false)`. Input is read forward,
+  skipping gaps with `discard`. A format that stores offsets (ICO's
+  directory, TIFF's IFDs) moves back only through `options.seeker`, the
+  caller's `image.Seeker` (plan.md decision 8): call `seek(offset)` with an
+  offset from the input's first byte for data behind the reader, track the
+  position yourself afterwards, and fail with a format error (ICO's
+  `EntryBehind`) when the seeker is null. Never seek for data ahead, so a
+  file laid out in order decodes from any stream. A format with its own
+  `Options` adds a `seeker` field only if it moves back, and
+  `image.Decoder` passes on the shared fields a format's `Options` has; `src/ico/Decoder.zig`'s `goTo` is the example, and its
+  fuzz target checks that a seeker changes nothing but what was behind.
 - Metadata is reported in `Config.metadata` and `Frame`, and ICC, EXIF, and
   XMP bytes go to `options.blob_sink` as the decoder passes them. Frame
   durations are in flicks (`image.flicks_per_second`).
