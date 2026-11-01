@@ -38,6 +38,8 @@ const batch_inputs = 1000;
 /// exhausting memory.
 const batch_bytes = 512 << 20;
 const saved_per_kind = 5;
+/// Corpus files this large or larger are left out.
+const max_corpus_len = 64 << 20;
 
 var io: std.Io = undefined;
 const gpa = std.heap.smp_allocator;
@@ -95,7 +97,8 @@ fn answerBytes(comptime F: type, input: []const u8) usize {
 
 fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
     const T = F.fuzz;
-    const corpus = try loadCorpus(T);
+    const loaded = try fuzz.harness.loadCorpus(gpa, io, &T.corpus, &T.extensions, max_corpus_len);
+    const corpus = loaded.files;
     const dir = "zig-out/oracle/" ++ F.name;
     try std.Io.Dir.cwd().createDirPath(io, dir);
     var prng: std.Random.DefaultPrng = .init(seed);
@@ -174,7 +177,7 @@ fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
         }
         done += count;
     }
-    stats.print(F, corpus.len, n);
+    stats.print(F, loaded, n);
     return stats.mismatches;
 }
 
@@ -269,10 +272,10 @@ const Stats = struct {
         }
     }
 
-    fn print(s: *Stats, comptime F: type, corpus: usize, n: usize) void {
-        std.debug.print("{s}: {d} corpus files and {d} fuzzed inputs, {d} comparisons against", .{
-            F.name, corpus, n, s.comparisons,
-        });
+    fn print(s: *Stats, comptime F: type, corpus: fuzz.harness.Corpus, n: usize) void {
+        std.debug.print("{s}: {d} corpus files", .{ F.name, corpus.files.len });
+        if (corpus.too_large > 0) std.debug.print(" ({d} of 64 MiB or more left out)", .{corpus.too_large});
+        std.debug.print(" and {d} fuzzed inputs, {d} comparisons against", .{ n, s.comparisons });
         for (F.oracles) |op| std.debug.print(" {s}", .{op});
         std.debug.print("\n", .{});
         std.debug.print("  {d} agree with every oracle, {d} mismatches\n", .{ s.agreed, s.mismatches });
@@ -282,21 +285,3 @@ const Stats = struct {
         }
     }
 };
-
-fn loadCorpus(comptime T: type) ![]const []const u8 {
-    var list: std.ArrayList([]const u8) = .empty;
-    for (T.corpus) |path| {
-        var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
-        defer dir.close(io);
-        var walker = try dir.walk(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind != .file) continue;
-            for (T.extensions) |ext| {
-                if (std.mem.endsWith(u8, entry.basename, ext)) break;
-            } else continue;
-            try list.append(gpa, try dir.readFileAlloc(io, entry.path, gpa, .limited(64 << 20)));
-        }
-    }
-    return list.items;
-}

@@ -171,20 +171,8 @@ fn Runner(comptime T: type) type {
         fn loadCorpus() ![]const []const u8 {
             var list: std.ArrayList([]const u8) = .empty;
             for (T.seeds) |s| try list.append(gpa, s);
-            for (T.corpus) |path| {
-                var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
-                defer dir.close(io);
-                var walker = try dir.walk(gpa);
-                defer walker.deinit();
-                while (try walker.next(io)) |entry| {
-                    if (entry.kind != .file) continue;
-                    for (T.extensions) |ext| {
-                        if (std.mem.endsWith(u8, entry.basename, ext)) break;
-                    } else continue;
-                    const data = dir.readFileAlloc(io, entry.path, gpa, .limited(max_input)) catch continue;
-                    try list.append(gpa, data);
-                }
-            }
+            const loaded = try targets.harness.loadCorpus(gpa, io, &T.corpus, &T.extensions, max_input);
+            try list.appendSlice(gpa, loaded.files);
             return list.items;
         }
 

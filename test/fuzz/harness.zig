@@ -245,6 +245,64 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
     }
 }
 
+pub const Corpus = struct {
+    files: []const []const u8,
+    /// Files left out for being `max_len` bytes or more.
+    too_large: usize,
+};
+
+/// The files under `dirs` (relative to the working directory, and skipped
+/// when missing) whose names end in one of `extensions`, leaving out any of
+/// `max_len` bytes or more, such as bench/corpus-gen's 50-megapixel inputs.
+pub fn loadCorpus(
+    gpa: std.mem.Allocator,
+    io: Io,
+    dirs: []const []const u8,
+    extensions: []const []const u8,
+    max_len: usize,
+) !Corpus {
+    var files: std.ArrayList([]const u8) = .empty;
+    var too_large: usize = 0;
+    for (dirs) |path| {
+        var dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            for (extensions) |ext| {
+                if (std.mem.endsWith(u8, entry.basename, ext)) break;
+            } else continue;
+            if ((try dir.statFile(io, entry.path, .{})).size >= max_len) {
+                too_large += 1;
+                continue;
+            }
+            try files.append(gpa, try dir.readFileAlloc(io, entry.path, gpa, .limited(max_len)));
+        }
+    }
+    return .{ .files = try files.toOwnedSlice(gpa), .too_large = too_large };
+}
+
+test loadCorpus {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(io, .{ .sub_path = "small.qoi", .data = "qoif" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "large.qoi", .data = "qoif" ** 4 });
+    try tmp.dir.writeFile(io, .{ .sub_path = "other.png", .data = "png" });
+    const path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    defer gpa.free(path);
+    const corpus = try loadCorpus(gpa, io, &.{ path, "no/such/directory" }, &.{".qoi"}, 16);
+    defer {
+        for (corpus.files) |f| gpa.free(f);
+        gpa.free(corpus.files);
+    }
+    try std.testing.expectEqual(1, corpus.files.len);
+    try std.testing.expectEqualStrings("qoif", corpus.files[0]);
+    try std.testing.expectEqual(1, corpus.too_large);
+}
+
 /// Small edits to `buf[0..len]` in place, returning the new length: byte
 /// changes, bit flips, truncation, insertion, and repeated runs.
 pub fn mutate(random: std.Random, buf: []u8, len_in: usize) usize {
