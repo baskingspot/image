@@ -1,4 +1,5 @@
-// TGA's oracles: Wuffs, the bar; stb_image; and ImageMagick's MagickWand.
+// TGA's oracles: Wuffs, the bar; stb_image; and ImageMagick's MagickWand
+// (magick.c).
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,8 +14,6 @@
 // reports at the end of the file.
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "stb/stb_image.h"
-
-#include <MagickWand/MagickWand.h>
 
 #include "oracle.h"
 
@@ -57,40 +56,12 @@ static enum status tga_stb(const uint8_t *in, size_t len, enum pixel_format form
   return STATUS_OK;
 }
 
-// ImageMagick, told the input is TGA, since TGA has no signature.
+// ImageMagick (magick.c), told the input is TGA, since TGA has no
+// signature. Only errors reject.
 static enum status tga_magick(const uint8_t *in, size_t len, enum pixel_format format,
                               uint64_t max_pixels, struct image *out) {
-  const char *map = format == PF_RGB8 ? "RGB" : format == PF_RGBA8 ? "RGBA" : format == PF_BGRA8 ? "BGRA" : 0;
-  if (!map) return STATUS_SKIPPED;
   if (too_large(in, len, max_pixels)) return STATUS_TOO_LARGE;
-  if (!IsMagickWandInstantiated()) {
-    MagickWandGenesis();
-    MagickSetResourceLimit(ThreadResource, 1);
-  }
-  MagickWand *wand = NewMagickWand();
-  enum status result = STATUS_REJECTED;
-  MagickSetFormat(wand, "TGA");
-  if (MagickReadImageBlob(wand, in, len) == MagickFalse) goto done;
-  ExceptionType severity;
-  char *description = MagickGetException(wand, &severity);
-  MagickRelinquishMemory(description);
-  if (severity >= ErrorException) goto done;
-  MagickResetIterator(wand);
-  if (MagickNextImage(wand) == MagickFalse) goto done;
-  size_t w = MagickGetImageWidth(wand), h = MagickGetImageHeight(wand);
-  out->len = w * h * strlen(map);
-  out->pixels = malloc(out->len ? out->len : 1);
-  if (MagickExportImagePixels(wand, 0, 0, w, h, map, CharPixel, out->pixels) == MagickFalse) {
-    free(out->pixels);
-    out->pixels = NULL;
-    goto done;
-  }
-  out->width = w;
-  out->height = h;
-  result = STATUS_OK;
-done:
-  DestroyMagickWand(wand);
-  return result;
+  return magick_decode(&(struct magick){.format = "TGA"}, in, len, format, max_pixels, out);
 }
 
 const struct op tga_ops[] = {

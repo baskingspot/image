@@ -70,6 +70,23 @@ enum status wuffs_decode(struct wuffs_base__image_decoder__struct *dec, const ui
                          size_t len, enum pixel_format format, uint64_t max_pixels,
                          struct image *out);
 
+// magick.c: the first image through ImageMagick's MagickWand, in any
+// format but the premultiplied ones. The image's size is checked against
+// `max_pixels` from a ping before it is read.
+struct magick {
+  // What to read the input as, for MagickSetFormat ("BMP", or "TGA", which
+  // has no signature), or NULL to let Magick detect it.
+  const char *format;
+  // A file name for MagickSetFilename, such as "netpbm[0]" to read only
+  // the first image of a sequence, or NULL.
+  const char *filename;
+  // Reject warnings as well as errors. Magick reports some truncated and
+  // malformed files only as warnings, and decodes what it can.
+  int reject_warnings;
+};
+enum status magick_decode(const struct magick *how, const uint8_t *in, size_t len,
+                          enum pixel_format format, uint64_t max_pixels, struct image *out);
+
 #define FORMAT(name) extern const struct op name##_ops[];
 #include "formats.def"
 #undef FORMAT

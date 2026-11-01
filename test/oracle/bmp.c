@@ -1,5 +1,5 @@
 // BMP's oracles: Wuffs, the bar; stb_image; and ImageMagick through
-// MagickWand. ico.c reuses the MagickWand decode for ICO and CUR.
+// MagickWand (magick.c).
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,8 +13,6 @@
 // Static leaves the parts STBI_ONLY_BMP drops declared and unused.
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "stb/stb_image.h"
-
-#include <MagickWand/MagickWand.h>
 
 #include "oracle.h"
 
@@ -49,77 +47,12 @@ static enum status bmp_stb(const uint8_t *in, size_t len, enum pixel_format form
   return STATUS_OK;
 }
 
-// The first image of `in` read as `magick` ("BMP", "ICO", or "CUR") by
-// MagickWand. Any exception, warnings included, rejects the input: Magick
-// reports truncated and malformed files as warnings and decodes what it
-// can.
-enum status bmp_magick_decode(const char *magick, const uint8_t *in, size_t len,
-                              enum pixel_format format, uint64_t max_pixels, struct image *out) {
-  const char *map;
-  switch (format) {
-    case PF_RGBA8: map = "RGBA"; break;
-    case PF_BGRA8: map = "BGRA"; break;
-    default: return STATUS_SKIPPED;
-  }
-  static int ready;
-  if (!ready) {
-    MagickWandGenesis();
-    // An ICO's later entries can claim any size, and Magick reads them all:
-    // refuse large ones, and never spill to disk.
-    MagickSetResourceLimit(ThreadResource, 1);
-    MagickSetResourceLimit(WidthResource, 1 << 16);
-    MagickSetResourceLimit(HeightResource, 1 << 16);
-    MagickSetResourceLimit(AreaResource, 1 << 24);
-    MagickSetResourceLimit(ListLengthResource, 1024);
-    MagickSetResourceLimit(MemoryResource, (MagickSizeType)1 << 30);
-    MagickSetResourceLimit(MapResource, (MagickSizeType)1 << 30);
-    MagickSetResourceLimit(DiskResource, 0);
-    ready = 1;
-  }
-  enum status result = STATUS_REJECTED;
-  MagickWand *wand = NewMagickWand();
-  MagickSetFormat(wand, magick);
-  if (MagickPingImageBlob(wand, in, len) == MagickFalse) goto done;
-  MagickResetIterator(wand);
-  if (MagickNextImage(wand) == MagickFalse) goto done;
-  size_t w = MagickGetImageWidth(wand), h = MagickGetImageHeight(wand);
-  if ((uint64_t)w * h > max_pixels) {
-    result = STATUS_TOO_LARGE;
-    goto done;
-  }
-  ClearMagickWand(wand);
-  MagickSetFormat(wand, magick);
-  ExceptionType severity;
-  if (MagickReadImageBlob(wand, in, len) == MagickFalse) goto done;
-  char *msg = MagickGetException(wand, &severity);
-  MagickRelinquishMemory(msg);
-  if (severity != UndefinedException) goto done;
-  MagickResetIterator(wand);
-  if (MagickNextImage(wand) == MagickFalse) goto done;
-  w = MagickGetImageWidth(wand);
-  h = MagickGetImageHeight(wand);
-  if ((uint64_t)w * h > max_pixels) {
-    result = STATUS_TOO_LARGE;
-    goto done;
-  }
-  out->len = w * h * 4;
-  out->pixels = malloc(out->len ? out->len : 1);
-  if (MagickExportImagePixels(wand, 0, 0, w, h, map, CharPixel, out->pixels) == MagickFalse) {
-    free(out->pixels);
-    out->pixels = NULL;
-    goto done;
-  }
-  out->width = w;
-  out->height = h;
-  result = STATUS_OK;
-done:
-  DestroyMagickWand(wand);
-  return result;
-}
-
+// MagickWand, warnings included: it reports truncated and malformed BMPs
+// as warnings and decodes what it can.
 static enum status bmp_magick(const uint8_t *in, size_t len, enum pixel_format format,
                               uint64_t max_pixels, struct image *out) {
-  return bmp_magick_decode("BMP", in, len, format, max_pixels, out);
+  return magick_decode(&(struct magick){.format = "BMP", .reject_warnings = 1}, in, len, format,
+                       max_pixels, out);
 }
 
 const struct op bmp_ops[] = {

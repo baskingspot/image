@@ -113,6 +113,9 @@ compares within it instead.
   where the references disagree, `test/oracle/<fmt>.zig` documents why, and
   `comparable` or `adapt` keep one library's quirk from hiding another's.
   `just oracle 100000` runs every format; the gate is 0 mismatches.
+- **MagickWand.** An oracle that reads through ImageMagick calls
+  `magick_decode` (test/oracle/magick.c, declared in oracle.h) with the
+  format to read as and whether warnings reject.
 - **Bench.** Every arm's output for a `same` operation must checksum
   identically; mark an operation `own` in `bench/ops.tsv` when the arms may
   round or composite differently. `just bench-compare 10 png-decode` runs

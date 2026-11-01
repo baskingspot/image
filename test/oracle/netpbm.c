@@ -17,8 +17,6 @@
 #include "stb/stb_image.h"
 #pragma GCC diagnostic pop
 
-#include <MagickWand/MagickWand.h>
-
 #include "oracle.h"
 
 // Whether the input is a raw PGM or PPM, the kinds Wuffs and stb read.
@@ -71,66 +69,12 @@ static enum status netpbm_stb(const uint8_t *in, size_t len, enum pixel_format f
   return STATUS_OK;
 }
 
-// MagickWand: the first image only, through the `[0]` subimage spec, and
-// any error (not warning) is a rejection.
+// MagickWand (magick.c): the first image only, through the `[0]` subimage
+// spec, and any error (not warning) is a rejection.
 static enum status netpbm_magick(const uint8_t *in, size_t len, enum pixel_format format,
                                  uint64_t max_pixels, struct image *out) {
-  const char *map;
-  StorageType storage;
-  switch (format) {
-    case PF_GRAY8: map = "R", storage = CharPixel; break;
-    case PF_GRAY_ALPHA8: map = "RA", storage = CharPixel; break;
-    case PF_RGB8: map = "RGB", storage = CharPixel; break;
-    case PF_BGR8: map = "BGR", storage = CharPixel; break;
-    case PF_RGBA8: map = "RGBA", storage = CharPixel; break;
-    case PF_BGRA8: map = "BGRA", storage = CharPixel; break;
-    case PF_GRAY16: map = "R", storage = ShortPixel; break;
-    case PF_GRAY_ALPHA16: map = "RA", storage = ShortPixel; break;
-    case PF_RGB16: map = "RGB", storage = ShortPixel; break;
-    case PF_BGR16: map = "BGR", storage = ShortPixel; break;
-    case PF_RGBA16: map = "RGBA", storage = ShortPixel; break;
-    case PF_BGRA16: map = "BGRA", storage = ShortPixel; break;
-    case PF_RGBA_F32: map = "RGBA", storage = FloatPixel; break;
-    default: return STATUS_SKIPPED;
-  }
-  if (!IsMagickWandInstantiated()) MagickWandGenesis();
-  enum status result = STATUS_REJECTED;
-  MagickWand *wand = NewMagickWand();
-  // Ping first, so a huge header is refused before its pixels exist.
-  MagickSetFilename(wand, "netpbm[0]");
-  if (!MagickPingImageBlob(wand, in, len)) goto done;
-  ExceptionType severity;
-  char *message = MagickGetException(wand, &severity);
-  MagickRelinquishMemory(message);
-  if (severity >= ErrorException) goto done;
-  MagickResetIterator(wand);
-  if (!MagickNextImage(wand)) goto done;
-  if ((uint64_t)MagickGetImageWidth(wand) * MagickGetImageHeight(wand) > max_pixels) {
-    result = STATUS_TOO_LARGE;
-    goto done;
-  }
-  ClearMagickWand(wand);
-  MagickSetFilename(wand, "netpbm[0]");
-  if (!MagickReadImageBlob(wand, in, len)) goto done;
-  message = MagickGetException(wand, &severity);
-  MagickRelinquishMemory(message);
-  if (severity >= ErrorException) goto done;
-  MagickResetIterator(wand);
-  if (!MagickNextImage(wand)) goto done;
-  size_t w = MagickGetImageWidth(wand), h = MagickGetImageHeight(wand);
-  out->len = w * h * pixel_bytes(format);
-  out->pixels = malloc(out->len ? out->len : 1);
-  if (!MagickExportImagePixels(wand, 0, 0, w, h, map, storage, out->pixels)) {
-    free(out->pixels);
-    out->pixels = NULL;
-    goto done;
-  }
-  out->width = w;
-  out->height = h;
-  result = STATUS_OK;
-done:
-  DestroyMagickWand(wand);
-  return result;
+  return magick_decode(&(struct magick){.filename = "netpbm[0]"}, in, len, format, max_pixels,
+                       out);
 }
 
 const struct op netpbm_ops[] = {
