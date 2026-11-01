@@ -13,6 +13,8 @@ pub const ico_encode = @import("ico_encode.zig");
 pub const qoi = @import("qoi.zig");
 pub const tga = @import("tga.zig");
 pub const tga_encode = @import("tga_encode.zig");
+pub const netpbm = @import("netpbm.zig");
+pub const netpbm_encode = @import("netpbm_encode.zig");
 
 const Self = @This();
 
