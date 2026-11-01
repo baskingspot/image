@@ -917,6 +917,8 @@ const span = 256;
 const Out = struct {
     d: *const Decoder,
     region: PixelBuffer,
+    /// What `expandSpan` writes: the native format, or RGBA8 for a palette
+    /// image written as RGBA8.
     native: PixelFormat,
     expand: Expand,
     over: bool,
@@ -937,16 +939,18 @@ const Out = struct {
             else
                 (if (key) .gray_low_key else .gray_low),
             2 => if (wide) (if (key) .rgb16_key else .swap16) else (if (key) .rgb8_key else .copy),
-            3 => if (key) .palette_rgba else .palette_rgb,
+            // Palette entries are RGBA already, so RGBA8 is as cheap as RGB8.
+            3 => if (key or region.format == .rgba8) .palette_rgba else .palette_rgb,
             else => if (wide) .swap16 else .copy,
         };
+        const from: PixelFormat = if (expand == .palette_rgba) .rgba8 else nat;
         return .{
             .d = d,
             .region = region,
-            .native = nat,
+            .native = from,
             .expand = expand,
             .over = over,
-            .to_dst = .init(region.format, nat),
+            .to_dst = .init(region.format, from),
         };
     }
 
@@ -961,11 +965,17 @@ const Out = struct {
         var i: u32 = 0;
         while (i < n) {
             const m = @min(span, n - i);
+            const at = x + i * dx;
+            if (o.expand != .copy and !o.over and dx == 1 and o.native == o.region.format) {
+                // Expanded straight into the region: no conversion to do.
+                o.expandSpan(row[at * dbpp ..][0 .. m * dbpp], raw, i, m);
+                i += m;
+                continue;
+            }
             const src = if (o.expand == .copy) raw[i * nbpp ..][0 .. m * nbpp] else blk: {
                 o.expandSpan(native_buf[0 .. m * nbpp], raw, i, m);
                 break :blk native_buf[0 .. m * nbpp];
             };
-            const at = x + i * dx;
             if (o.over) {
                 o.blend(row, at, dx, src, m);
             } else if (dx == 1) {
@@ -1037,13 +1047,15 @@ const Out = struct {
                 const in = raw[start * depth / 8 ..];
                 const per: u8 = 8 / depth;
                 const mask: u8 = @truncate((@as(u16, 1) << @intCast(depth)) - 1);
-                const nbpp: usize = if (o.expand == .palette_rgba) 4 else 3;
+                const rgba = o.expand == .palette_rgba;
                 for (0..m) |k| {
                     const index = if (depth == 8) in[k] else blk: {
                         const shift: u3 = @intCast(8 - depth - (k % per) * depth);
                         break :blk (in[k / per] >> shift) & mask;
                     };
-                    @memcpy(out[k * nbpp ..][0..nbpp], d.palette[index][0..nbpp]);
+                    if (rgba) {
+                        out[k * 4 ..][0..4].* = d.palette[index];
+                    } else out[k * 3 ..][0..3].* = d.palette[index][0..3].*;
                 }
             },
         }
