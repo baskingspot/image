@@ -1,0 +1,3 @@
+peak RSS (MiB)            image    wuffs     qoih      stb image-rs     zune       go
+qoi-decode                257.4    258.3    403.0        -    258.1    258.1        -
+qoi-decode-bgra           257.4    258.4        -        -        -        -        -

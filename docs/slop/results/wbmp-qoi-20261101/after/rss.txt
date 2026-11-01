@@ -1,0 +1,7 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   magick image-rs     zune       go
+qoi-decode                257.4    258.3    403.0        -        -    258.1    258.1        -
+qoi-decode-bgra           257.4    258.4        -        -        -        -        -        -
+qoi-encode                385.8        -    450.5        -        -    386.5    386.5        -
+wbmp-decode                55.8     56.7        -        -   1431.8        -        -        -
+wbmp-decode-rgba          200.0    200.8        -        -        -        -        -        -
+wbmp-encode                97.9        -        -        -    707.3        -        -        -

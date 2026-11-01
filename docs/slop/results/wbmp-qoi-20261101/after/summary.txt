@@ -1,0 +1,20 @@
+image/arm, geomean              rows image MP/s    wuffs     qoih   magick image-rs     zune     ±   <1    ~   slowest vs wuffs
+QoiDecode/icon                    13      402.3     1.54     1.16        -     0.79     3.28    2%    1    1   0.80 [0.77, 0.82] textures_pk-_0mod_button1-64x64.qoi
+QoiDecode/1mp                     23      424.7     1.53     1.49        -     0.94     2.34    2%    1    1   0.79 [0.78, 0.81] screenshot_game-3dbrick2-320x240.qoi
+QoiDecode/large                    8      294.8     1.47     1.44        -     1.03     2.13    2%    0    0   1.24 [1.22, 1.26] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.qoi
+QoiDecodeBGRA/icon                13      326.5     1.23        -        -        -        -    5%    3    2   0.72 [0.71, 0.73] textures_pk-_0mod_button1-64x64.qoi
+QoiDecodeBGRA/1mp                 23      377.8     1.35        -        -        -        -    2%    2    1   0.76 [0.74, 0.78] screenshot_game-3dbrick2-320x240.qoi
+QoiDecodeBGRA/large                8      278.3     1.39        -        -        -        -    2%    0    0   1.23 [1.22, 1.28] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.qoi
+QoiEncode/icon                    13      327.9        -     1.49        -     0.93     3.16     -    0    0   -
+QoiEncode/1mp                     23      259.5        -     1.52        -     1.00     2.83     -    0    0   -
+QoiEncode/large                    8      205.8        -     1.49        -     1.02     2.50     -    0    0   -
+WbmpDecode/icon                   13     7265.0    47.60        -   278.85        -        -    4%    0    0   22.50 [22.03, 24.24] icon_16-actions_contact_new-16x16.wbmp
+WbmpDecode/1mp                    23    18664.1   114.46        -   315.10        -        -    3%    0    0   82.81 [80.72, 84.83] textures_pk-_pkf_water1-128x128.wbmp
+WbmpDecode/large                   8    17523.4   109.98        -   400.18        -        -    2%    0    0   53.41 [48.05, 65.66] photo_mosaic-50mp-8192x6144.wbmp
+WbmpDecodeRGBA/icon               13     2406.8    11.44        -        -        -        -    4%    0    0   5.76 [5.08, 5.81] icon_16-actions_appointment_new-16x16.wbmp
+WbmpDecodeRGBA/1mp                23     5523.0    26.36        -        -        -        -    5%    0    0   20.89 [20.62, 21.00] textures_plants-plant_01-166x1022.wbmp
+WbmpDecodeRGBA/large               8     3503.7    18.53        -        -        -        -   12%    0    0   10.74 [10.39, 12.29] photo_mosaic-50mp-8192x6144.wbmp
+WbmpEncode/icon                   13     2124.7        -        -  2242.45        -        -     -    0    0   -
+WbmpEncode/1mp                    23    17814.6        -        -  2207.84        -        -     -    0    0   -
+WbmpEncode/large                   8    13697.4        -        -  1565.60        -        -     -    0    0   -
+all                              264     1618.2     7.64     1.44   813.26     0.94     2.70          7    5

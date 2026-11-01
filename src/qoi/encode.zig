@@ -258,6 +258,39 @@ test "a fixed writer of exactly the file's size" {
     try testing.expectEqualSlices(u8, &px, &back);
 }
 
+test "round trips through both of the decoder's loops" {
+    // Pixels that drift by small steps, repeat, and jump, so every chunk
+    // kind appears, at a size below and one above the decoder's switch
+    // between its branchy and branchless loops, in RGB and RGBA.
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    var px: [80 * 60 * 4]u8 = undefined;
+    var i: usize = 0;
+    while (i < px.len) : (i += 4) {
+        const prev: [4]u8 = if (i == 0) .{ 0, 0, 0, 255 } else px[i - 4 ..][0..4].*;
+        px[i..][0..4].* = switch (random.uintLessThan(u8, 6)) {
+            0, 1 => prev,
+            2 => .{ prev[0] +% 1, prev[1] -% 1, prev[2], prev[3] },
+            3 => .{ prev[0] +% 9, prev[1] +% 7, prev[2] +% 3, prev[3] },
+            4 => .{ random.int(u8), random.int(u8), random.int(u8), prev[3] },
+            else => .{ random.int(u8), random.int(u8), random.int(u8), random.int(u8) },
+        };
+    }
+    var file: [80 * 60 * 5 + 22]u8 = undefined;
+    var back: [80 * 60 * 4]u8 = undefined;
+    for ([_][2]u32{ .{ 40, 40 }, .{ 80, 60 } }) |size| {
+        for ([_]PixelFormat{ .rgba8, .rgb8 }) |format| {
+            const len = PixelBuffer.len(format, size[0], size[1]).?;
+            const src = try PixelBuffer.init(px[0..len], format, size[0], size[1]);
+            const encoded = try testEncode(src, &file);
+            var r: Io.Reader = .fixed(encoded);
+            var d: Decoder = .init(&r, .{});
+            _ = try d.decodeFrame(try PixelBuffer.init(back[0..len], format, size[0], size[1]), &.{});
+            try testing.expectEqualSlices(u8, px[0..len], back[0..len]);
+        }
+    }
+}
+
 test hash {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     for (0..10000) |_| {
