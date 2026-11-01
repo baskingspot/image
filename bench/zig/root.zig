@@ -5,7 +5,9 @@
 //! that writes `out` from `in` and returns the bytes written, or null.
 //! One line per file below.
 
+pub const bmp = @import("bmp.zig");
 pub const convert = @import("convert.zig");
+pub const ico = @import("ico.zig");
 pub const qoi = @import("qoi.zig");
 
 const Self = @This();

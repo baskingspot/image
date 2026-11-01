@@ -6,6 +6,10 @@ const std = @import("std");
 
 pub const harness = @import("harness.zig");
 
+pub const bmp = @import("bmp.zig");
+pub const bmp_encode = @import("bmp_encode.zig");
+pub const ico = @import("ico.zig");
+pub const ico_encode = @import("ico_encode.zig");
 pub const qoi = @import("qoi.zig");
 
 const Self = @This();

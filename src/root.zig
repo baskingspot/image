@@ -36,6 +36,8 @@ pub const detect_prefix_len = detection.prefix_len;
 pub const Decoder = @import("Decoder.zig");
 
 // The formats, one line each.
+pub const bmp = @import("bmp/root.zig");
+pub const ico = @import("ico/root.zig");
 pub const qoi = @import("qoi/root.zig");
 
 test {
