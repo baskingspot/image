@@ -90,10 +90,33 @@ fuzz-scheduled SECONDS="240/target":
 oracle-build:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p zig-out/bin
+    # Each file compiles to an object named by the hash of its preprocessed
+    # source and the compiler, in parallel, and only when that changes:
+    # Wuffs's implementation (wuffs.c) alone takes 20 seconds. magick.c is
+    # the oracle core's, so MagickWand is always linked.
+    obj=zig-out/oracle-obj
+    mkdir -p "$obj" zig-out/bin
     # shellcheck disable=SC2046
-    cc -O2 -std=c11 -Wall -o zig-out/bin/image-oracle test/oracle/*.c \
-        $(just _link $(sed -n 's|.*// link: ||p' test/oracle/formats.def)) -lm
+    flags=$(just _link MagickWand $(sed -n 's|.*// link: ||p' test/oracle/formats.def))
+    cflags="-O2 -std=c11 -Wall"
+    objects=()
+    pids=()
+    for c in test/oracle/*.c; do
+        # shellcheck disable=SC2086
+        key=$( { cc --version; echo "$cflags"; cc -E $cflags $flags "$c"; } | sha256sum | cut -c1-16)
+        o="$obj/$(basename "$c" .c)-$key.o"
+        objects+=("$o")
+        if [ ! -f "$o" ]; then
+            # shellcheck disable=SC2086
+            (cc $cflags -c -o "$o.tmp" "$c" $flags && mv "$o.tmp" "$o") &
+            pids+=($!)
+        fi
+    done
+    for pid in "${pids[@]}"; do wait "$pid"; done
+    # shellcheck disable=SC2086
+    cc -o zig-out/bin/image-oracle "${objects[@]}" $flags -lm
+    # The objects of earlier sources.
+    find "$obj" -name '*.o' $(printf -- "-not -path %s " "${objects[@]}") -delete
 
 # The compiler flags for a list of libraries: pkg-config packages, -l flags
 # as they are, and `-` for none.
@@ -111,8 +134,13 @@ _link *LIBS:
 
 [doc("Compare every decoder with its oracles on its corpus and N fuzzed inputs (default 100000); disagreements go to zig-out/oracle/")]
 [group("oracle")]
-oracle N="100000" SEED="1": oracle-build
+oracle N="100000" SEED="1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # The C oracle builds while Zig builds the comparison.
+    just oracle-build &
     zig build oracle -Doptimize=ReleaseSafe
+    wait $!
     zig-out/bin/oracle-compare {{ N }} {{ SEED }}
 
 [doc("CI's oracle run: the fetched suites and 20000 fuzzed inputs")]

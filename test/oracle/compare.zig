@@ -35,8 +35,10 @@ const max_pixels = 1 << 22;
 const batch_inputs = 1000;
 /// The most pixel bytes one batch may produce, ours and every oracle's
 /// answers together, so large images make batches shorter rather than
-/// exhausting memory.
-const batch_bytes = 512 << 20;
+/// exhausting memory. Each worker holds a batch.
+const batch_bytes = 256 << 20;
+/// The most batches compared at once, one per core.
+const max_workers = 8;
 const saved_per_kind = 5;
 /// Corpus files this large or larger are left out.
 const max_corpus_len = 64 << 20;
@@ -96,89 +98,148 @@ fn answerBytes(comptime F: type, input: []const u8) usize {
 }
 
 fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
+    const start: std.Io.Timestamp = .now(io, .awake);
     const T = F.fuzz;
     const loaded = try fuzz.harness.loadCorpus(gpa, io, &T.corpus, &T.extensions, max_corpus_len);
-    const corpus = loaded.files;
     const dir = "zig-out/oracle/" ++ F.name;
     try std.Io.Dir.cwd().createDirPath(io, dir);
-    var prng: std.Random.DefaultPrng = .init(seed);
-    const random = prng.random();
+    var run: Run(F) = .{ .oracle = oracle, .corpus = loaded.files, .total = loaded.files.len + n, .prng = .init(seed) };
+    // Batches run on every core; each worker takes the next batch, its
+    // inputs made in order under the lock, so the inputs are the same
+    // however many workers there are.
+    var threads: [max_workers]std.Thread = undefined;
+    const workers = std.math.clamp(std.Thread.getCpuCount() catch 1, 1, max_workers);
+    for (threads[0..workers]) |*t| t.* = try std.Thread.spawn(.{}, Run(F).work, .{&run});
+    for (threads[0..workers]) |t| t.join();
+    if (run.err) |e| return e;
+    run.stats.print(F, loaded, n, start.untilNow(io, .awake));
+    return run.stats.mismatches;
+}
 
-    var stats: Stats = .{};
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
-    defer arena_state.deinit();
-    var done: usize = 0;
-    const total = corpus.len + n;
-    while (done < total) {
-        _ = arena_state.reset(.retain_capacity);
-        const arena = arena_state.allocator();
-        // A batch of inputs: corpus files first, then fuzzed ones, until the
-        // batch would hold `batch_bytes` of pixels.
-        const room = @min(batch_inputs, total - done);
-        const all_inputs = try arena.alloc([]const u8, room);
-        var count: usize = 0;
-        var bytes: usize = 0;
-        for (all_inputs, done..) |*input, i| {
-            if (count > 0 and bytes >= batch_bytes) break;
-            count += 1;
-            defer bytes += answerBytes(F, input.*);
-            if (i < corpus.len) {
-                input.* = corpus[i];
-                continue;
-            }
-            const buf = try arena.alloc(u8, 1 << 16);
-            var len: usize = 0;
-            if (corpus.len > 0 and random.boolean()) {
-                const base = corpus[random.uintLessThan(usize, corpus.len)];
-                const big = try arena.alloc(u8, base.len + 4096);
-                @memcpy(big[0..base.len], base);
-                len = fuzz.harness.mutate(random, big, base.len);
-                input.* = big[0..len];
-            } else {
-                const g = T.generate(random, buf);
-                len = g.len;
-                if (random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
-                input.* = buf[0..len];
+fn Run(comptime F: type) type {
+    return struct {
+        const Self = @This();
+        const T = F.fuzz;
+        const dir = "zig-out/oracle/" ++ F.name;
+
+        oracle: Oracle,
+        corpus: []const []const u8,
+        total: usize,
+        /// The rest is under `mutex`.
+        mutex: std.Io.Mutex = .init,
+        prng: std.Random.DefaultPrng,
+        done: usize = 0,
+        stats: Stats = .{},
+        err: ?anyerror = null,
+
+        fn work(r: *Self) void {
+            var arena_state: std.heap.ArenaAllocator = .init(gpa);
+            defer arena_state.deinit();
+            while (true) {
+                _ = arena_state.reset(.retain_capacity);
+                const more = r.batch(arena_state.allocator()) catch |e| {
+                    r.mutex.lockUncancelable(io);
+                    defer r.mutex.unlock(io);
+                    if (r.err == null) r.err = e;
+                    return;
+                };
+                if (!more) return;
             }
         }
-        const inputs = all_inputs[0..count];
-        var requests: std.ArrayList(Oracle.Request) = .empty;
-        for (inputs) |input| {
-            for (F.formats) |format| {
-                for (F.oracles) |op| {
-                    try requests.append(arena, .{
-                        .op = op,
-                        .format = format,
-                        .max_pixels = max_pixels,
-                        .input = try F.adapt(op, input, arena),
-                    });
+
+        /// Takes the next batch and compares it, or returns false when
+        /// there is none.
+        fn batch(r: *Self, arena: std.mem.Allocator) !bool {
+            r.mutex.lockUncancelable(io);
+            const first = r.done;
+            const inputs = r.take(arena) catch |e| {
+                r.mutex.unlock(io);
+                return e;
+            };
+            r.mutex.unlock(io);
+            if (inputs.len == 0) return false;
+
+            var requests: std.ArrayList(Oracle.Request) = .empty;
+            for (inputs) |input| {
+                for (F.formats) |format| {
+                    for (F.oracles) |op| {
+                        try requests.append(arena, .{
+                            .op = op,
+                            .format = format,
+                            .max_pixels = max_pixels,
+                            .input = try F.adapt(op, input, arena),
+                        });
+                    }
                 }
             }
-        }
-        const responses = try oracle.run(requests.items);
-        defer oracle.free(responses);
-        var k: usize = 0;
-        for (inputs, done..) |input, i| {
-            var mine: [F.formats.len]Answer = undefined;
-            var theirs: [F.formats.len][F.oracles.len]?Answer = undefined;
-            for (F.formats, &mine, &theirs) |format, *m, *row| {
-                m.* = try ours(F.Decoder, input, format, arena);
-                for (row, F.oracles) |*t, op| {
-                    const resp = responses[k];
-                    k += 1;
-                    t.* = if (!F.comparable(op, format, input)) null else switch (resp.status) {
-                        .ok => .{ .accepted = true, .width = resp.width, .height = resp.height, .pixels = resp.pixels },
-                        .rejected, .too_large => .{ .accepted = false },
-                        else => null,
-                    };
+            const responses = try r.oracle.run(requests.items);
+            defer r.oracle.free(responses);
+            const mine = try arena.alloc([F.formats.len]Answer, inputs.len);
+            const theirs = try arena.alloc([F.formats.len][F.oracles.len]?Answer, inputs.len);
+            var k: usize = 0;
+            for (inputs, mine, theirs) |input, *m_row, *t_rows| {
+                for (F.formats, m_row, t_rows) |format, *m, *row| {
+                    m.* = try ours(F.Decoder, input, format, arena);
+                    for (row, F.oracles) |*t, op| {
+                        const resp = responses[k];
+                        k += 1;
+                        t.* = if (!F.comparable(op, format, input)) null else switch (resp.status) {
+                            .ok => .{
+                                .accepted = true,
+                                .width = resp.width,
+                                .height = resp.height,
+                                .pixels = resp.pixels,
+                            },
+                            .rejected, .too_large => .{ .accepted = false },
+                            else => null,
+                        };
+                    }
                 }
             }
-            try stats.add(F, dir, input, i < corpus.len, &mine, &theirs);
+            r.mutex.lockUncancelable(io);
+            defer r.mutex.unlock(io);
+            for (inputs, mine, theirs, first..) |input, *m, *t, i| {
+                try r.stats.add(F, dir, input, i < r.corpus.len, m, t);
+            }
+            return true;
         }
-        done += count;
-    }
-    stats.print(F, loaded, n);
-    return stats.mismatches;
+
+        /// The next batch of inputs: corpus files first, then fuzzed ones,
+        /// until the batch would hold `batch_bytes` of pixels. Under the
+        /// lock.
+        fn take(r: *Self, arena: std.mem.Allocator) ![]const []const u8 {
+            const random = r.prng.random();
+            const room = @min(batch_inputs, r.total - r.done);
+            const inputs = try arena.alloc([]const u8, room);
+            var count: usize = 0;
+            var bytes: usize = 0;
+            for (inputs, r.done..) |*input, i| {
+                if (count > 0 and bytes >= batch_bytes) break;
+                count += 1;
+                defer bytes += answerBytes(F, input.*);
+                if (i < r.corpus.len) {
+                    input.* = r.corpus[i];
+                    continue;
+                }
+                const buf = try arena.alloc(u8, 1 << 16);
+                var len: usize = 0;
+                if (r.corpus.len > 0 and random.boolean()) {
+                    const base = r.corpus[random.uintLessThan(usize, r.corpus.len)];
+                    const big = try arena.alloc(u8, base.len + 4096);
+                    @memcpy(big[0..base.len], base);
+                    len = fuzz.harness.mutate(random, big, base.len);
+                    input.* = big[0..len];
+                } else {
+                    const g = T.generate(random, buf);
+                    len = g.len;
+                    if (random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
+                    input.* = buf[0..len];
+                }
+            }
+            r.done += count;
+            return inputs[0..count];
+        }
+    };
 }
 
 const Stats = struct {
@@ -272,13 +333,16 @@ const Stats = struct {
         }
     }
 
-    fn print(s: *Stats, comptime F: type, corpus: fuzz.harness.Corpus, n: usize) void {
+    fn print(s: *Stats, comptime F: type, corpus: fuzz.harness.Corpus, n: usize, took: std.Io.Duration) void {
         std.debug.print("{s}: {d} corpus files", .{ F.name, corpus.files.len });
         if (corpus.too_large > 0) std.debug.print(" ({d} of 64 MiB or more left out)", .{corpus.too_large});
         std.debug.print(" and {d} fuzzed inputs, {d} comparisons against", .{ n, s.comparisons });
         for (F.oracles) |op| std.debug.print(" {s}", .{op});
         std.debug.print("\n", .{});
-        std.debug.print("  {d} agree with every oracle, {d} mismatches\n", .{ s.agreed, s.mismatches });
+        const seconds = @as(f64, @floatFromInt(took.toMilliseconds())) / 1000;
+        std.debug.print("  {d} agree with every oracle, {d} mismatches, in {d:.1} s\n", .{
+            s.agreed, s.mismatches, seconds,
+        });
         for (s.split.keys(), s.split.values(), 0..) |kind, count, k| {
             if (std.mem.eql(u8, kind, "mismatch")) continue;
             std.debug.print("  split-{d}: oracles disagree, {s}: {d}\n", .{ k, kind, count });
