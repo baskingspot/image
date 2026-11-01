@@ -259,8 +259,10 @@ orb asks for a change to them, or for text in this file, in its report.
   to `image.Seeker` in `src/decode.zig`, adds `DecodeOptions.seeker`, and
   passes it through `image.Decoder`; it owns `src/decode.zig`,
   `src/Decoder.zig`, and `src/ico/` for this.
-- **PNG strictness** (branch `wave1-png-strict`, the PNG orb): decision 9 in
-  `src/png/` and its harness files.
+- **PNG strictness** (landed at `f521a91`): `png.Decoder.Options` has
+  `ignore_checksums`, which skips the critical-chunk CRCs (about 4.5% of
+  decode time, results/png-ignore-checksums-20261101.md) and accepts a wrong
+  Adler-32; compress's `zlib.Reader` cannot skip computing it yet.
 - **Conversion rounding** (landed at `938b0c4`): `src/convert.zig` matches
   Wuffs's rounding (decided by the owner: match the references unless there
   is a strong reason not to). `src/convert.zig` is the orchestrating
