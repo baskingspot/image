@@ -20,7 +20,8 @@
 //! too), or a PNG's IHDR. A DIB entry of 32 bits takes its alpha from its
 //! pixels and ignores the mask; one of fewer bits is opaque except where
 //! the mask is set. PNG entries are decoded by `image.png` when the build
-//! has it, picked with `Options.entry`; without it they fail with
+//! has it, picked with `Options.entry` or as a file's only entry; other
+//! PNG entries, and every PNG entry without `image.png`, fail with
 //! `error.Unsupported`.
 
 const std = @import("std");
@@ -91,6 +92,9 @@ pub fn Generic(comptime Png: type) type {
         /// `decodeFrameConfig` has read it.
         next: u16 = 0,
         pending: ?dib.Header = null,
+        /// The entry decoded as the only frame: `Options.entry`, or a
+        /// one-entry file's PNG.
+        pick: ?u16 = null,
         /// The picked entry's header, read by `decodeConfig`.
         picked: union(enum) { none, bmp: dib.Header, png: if (has_png) Png else void } = .none,
         png_config: if (has_png) decode.Config else void = undefined,
@@ -123,7 +127,7 @@ pub fn Generic(comptime Png: type) type {
                 .width = d.canvas[0],
                 .height = d.canvas[1],
                 .native = .bgra8,
-                .frame_count = if (d.options.entry == null) d.count else 1,
+                .frame_count = if (d.pick == null) d.count else 1,
             };
         }
 
@@ -134,7 +138,7 @@ pub fn Generic(comptime Png: type) type {
             if (d.err) |e| return e;
             if (d.state == .done) return null;
             _ = try d.decodeConfig();
-            if (d.options.entry) |i| return .{ .index = i, .width = d.canvas[0], .height = d.canvas[1] };
+            if (d.pick) |i| return .{ .index = i, .width = d.canvas[0], .height = d.canvas[1] };
             const h = d.nextHeader() catch |e| return d.fail(e);
             return .{ .index = d.next, .width = h.width, .height = h.height };
         }
@@ -150,7 +154,7 @@ pub fn Generic(comptime Png: type) type {
             if (dst.width != d.canvas[0] or dst.height != d.canvas[1]) return error.SizeMismatch;
             if (work.len < config.work_len) return error.WorkTooSmall;
             const f = d.nextFrame(dst, work) catch |e| return d.fail(e);
-            if (d.options.entry != null or d.next == d.count) d.state = .done;
+            if (d.pick != null or d.next == d.count) d.state = .done;
             return f;
         }
 
@@ -199,12 +203,19 @@ pub fn Generic(comptime Png: type) type {
                 const e = d.entry(@intCast(i));
                 canvas = .{ @max(canvas[0], e.width), @max(canvas[1], e.height) };
             }
-            const i = d.options.entry orelse {
+            const i = d.options.entry orelse i: {
+                // A one-entry file's PNG is decoded as if picked, so its
+                // work memory and format come from its own header.
+                if (has_png and count == 1) {
+                    try d.goTo(d.entry(0).offset);
+                    if (try d.isPng()) break :i 0;
+                }
                 try d.options.limits.checkSize(canvas[0], canvas[1]);
                 d.canvas = canvas;
                 return;
             };
             if (i >= count) return error.NoEntry;
+            d.pick = i;
             try d.goTo(d.entry(i).offset);
             if (try d.isPng()) {
                 if (!has_png) return error.Unsupported;
@@ -238,7 +249,7 @@ pub fn Generic(comptime Png: type) type {
         }
 
         fn nextFrame(d: *Self, dst: PixelBuffer, work: []u8) Error!decode.Frame {
-            if (d.options.entry) |i| {
+            if (d.pick) |i| {
                 switch (d.picked) {
                     .none => unreachable,
                     .bmp => |h| try decodeBmp(&d.in, h, dst),
@@ -264,8 +275,8 @@ pub fn Generic(comptime Png: type) type {
         fn nextHeader(d: *Self) Error!dib.Header {
             if (d.pending) |h| return h;
             try d.goTo(d.entry(d.next).offset);
-            // PNG entries need `Options.entry`, which sizes their work
-            // memory from their own header.
+            // PNG entries of files with several need `Options.entry`,
+            // which sizes their work memory from their own header.
             if (try d.isPng()) return error.Unsupported;
             const h = try dib.readHeader(&d.in, .ico, 0);
             if (h.width > d.canvas[0] or h.height > d.canvas[1]) return error.EntryTooLarge;
@@ -456,7 +467,7 @@ fn testDecodePng(comptime D: type, file: []const u8, options: D.Options, out: []
     return config;
 }
 
-test "a picked PNG entry decodes through image.png, IEND included" {
+test "a picked or only PNG entry decodes through image.png, IEND included" {
     var out: [8]u8 = undefined;
     const config = try testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{ .entry = 0 }, &out);
     // The PNG's own size, not the directory's.
@@ -466,9 +477,18 @@ test "a picked PNG entry decodes through image.png, IEND included" {
     // IEND is checked as in a PNG file.
     const bad_iend = png_2x1[0 .. png_2x1.len - 1] ++ "\x83";
     try testing.expectError(error.BadCrc, testDecodePng(PngTestDecoder, testPngFile(bad_iend), .{ .entry = 0 }, &out));
-    // Without image.png, or without `Options.entry`, a PNG entry is
-    // unsupported.
+    // A file's only entry decodes as if picked.
+    @memset(&out, 0);
+    const only = try testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{}, &out);
+    try testing.expectEqual(.{ 2, 1, 1 }, .{ only.width, only.height, only.frame_count.? });
+    try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, &out);
+    // Without image.png, or among several entries without `Options.entry`,
+    // a PNG entry is unsupported.
     try testing.expectError(error.Unsupported, testDecodePng(TestDecoder, testPngFile(png_2x1), .{ .entry = 0 }, &out));
+    const two = le(u16, 0) ++ le(u16, 1) ++ le(u16, 2) ++
+        "\x10\x10\x00\x00" ++ le(u16, 1) ++ le(u16, 32) ++ le(u32, png_2x1.len) ++ le(u32, 38) ++
+        "\x10\x10\x00\x00" ++ le(u16, 1) ++ le(u16, 32) ++ le(u32, png_2x1.len) ++ le(u32, 38) ++ png_2x1;
     var big: [16 * 16 * 4]u8 = undefined;
-    try testing.expectError(error.Unsupported, testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{}, &big));
+    try testing.expectError(error.Unsupported, testDecodePng(PngTestDecoder, two, .{}, &big));
+    try testing.expectError(error.Unsupported, testDecodePng(TestDecoder, testPngFile(png_2x1), .{}, &big));
 }

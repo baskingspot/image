@@ -93,10 +93,31 @@ than its directory size.
 ## Encode
 
 `encode` writes one image and `encodeAll` several (1 to 256, sides 1 to
-256): each a 32-bit BMP entry with straight alpha and an AND mask set where
-alpha is 0, for readers that ignore alpha. `Options.cursor` writes a CUR,
-with `hotspot` per image. PNG entries, which large icons use, wait for the
-PNG encoder in wave 5. No work memory.
+256). `Options.cursor` writes a CUR, with `hotspot` per image. Each entry's
+`Payload` (`Image.payload`, or `Options.payload` for `encode`) is:
+
+- `.bmp`: a 32-bit BMP entry with straight alpha and an AND mask set where
+  alpha is 0, for readers that ignore alpha. No work memory.
+- `.png`: `png.encode` with its default options on the image's own pixels,
+  unconverted, so PNG's reduction to gray or a palette keeps icons small
+  and a 16-bit source stays 16-bit. Work memory is `png.workLen` (868,871
+  bytes at 256 by 256 at the default effort).
+- `.auto`, the default (plan.md decision 17): PNG at 256 by 256, BMP below,
+  as Windows' own icons are made and as readers before Vista need.
+
+The directory gives every entry's length before any entry, and the writer
+cannot go back, so a PNG entry is encoded twice over the same work memory:
+into an `Io.Writer.Discarding` to measure it, then into the file.
+`png.encode`'s bytes depend only on the pixels, options, and work length
+(its doc comment promises it, and its tests check it), so the two agree. A
+single pass would need the encoded entries buffered (about the size of the
+PNGs) or a `png.maxEncodedLen` bound and padding; the second encode costs
+time only, on an icon's largest entry.
+
+Decoding: a file whose only entry is a PNG decodes as if `Options.entry` were
+0, so its config (size, native format, work memory) is the PNG's and
+`ico.encode`'s 256 by 256 output reads back without options. PNG entries of
+files with several entries still need `Options.entry` (above).
 
 ## Oracle
 
