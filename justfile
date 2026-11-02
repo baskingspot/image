@@ -132,16 +132,16 @@ _link *LIBS:
         esac
     done
 
-[doc("Compare every decoder with its oracles on its corpus and N fuzzed inputs (default 100000); disagreements go to zig-out/oracle/")]
+[doc("Compare every decoder and encoder (or FORMATS, such as qoi qoi_encode) with its oracles on its corpus and N fuzzed inputs (default 100000); disagreements go to zig-out/oracle/")]
 [group("oracle")]
-oracle N="100000" SEED="1":
+oracle N="100000" SEED="1" *FORMATS:
     #!/usr/bin/env bash
     set -euo pipefail
     # The C oracle builds while Zig builds the comparison.
     just oracle-build &
     zig build oracle -Doptimize=ReleaseSafe
     wait $!
-    zig-out/bin/oracle-compare {{ N }} {{ SEED }}
+    zig-out/bin/oracle-compare {{ N }} {{ SEED }} {{ FORMATS }}
 
 [doc("CI's oracle run: the fetched suites and 20000 fuzzed inputs")]
 [group("oracle")]

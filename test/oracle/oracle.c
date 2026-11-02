@@ -11,7 +11,10 @@
 //
 //   u8 status (enum status), u32 width, u32 height, u32 length, pixels
 //
-// An unknown name is a fatal error. test/oracle/Oracle.zig is the client.
+// An encode op's input is the source's width and height, u32 each, then
+// its pixels, tightly packed in the pixel format; its response's pixels are
+// the encoded file. An unknown name, or an encode op's pixels that do not
+// fill its size, is a fatal error. test/oracle/Oracle.zig is the client.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +60,10 @@ static int take(void *dst, size_t n) {
   return 1;
 }
 
+static uint32_t get32(const uint8_t *b) {
+  return b[0] | b[1] << 8 | b[2] << 16 | (uint32_t)b[3] << 24;
+}
+
 static void put32(FILE *f, uint32_t v) {
   uint8_t b[4] = {v, v >> 8, v >> 16, v >> 24};
   fwrite(b, 1, 4, f);
@@ -83,7 +90,7 @@ int main(void) {
     name[name_len] = 0;
     uint64_t limit = 0;
     for (int i = 7; i >= 0; i--) limit = limit << 8 | limit_bytes[i];
-    uint32_t len = len_bytes[0] | len_bytes[1] << 8 | len_bytes[2] << 16 | (uint32_t)len_bytes[3] << 24;
+    uint32_t len = get32(len_bytes);
     if (len == UINT32_MAX) {
       if (!last) {
         fprintf(stderr, "oracle: no previous input\n");
@@ -103,8 +110,26 @@ int main(void) {
       return 1;
     }
     struct image img = {0};
-    enum status s = format <= PF_RGBA_F32_PREMUL ? op->decode(last, last_len, format, limit, &img)
-                                                 : STATUS_SKIPPED;
+    enum status s = STATUS_SKIPPED;
+    int known = format <= PF_RGBA_F32_PREMUL;
+    if (known && op->encode) {
+      if (last_len < 8) {
+        fprintf(stderr, "oracle: %s: no size\n", name);
+        return 1;
+      }
+      uint32_t w = get32(last), h = get32(last + 4);
+      if ((uint64_t)w * h > limit) {
+        s = STATUS_TOO_LARGE;
+      } else if ((uint64_t)w * h * pixel_bytes(format) != last_len - 8) {
+        fprintf(stderr, "oracle: %s: pixels do not fill %ux%u\n", name, w, h);
+        return 1;
+      } else if ((s = op->encode(last + 8, format, w, h, &img)) == STATUS_OK) {
+        img.width = w;
+        img.height = h;
+      }
+    } else if (known) {
+      s = op->decode(last, last_len, format, limit, &img);
+    }
     if (s != STATUS_OK) img.width = img.height = img.len = 0;
     fputc(s, stdout);
     put32(stdout, img.width);

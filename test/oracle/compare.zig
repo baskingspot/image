@@ -18,7 +18,12 @@
 //! on the same input. The first inputs of each kind are saved under
 //! zig-out/oracle/<format>/.
 //!
-//!   oracle-compare [N] [SEED]
+//! A module with `encode` compares an encoder instead: from each input, in
+//! each pixel format, its `Decoder` (ours) reads the source image, which our
+//! encoder and each oracle's encode op turn into files, and two answers
+//! agree when the files are the same bytes (test/oracle/qoi_encode.zig).
+//!
+//!   oracle-compare [N] [SEED] [FORMAT...]   (FORMATs: formats.zig's names; default all)
 
 const std = @import("std");
 const image = @import("image");
@@ -52,10 +57,24 @@ pub fn main(init: std.process.Init) !void {
     _ = it.skip();
     const n = if (it.next()) |a| try std.fmt.parseInt(usize, a, 10) else 100_000;
     const seed = if (it.next()) |a| try std.fmt.parseInt(u64, a, 10) else 1;
+    var only: std.ArrayList([]const u8) = .empty;
+    while (it.next()) |a| try only.append(gpa, a);
     const oracle: Oracle = .{ .io = io, .gpa = gpa, .path = "zig-out/bin/image-oracle" };
     var mismatches: usize = 0;
+    var ran: usize = 0;
     inline for (@typeInfo(formats).@"struct".decls) |d| {
-        mismatches += try compareFormat(@field(formats, d.name), oracle, n, seed);
+        const format = @field(formats, d.name);
+        const wanted = for (only.items) |o| {
+            if (std.mem.eql(u8, o, format.name)) break true;
+        } else only.items.len == 0;
+        if (wanted) {
+            mismatches += try compareFormat(format, oracle, n, seed);
+            ran += 1;
+        }
+    }
+    if (ran == 0) {
+        std.debug.print("oracle-compare: no format named {s}\n", .{only.items[0]});
+        std.process.exit(2);
     }
     if (mismatches != 0) std.process.exit(1);
 }
@@ -83,6 +102,28 @@ fn ours(comptime D: type, input: []const u8, format: PixelFormat, arena: std.mem
     const dst = try image.PixelBuffer.init(pixels, format, config.width, config.height);
     _ = (d.decodeFrame(dst, work) catch return .{ .accepted = false }) orelse return .{ .accepted = false };
     return .{ .accepted = true, .width = config.width, .height = config.height, .pixels = pixels };
+}
+
+/// The image our decoder `D` reads from `input` as `format`, tightly
+/// packed, to hand an encoder; null when it reads none, or an empty one.
+fn source(comptime D: type, input: []const u8, format: PixelFormat, arena: std.mem.Allocator) !?image.PixelBuffer {
+    const answer = try ours(D, input, format, arena);
+    if (!answer.accepted or answer.width == 0 or answer.height == 0) return null;
+    const src = try image.PixelBuffer.init(@constCast(answer.pixels), format, answer.width, answer.height);
+    return src;
+}
+
+/// Our encoder's file for `src`: F.encode's, or a rejection when it fails.
+fn oursEncode(comptime F: type, src: image.PixelBuffer, arena: std.mem.Allocator) !Answer {
+    var w: std.Io.Writer.Allocating = .init(arena);
+    F.encode(&w.writer, src, arena) catch return .{ .accepted = false };
+    return .{ .accepted = true, .width = src.width, .height = src.height, .pixels = w.written() };
+}
+
+/// Whether `op`'s answer for `input` in `format` counts: always, unless the
+/// format module's `comparable` says not.
+fn comparable(comptime F: type, op: []const u8, format: PixelFormat, input: []const u8) bool {
+    return !@hasDecl(F, "comparable") or F.comparable(op, format, input);
 }
 
 /// The most pixel bytes `input` can produce in a batch: its size, from our
@@ -121,6 +162,8 @@ fn Run(comptime F: type) type {
         const Self = @This();
         const T = F.fuzz;
         const dir = "zig-out/oracle/" ++ F.name;
+        /// An encoder's comparison rather than a decoder's.
+        const encodes = @hasDecl(F, "encode");
 
         oracle: Oracle,
         corpus: []const []const u8,
@@ -159,17 +202,31 @@ fn Run(comptime F: type) type {
             r.mutex.unlock(io);
             if (inputs.len == 0) return false;
 
+            // An encoder's comparison encodes, from each input in each
+            // format, the image our decoder reads from it: its source, or
+            // null when there is none.
+            const sources = try arena.alloc([F.formats.len]?image.PixelBuffer, if (encodes) inputs.len else 0);
             var requests: std.ArrayList(Oracle.Request) = .empty;
-            for (inputs) |input| {
-                for (F.formats) |format| {
-                    for (F.oracles) |op| {
-                        try requests.append(arena, .{
+            for (inputs, 0..) |input, i| {
+                for (F.formats, 0..) |format, f| {
+                    if (encodes) {
+                        sources[i][f] = try source(F.Decoder, input, format, arena);
+                        const src = sources[i][f] orelse continue;
+                        for (F.oracles) |op| try requests.append(arena, .{
                             .op = op,
                             .format = format,
                             .max_pixels = max_pixels,
-                            .input = try F.adapt(op, input, arena),
+                            .input = src.pixels,
+                            .size = .{ src.width, src.height },
                         });
+                        continue;
                     }
+                    for (F.oracles) |op| try requests.append(arena, .{
+                        .op = op,
+                        .format = format,
+                        .max_pixels = max_pixels,
+                        .input = try F.adapt(op, input, arena),
+                    });
                 }
             }
             const responses = try r.oracle.run(requests.items);
@@ -177,13 +234,20 @@ fn Run(comptime F: type) type {
             const mine = try arena.alloc([F.formats.len]Answer, inputs.len);
             const theirs = try arena.alloc([F.formats.len][F.oracles.len]?Answer, inputs.len);
             var k: usize = 0;
-            for (inputs, mine, theirs) |input, *m_row, *t_rows| {
-                for (F.formats, m_row, t_rows) |format, *m, *row| {
-                    m.* = try ours(F.Decoder, input, format, arena);
+            for (inputs, mine, theirs, 0..) |input, *m_row, *t_rows, i| {
+                for (F.formats, m_row, t_rows, 0..) |format, *m, *row, f| {
+                    if (encodes) {
+                        const src = sources[i][f] orelse {
+                            m.* = .{ .accepted = false };
+                            row.* = @splat(null);
+                            continue;
+                        };
+                        m.* = try oursEncode(F, src, arena);
+                    } else m.* = try ours(F.Decoder, input, format, arena);
                     for (row, F.oracles) |*t, op| {
                         const resp = responses[k];
                         k += 1;
-                        t.* = if (!F.comparable(op, format, input)) null else switch (resp.status) {
+                        t.* = if (!comparable(F, op, format, input)) null else switch (resp.status) {
                             .ok => .{
                                 .accepted = true,
                                 .width = resp.width,

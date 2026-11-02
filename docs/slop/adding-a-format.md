@@ -9,20 +9,20 @@ than editing it. QOI (`src/qoi/`, `test/fuzz/qoi.zig`, `test/oracle/qoi.*`,
 
 ## The files a format owns
 
-| File                                                   | What it holds                                                                                                                                                  |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/<fmt>/root.zig`                                   | The namespace `image.<fmt>`: `Decoder`, and once it encodes, `encode`, `workLen`, `EncodeOptions`, `EncodeError` (src/encode.zig).                             |
-| `src/<fmt>/*.zig`                                      | Everything else the format needs. Tests live beside the code.                                                                                                  |
-| `test/fuzz/<fmt>.zig`                                  | The decoder's fuzz target: `name`, `corpus`, `extensions`, `check`, `generate`, `seeds`, and a test calling `harness.zigFuzz`.                                 |
-| `test/fuzz/<fmt>_encode.zig`                           | The encoder's target, the same shape, with `check` calling `harness.checkEncoder`.                                                                             |
-| `test/oracle/<fmt>.c`                                  | The C side of each oracle: an `<fmt>_ops` table of `struct op` (test/oracle/oracle.h). Wuffs formats call `wuffs_decode` (test/oracle/wuffs.c).                |
-| `test/oracle/<fmt>.zig`                                | The Zig side: the oracles' op names, the pixel formats to compare, `comparable` and `adapt`, and the documented reasons the references disagree.               |
-| `corpus/gen/<fmt>.sh`                                  | Generated conformance cases, when the public suites leave cases out; output in `corpus/vendor/generated/<fmt>/` with checksums in `.../<fmt>.sha256`.          |
-| `corpus/vendor/<suite>/`, `<suite>.sha256`             | A small suite vendored unmodified, with its checksums beside it.                                                                                               |
-| `bench/zig/<fmt>.zig`                                  | The Zig arm's operations: `ops`, pairs of an operation name and a function from input bytes to output bytes.                                                   |
-| `bench/c/<arm>-<fmt>.c`                                | Each C arm's operations, registered with `BENCH_OP`; a new arm (libpng, libspng, libjpeg-turbo, ...) is new files plus its line in `bench/c/arms.tsv`.         |
-| `bench/rust/src/<crate>_<fmt>.rs`, `bench/go/<fmt>.go` | The Rust and Go arms' operations, where those libraries read the format.                                                                                       |
-| `bench/corpus/<fmt>.sh`, `<fmt>.sha256`                | The benchmark inputs: the shared sources (`$src/<category>/<name>.png`) converted to the format into `$dst`, every name ending in `-WxH`, and their checksums. |
+| File                                                   | What it holds                                                                                                                                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/<fmt>/root.zig`                                   | The namespace `image.<fmt>`: `Decoder`, and once it encodes, `encode`, `workLen`, `EncodeOptions`, `EncodeError` (src/encode.zig).                                                   |
+| `src/<fmt>/*.zig`                                      | Everything else the format needs. Tests live beside the code.                                                                                                                        |
+| `test/fuzz/<fmt>.zig`                                  | The decoder's fuzz target: `name`, `corpus`, `extensions`, `check`, `generate`, `seeds`, and a test calling `harness.zigFuzz`.                                                       |
+| `test/fuzz/<fmt>_encode.zig`                           | The encoder's target, the same shape, with `check` calling `harness.checkEncoder`.                                                                                                   |
+| `test/oracle/<fmt>.c`                                  | The C side of each oracle: an `<fmt>_ops` table of `struct op` (test/oracle/oracle.h). Wuffs formats call `wuffs_decode` (test/oracle/wuffs.c).                                      |
+| `test/oracle/<fmt>.zig`                                | The Zig side: the oracles' op names, the pixel formats to compare, `comparable` and `adapt`, and the documented reasons the references disagree; `<fmt>_encode.zig` for the encoder. |
+| `corpus/gen/<fmt>.sh`                                  | Generated conformance cases, when the public suites leave cases out; output in `corpus/vendor/generated/<fmt>/` with checksums in `.../<fmt>.sha256`.                                |
+| `corpus/vendor/<suite>/`, `<suite>.sha256`             | A small suite vendored unmodified, with its checksums beside it.                                                                                                                     |
+| `bench/zig/<fmt>.zig`                                  | The Zig arm's operations: `ops`, pairs of an operation name and a function from input bytes to output bytes.                                                                         |
+| `bench/c/<arm>-<fmt>.c`                                | Each C arm's operations, registered with `BENCH_OP`; a new arm (libpng, libspng, libjpeg-turbo, ...) is new files plus its line in `bench/c/arms.tsv`.                               |
+| `bench/rust/src/<crate>_<fmt>.rs`, `bench/go/<fmt>.go` | The Rust and Go arms' operations, where those libraries read the format.                                                                                                             |
+| `bench/corpus/<fmt>.sh`, `<fmt>.sha256`                | The benchmark inputs: the shared sources (`$src/<category>/<name>.png`) converted to the format into `$dst`, every name ending in `-WxH`, and their checksums.                       |
 
 ## The registries: one line each
 
@@ -118,8 +118,12 @@ says how much work memory to pass. `harness.checkEncoder` checks that every
 pixel format encodes, that work memory one byte short is refused with
 `WorkTooSmall`, that a writer draining a few bytes at a time sees the same
 bytes, and that our decoder reads back the source converted to the file's
-native format. A lossy encoder states its error bound in its fuzz target and
-compares within it instead.
+native format. A quantizing or lossy encoder calls
+`harness.checkEncoderWith(F, .{ .expect = ... }, input, choice)` instead,
+whose `expect` turns that converted source into what the file must decode to
+(test/fuzz/wbmp_encode.zig thresholds it); `max_width` and `max_height`
+make larger images than the default 48 by 48. `harness.Drip` is the
+few-bytes-at-a-time writer, for a target's own checks.
 
 ## The harnesses
 
@@ -137,7 +141,15 @@ compares within it instead.
   or rejects it. Ours must agree with every oracle that the others agree with;
   where the references disagree, `test/oracle/<fmt>.zig` documents why, and
   `comparable` or `adapt` keep one library's quirk from hiding another's.
-  `just oracle 100000` runs every format; the gate is 0 mismatches.
+  An encoder's oracle is `test/oracle/<fmt>_encode.zig` with `encode` (ours)
+  and a `Decoder` that reads its sources from the inputs, against C ops
+  declared `{"name", .encode = fn}`, which encode raw pixels; the files must
+  be the same bytes (test/oracle/qoi_encode.zig). Batches run on every
+  core, so an oracle module, both its Zig and its C side, must be
+  thread-safe: keep per-input state in locals or `threadlocal`, never in a
+  shared global or static (a cached decode or a saved canvas). `just oracle
+100000` runs every format, and `just oracle 20000 1 <fmt>` one; the gate is
+  0 mismatches.
 - **MagickWand.** An oracle that reads through ImageMagick calls
   `magick_decode` (test/oracle/magick.c, declared in oracle.h) with the
   format to read as and whether warnings reject.

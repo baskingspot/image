@@ -38,7 +38,11 @@ pub const Request = struct {
     op: []const u8,
     format: PixelFormat,
     max_pixels: u64,
+    /// The file to decode, or for an encode op the source's pixels, tightly
+    /// packed in `format`.
     input: []const u8,
+    /// For an encode op, the source's width and height.
+    size: ?[2]u32 = null,
 };
 
 pub const Response = struct {
@@ -58,19 +62,31 @@ pub const RunError = error{ OracleFailed, BadResponse } || mem.Allocator.Error |
 pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     var batch: std.ArrayList(u8) = .empty;
     defer batch.deinit(oracle.gpa);
-    var last: ?[]const u8 = null;
+    var last: ?Request = null;
     for (requests) |req| {
         try batch.append(oracle.gpa, @intCast(req.op.len));
         try batch.appendSlice(oracle.gpa, req.op);
         try batch.append(oracle.gpa, @intFromEnum(req.format));
         var nums: [12]u8 = undefined;
         mem.writeInt(u64, nums[0..8], req.max_pixels, .little);
-        // The same input as the last request's goes once (oracle.c).
-        const again = if (last) |l| l.ptr == req.input.ptr and l.len == req.input.len else false;
-        mem.writeInt(u32, nums[8..12], if (again) same_input else @intCast(req.input.len), .little);
+        // The same input as the last request's goes once (oracle.c). An
+        // encode op's input is the source's width and height, then its
+        // pixels.
+        const again = if (last) |l| l.input.ptr == req.input.ptr and l.input.len == req.input.len and
+            std.meta.eql(l.size, req.size) else false;
+        const len = req.input.len + @as(usize, if (req.size != null) 8 else 0);
+        mem.writeInt(u32, nums[8..12], if (again) same_input else @intCast(len), .little);
         try batch.appendSlice(oracle.gpa, &nums);
-        if (!again) try batch.appendSlice(oracle.gpa, req.input);
-        last = req.input;
+        if (!again) {
+            if (req.size) |size| {
+                var dims: [8]u8 = undefined;
+                mem.writeInt(u32, dims[0..4], size[0], .little);
+                mem.writeInt(u32, dims[4..8], size[1], .little);
+                try batch.appendSlice(oracle.gpa, &dims);
+            }
+            try batch.appendSlice(oracle.gpa, req.input);
+        }
+        last = req;
     }
 
     var child = try std.process.spawn(oracle.io, .{

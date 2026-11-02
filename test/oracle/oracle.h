@@ -56,9 +56,17 @@ struct image {
 typedef enum status (*decode_fn)(const uint8_t *in, size_t len, enum pixel_format format,
                                  uint64_t max_pixels, struct image *out);
 
+// Encodes `pixels`, a `width` by `height` image tightly packed in
+// `format`, into `out->pixels` (malloc'd) and `out->len`: the file a
+// reference encoder writes. oracle.c fills in the width and height.
+typedef enum status (*encode_fn)(const uint8_t *pixels, enum pixel_format format, uint32_t width,
+                                 uint32_t height, struct image *out);
+
+// An op decodes, or with `encode` set (`{"name", .encode = fn}`) encodes.
 struct op {
   const char *name;
   decode_fn decode;
+  encode_fn encode;
 };
 
 // The bytes a pixel of `format` takes.
