@@ -1,0 +1,14 @@
+image/arm, geomean              rows image MP/s  libwebp     ±   <1    ~   slowest vs libwebp
+WebpEncodeLossy/icon              13        5.7     1.11    2%    0    4   1.02 [0.91, 1.13] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeLossy/1mp               23       16.9     1.39    1%    0    0   1.16 [1.13, 1.18] photo_kodak-kodim01-768x512.raw
+WebpEncodeLossy/large              8       18.3     1.42    2%    0    0   1.26 [1.20, 1.31] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyFast/icon          13        7.7     1.16    1%    2    3   0.94 [0.90, 0.95] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeLossyFast/1mp           23       29.6     1.03    2%    5    4   0.90 [0.87, 0.94] photo_kodak-kodim01-768x512.raw
+WebpEncodeLossyFast/large          8       32.0     1.01    2%    2    3   0.93 [0.91, 0.97] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeLossyBest/icon          13        2.5     1.04    3%    4    0   0.72 [0.65, 0.77] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeLossyBest/1mp           23        6.8     1.02    1%    7    7   0.87 [0.87, 0.91] test-dice-800x600.raw
+WebpEncodeLossyBest/large          8        7.3     0.99    2%    2    2   0.77 [0.70, 0.82] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+WebpEncodeLossyRGBA/icon          13        5.5     2.90    2%    0    0   1.21 [1.11, 1.29] textures_pk-_0mod_button1-64x64.rgb
+WebpEncodeLossyRGBA/1mp           23       16.0     1.84    1%    0    0   1.15 [1.12, 1.40] photo_kodak-kodim01-768x512.rgb
+WebpEncodeLossyRGBA/large          8       17.5     1.44    2%    0    0   1.27 [1.09, 1.35] photo_wikipedia-001-1276x850.rgb
+all                              176       11.1     1.30         22   23

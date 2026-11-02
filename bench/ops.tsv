@@ -80,6 +80,10 @@ tiff-encode-lzw	TiffEncodeLZW	qoi_encode	7	own
 tiff-encode-deflate	TiffEncodeDeflate	qoi_encode	6	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own
+webp-encode-lossy	WebpEncodeLossy	netpbm/raw-rgb8	4	own
+webp-encode-lossy-fast	WebpEncodeLossyFast	netpbm/raw-rgb8	4	own
+webp-encode-lossy-best	WebpEncodeLossyBest	netpbm/raw-rgb8	4	own
+webp-encode-lossy-rgba	WebpEncodeLossyRGBA	tga/rgba	5	own
 jxl-decode	JxlDecode	jxl/lossy	8	own
 jxl-decode-lossless	JxlDecodeLossless	jxl/lossless	8	same
 webp-encode-z0	WebpEncodeZ0	webp_encode	5	own
