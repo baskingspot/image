@@ -177,3 +177,142 @@ test "unfilter matches the definitions" {
     }
     try testing.expectError(error.BadFilter, unfilter(5, &row, &row, &prev, 1));
 }
+
+/// Unfilters two consecutive rows that both use filter type `filter`,
+/// Average (3) or Paeth (4): `src0` into `cur0` given `prev`, and `src1`
+/// into `cur1` given that first row. Each row's pixels depend on the pixel
+/// to the left, and the two rows' chains run side by side, the second two
+/// pixels behind, as the halves of one vector. `src0` may be `cur0`, and
+/// `cur1` may be `prev`: the second row writes a pixel two after the first
+/// row read it. Otherwise the buffers do not overlap.
+pub fn unfilter2(
+    filter: u8,
+    bpp: usize,
+    cur0: []u8,
+    src0: []const u8,
+    cur1: []u8,
+    src1: []const u8,
+    prev: []const u8,
+) void {
+    switch (filter) {
+        inline 3, 4 => |f| switch (bpp) {
+            inline 1, 2, 3, 4, 6, 8 => |n| rows2(f, n, cur0, src0, cur1, src1, prev),
+            else => unreachable,
+        },
+        else => unreachable,
+    }
+}
+
+fn rows2(
+    comptime filter: u8,
+    comptime bpp: usize,
+    cur0: []u8,
+    src0: []const u8,
+    cur1: []u8,
+    src1: []const u8,
+    prev: []const u8,
+) void {
+    const lanes = comptime std.math.ceilPowerOfTwoAssert(usize, bpp);
+    const Int = @Int(.unsigned, bpp * 8);
+    const Half = @Int(.unsigned, lanes * 8);
+    const Both = @Int(.unsigned, lanes * 16);
+    const V = @Vector(2 * lanes, i16);
+    const B = @Vector(2 * lanes, u8);
+    const w = cur0.len / bpp;
+    std.debug.assert(cur0.len % bpp == 0);
+    std.debug.assert(cur1.len == cur0.len);
+    std.debug.assert(src0.len >= cur0.len);
+    std.debug.assert(src1.len >= cur0.len);
+    std.debug.assert(prev.len >= cur0.len);
+    const S = struct {
+        const Self = @This();
+
+        a: V = @splat(0),
+        c: V = @splat(0),
+        // The first row's last two pixels, the second row's next two
+        // pixels above.
+        held: Half = 0,
+        pend: Half = 0,
+
+        inline fn step(
+            s: *Self,
+            comptime first: bool,
+            comptime second: bool,
+            i: usize,
+            c0: []u8,
+            s0: []const u8,
+            c1: []u8,
+            s1: []const u8,
+            p: []const u8,
+        ) void {
+            const x0: Half = if (first) std.mem.readInt(Int, s0[i * bpp ..][0..bpp], .little) else 0;
+            const b0: Half = if (first) std.mem.readInt(Int, p[i * bpp ..][0..bpp], .little) else 0;
+            const x1: Half = if (second) std.mem.readInt(Int, s1[(i - 2) * bpp ..][0..bpp], .little) else 0;
+            const x: B = @bitCast(@as(Both, x0) | @as(Both, x1) << (lanes * 8));
+            const b: V = @as(B, @bitCast(@as(Both, b0) | @as(Both, s.held) << (lanes * 8)));
+            const a = s.a;
+            const pred = switch (filter) {
+                3 => (a + b) >> @splat(1),
+                4 => blk: {
+                    const c = s.c;
+                    const pa = @abs(b - c);
+                    const pb = @abs(a - c);
+                    const pc = @abs(a + b - c - c);
+                    const use_a = (pa <= pb) & (pa <= pc);
+                    break :blk @select(i16, use_a, a, @select(i16, pb <= pc, b, c));
+                },
+                else => unreachable,
+            };
+            const out = x +% @as(B, @truncate(@as(@Vector(2 * lanes, u16), @bitCast(pred))));
+            const bits: Both = @bitCast(out);
+            const out0: Half = @truncate(bits);
+            if (first) std.mem.writeInt(Int, c0[i * bpp ..][0..bpp], @truncate(out0), .little);
+            if (second) std.mem.writeInt(Int, c1[(i - 2) * bpp ..][0..bpp], @truncate(bits >> (lanes * 8)), .little);
+            s.a = @as(B, out);
+            if (filter == 4) s.c = b;
+            s.held = s.pend;
+            s.pend = out0;
+        }
+    };
+    var s: S = .{};
+    var i: usize = 0;
+    // Pixel i of the first row and i - 2 of the second.
+    while (i < @min(2, w)) : (i += 1) s.step(true, false, i, cur0, src0, cur1, src1, prev);
+    while (i < 2) : (i += 1) s.step(false, false, i, cur0, src0, cur1, src1, prev);
+    while (i < w) : (i += 1) s.step(true, true, i, cur0, src0, cur1, src1, prev);
+    while (i < w + 2) : (i += 1) s.step(false, true, i, cur0, src0, cur1, src1, prev);
+}
+
+test "unfilter2 unfilters two rows" {
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    var prev: [200]u8 = undefined;
+    var r0: [200]u8 = undefined;
+    var r1: [200]u8 = undefined;
+    var want0: [200]u8 = undefined;
+    var want1: [200]u8 = undefined;
+    for (0..6000) |i| {
+        const bpp = ([_]usize{ 1, 2, 3, 4, 6, 8 })[i % 6];
+        const filter: u8 = if (i / 6 % 2 == 0) 3 else 4;
+        const len = random.uintAtMost(usize, r0.len / bpp) * bpp;
+        for (prev[0..len], r0[0..len], r1[0..len]) |*p, *x, *y| {
+            p.* = if (random.boolean()) random.int(u8) else 255 - random.uintLessThan(u8, 3);
+            x.* = random.int(u8);
+            y.* = random.int(u8);
+        }
+        @memcpy(want0[0..len], r0[0..len]);
+        reference(filter, want0[0..len], &prev, bpp);
+        @memcpy(want1[0..len], r1[0..len]);
+        reference(filter, want1[0..len], &want0, bpp);
+        var out0: [200]u8 = undefined;
+        var out1: [200]u8 = undefined;
+        unfilter2(filter, bpp, out0[0..len], r0[0..len], out1[0..len], r1[0..len], prev[0..len]);
+        try testing.expectEqualSlices(u8, want0[0..len], out0[0..len]);
+        try testing.expectEqualSlices(u8, want1[0..len], out1[0..len]);
+        // The first row in place, the second over the row above it.
+        @memcpy(out0[0..len], r0[0..len]);
+        unfilter2(filter, bpp, out0[0..len], out0[0..len], prev[0..len], r1[0..len], prev[0..len]);
+        try testing.expectEqualSlices(u8, want0[0..len], out0[0..len]);
+        try testing.expectEqualSlices(u8, want1[0..len], prev[0..len]);
+    }
+}

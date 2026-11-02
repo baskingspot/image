@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before    wuffs     ±   <1    ~   slowest vs before
+PngDecode/icon                    17       86.2     1.00     1.10    2%    0   17   0.99 [0.98, 1.03] variant_interlaced-actions_address_book_new-64x64.png
+PngDecode/1mp                     27      161.3     1.02     1.10    1%    0   20   1.00 [0.98, 1.00] test-qoi_logo-448x220.png
+PngDecode/large                    8      130.9     1.01     1.07    3%    1    6   0.99 [0.92, 1.00] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.png
+all                               52      127.3     1.02     1.10          1   43

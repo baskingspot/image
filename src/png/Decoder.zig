@@ -879,14 +879,53 @@ fn pixels(d: *Decoder, region: PixelBuffer, work: []u8, kind: u32, over: bool) E
         const ph = (region.height - p.y + p.dy - 1) / p.dy;
         const n = h.rowBytes(pw).?;
         @memset(prev[0..n], 0);
-        for (0..ph) |j| {
-            const y: u32 = @intCast(j);
+        var y: u32 = 0;
+        while (y < ph) : (y += 1) {
             const f = in.takeByte() catch |e| return switch (e) {
                 error.EndOfStream => error.NotEnoughData,
                 error.ReadFailed => zlibError(&zr, &dr),
             };
             const row = if (direct) region.row(y)[0..n] else cur[0..n];
             const above = if (direct and y > 0) region.row(y - 1) else prev[0..n];
+            // Two Average or Paeth rows at once: each row's pixels depend
+            // on the pixel to the left, and two such chains run faster
+            // side by side (not Average's 1-byte pixels, whose byte loop
+            // is as fast). The second row goes over the row above the
+            // first. Anything short of two such rows whole takes the
+            // one-row path.
+            const pair = f == 4 or (f == 3 and bpp >= 2);
+            if (pair and y + 1 < ph and n < max_peek) two: {
+                const next = if (direct) region.row(y + 1)[0..n] else prev[0..n];
+                if (2 * n + 1 <= max_peek) {
+                    const both = in.peek(2 * n + 1) catch break :two;
+                    if (both[n] != f) break :two;
+                    filter.unfilter2(f, bpp, row, both[0..n], next, both[n + 1 ..][0..n], above);
+                    in.toss(2 * n + 1);
+                } else {
+                    // A longer first row is read out of the window first.
+                    in.readSliceAll(row) catch |e| return switch (e) {
+                        error.EndOfStream => error.NotEnoughData,
+                        error.ReadFailed => zlibError(&zr, &dr),
+                    };
+                    const second = in.peek(n + 1) catch null;
+                    if (second == null or second.?[0] != f) {
+                        try filter.unfilter(f, row, row, above, bpp);
+                        if (!direct) {
+                            out.put(cur[0..n], p.y + y * p.dy, p.x, p.dx, pw);
+                            std.mem.swap([]u8, &prev, &cur);
+                        }
+                        continue;
+                    }
+                    filter.unfilter2(f, bpp, row, row, next, second.?[1..][0..n], above);
+                    in.toss(n + 1);
+                }
+                if (!direct) {
+                    out.put(cur[0..n], p.y + y * p.dy, p.x, p.dx, pw);
+                    out.put(prev[0..n], p.y + (y + 1) * p.dy, p.x, p.dx, pw);
+                }
+                y += 1;
+                continue;
+            }
             if (n <= max_peek) {
                 // Unfiltered straight out of the inflate window.
                 const filtered = in.peek(n) catch |e| return switch (e) {
