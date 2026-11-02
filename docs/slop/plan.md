@@ -473,6 +473,9 @@ orb asks for a change to them, or for text in this file, in its report.
     libjpeg-turbo's naive RGB bit for bit (SIMD from `cmyk8`, 1.3–1.8 GP/s)
     and a naive inverse. JPEG's `.raw` can report `cmyk8` with its samples
     unchanged (wider samples scaled to `cmyk16`); TIFF writes `max - ink`.
+    JPEG's `.raw` reports `cmyk8`/`cmyk16` as native, and its default 8-bit
+    path converts through `image.convert` (results/jpeg-cmyk-20261102.md,
+    +45%).
     Adding `PixelFormat` values reseeds TGA's oracle inputs (its generator
     draws the encoder's source format from every format), so TGA's counts
     move once without a decoder change.
