@@ -1,0 +1,350 @@
+//! One frame's sections (ISO/IEC 18181-1, the frame and its table of
+//! contents): the TOC, then LfGlobal, the LF groups, HfGlobal, and the pass
+//! groups, read in file order. This stage decodes Modular frames into a
+//! frame-sized `modular.Image` with the global transforms undone.
+
+const std = @import("std");
+const testing = std.testing;
+
+const BitReader = @import("BitReader.zig");
+const entropy = @import("entropy.zig");
+const Arena = @import("Arena.zig");
+const headers = @import("headers.zig");
+const modular = @import("modular.zig");
+
+pub const Error = modular.Error || headers.Error;
+
+const max_toc_entries = 65536;
+const num_quant_tables = 17;
+
+pub const Toc = struct {
+    /// Section sizes in file order.
+    sizes: []u32,
+    /// The logical section in each file slot.
+    ids: []u32,
+    total: u64,
+};
+
+fn numEntries(d: *const headers.Dims, passes: u32) u64 {
+    if (d.num_groups == 1 and passes == 1) return 1;
+    return 2 + @as(u64, d.num_lf_groups) + @as(u64, d.num_groups) * passes;
+}
+
+/// Reads the table of contents, which follows the frame header.
+pub fn readToc(br: *BitReader, arena: *Arena, d: *const headers.Dims, passes: u32) Error!Toc {
+    const n64 = numEntries(d, passes);
+    if (n64 > max_toc_entries) return error.BadHeader;
+    const n: usize = @intCast(n64);
+    const ids = try arena.alloc(u32, n);
+    for (ids, 0..) |*id, i| id.* = @intCast(i);
+    if (try br.boolean()) {
+        const m = arena.mark();
+        const perm = try arena.alloc(u32, n);
+        try readPermutation(br, arena, perm);
+        // File slot perm[i] holds logical section i.
+        for (perm, 0..) |slot, i| ids[slot] = @intCast(i);
+        arena.release(m);
+    }
+    try br.zeroPadToByte();
+    const sizes = try arena.alloc(u32, n);
+    var total: u64 = 0;
+    for (sizes) |*s| {
+        s.* = try br.u32Dist(.{ .b(10), .bo(14, 1024), .bo(22, 17408), .bo(30, 4211712) });
+        total += s.*;
+    }
+    try br.zeroPadToByte();
+    return .{ .sizes = sizes, .ids = ids, .total = total };
+}
+
+fn permContext(v: u32) usize {
+    if (v == 0) return 0;
+    return @min(7, 1 + std.math.log2_int(u32, v));
+}
+
+/// Reads a permutation of `order.len` entries as Lehmer codes.
+fn readPermutation(br: *BitReader, arena: *Arena, order: []u32) Error!void {
+    const size: u32 = @intCast(order.len);
+    const code = try entropy.Code.read(br, arena, 8);
+    var r: entropy.Reader = try .init(&code, br, arena, 0, size + 1);
+    const end = try r.read(br, permContext(size));
+    if (end > size) return error.BadHeader;
+    const lehmer = try arena.alloc(u32, size);
+    @memset(lehmer, 0);
+    var last: u32 = 0;
+    for (0..end) |i| {
+        lehmer[i] = try r.read(br, permContext(last));
+        last = lehmer[i];
+        if (lehmer[i] >= size - i) return error.BadHeader;
+    }
+    if (!r.finalOk()) return error.BadEntropy;
+    // The i-th entry is the lehmer[i]-th of those not yet used.
+    const used = try arena.alloc(bool, size);
+    @memset(used, false);
+    for (order, lehmer) |*o, l| {
+        var k = l;
+        var v: u32 = 0;
+        while (true) : (v += 1) {
+            if (used[v]) continue;
+            if (k == 0) break;
+            k -= 1;
+        }
+        used[v] = true;
+        o.* = v;
+    }
+}
+
+/// What a frame decodes to.
+pub const Decoded = struct {
+    /// Frame-sized channels: the color channels (none, one, or three)
+    /// then the extra channels.
+    img: modular.Image,
+    num_color: u32,
+};
+
+pub const Context = struct {
+    image: *const headers.ImageHeader,
+    fh: *const headers.FrameHeader,
+    d: headers.Dims,
+    tree: ?modular.Tree = null,
+    full: modular.Image = undefined,
+    num_color: u32 = 0,
+    got_global: bool = false,
+    done: []bool = &.{},
+};
+
+/// Fails with `Unsupported` on what this stage does not decode yet.
+pub fn checkSupported(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) Error!void {
+    if (!fh.modular) return error.Unsupported;
+    if (fh.kind == .lf or fh.flags & headers.flag_use_lf_frame != 0) return error.Unsupported;
+    if (fh.flags & (headers.flag_patches | headers.flag_splines | headers.flag_noise) != 0) return error.Unsupported;
+    if (fh.ycbcr or image.xyb) return error.Unsupported;
+    if (fh.upsampling != 1) return error.Unsupported;
+    for (fh.ec_upsampling[0..image.num_ec]) |u| if (u != 1) return error.Unsupported;
+    if (fh.filter.gab or fh.filter.epf_iters != 0) return error.Unsupported;
+}
+
+/// Decodes a frame's sections after its header and TOC.
+pub fn decode(
+    br: *BitReader,
+    arena: *Arena,
+    image: *const headers.ImageHeader,
+    fh: *const headers.FrameHeader,
+    toc: *const Toc,
+) Error!Decoded {
+    var ctx: Context = .{ .image = image, .fh = fh, .d = .init(fh) };
+    ctx.done = try arena.alloc(bool, toc.sizes.len);
+    @memset(ctx.done, false);
+    if (toc.sizes.len == 1) {
+        try br.beginSection(toc.sizes[0]);
+        try lfGlobal(br, arena, &ctx);
+        try lfGroup(br, arena, &ctx, 0);
+        try passGroup(br, arena, &ctx, 0, 0);
+        try br.endSection();
+    } else {
+        const nlf = ctx.d.num_lf_groups;
+        for (toc.sizes, toc.ids) |size, id| {
+            if (ctx.done[id]) return error.BadHeader;
+            ctx.done[id] = true;
+            if (id != 0 and !ctx.got_global) return error.Unsupported;
+            try br.beginSection(size);
+            if (id == 0) {
+                try lfGlobal(br, arena, &ctx);
+            } else if (id <= nlf) {
+                try lfGroup(br, arena, &ctx, id - 1);
+            } else if (id == nlf + 1) {
+                // HfGlobal is empty for Modular.
+            } else {
+                const k = id - nlf - 2;
+                try passGroup(br, arena, &ctx, k / ctx.d.num_groups, k % ctx.d.num_groups);
+            }
+            try br.endSection();
+        }
+    }
+    try ctx.full.undoTransforms(arena);
+    // The channels must be back to the frame's layout.
+    const want = ctx.num_color + image.num_ec;
+    if (ctx.full.len != want) return error.BadImage;
+    for (ctx.full.channels()) |c| {
+        if (c.w != ctx.d.width or c.h != ctx.d.height) return error.BadImage;
+    }
+    return .{ .img = ctx.full, .num_color = ctx.num_color };
+}
+
+fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
+    const image = ctx.image;
+    const fh = ctx.fh;
+    // LF dequantization weights.
+    if (!try br.boolean()) {
+        for (0..3) |_| {
+            const v = try br.f16Field() / 128;
+            if (v < 1e-8) return error.BadHeader;
+        }
+    }
+    // GlobalModular.
+    const grey = image.colour.space == .grey;
+    var nb_color: u32 = if (grey and !fh.ycbcr) 1 else 3;
+    const nb_extra = image.num_ec;
+    if (try br.boolean()) {
+        const px = @as(u64, ctx.d.width) * ctx.d.height;
+        const limit = @min(1 << 22, 1024 + px * (nb_color + nb_extra) / 16);
+        ctx.tree = try modular.readTree(br, arena, @intCast(limit));
+    }
+    if (!fh.modular) nb_color = 0;
+    const depth = image.depth;
+    if (depth.bits >= 32 and nb_color > 0 and !image.xyb) {
+        if (depth.bits == 32 and !depth.float) return error.Unsupported;
+        if (depth.bits > 32) return error.BadHeader;
+    }
+    ctx.num_color = nb_color;
+    var img: modular.Image = try .init(arena, nb_color + nb_extra, ctx.d.width, ctx.d.height, depth.bits);
+    for (img.channels()[nb_color..], 0..) |*c, e| {
+        const up = fh.ec_upsampling[e];
+        c.w = @intCast((@as(u64, ctx.d.width_up) + up - 1) / up);
+        c.h = @intCast((@as(u64, ctx.d.height_up) + up - 1) / up);
+        const s: i32 = @as(i32, std.math.log2_int_ceil(u32, up)) - std.math.log2_int_ceil(u32, fh.upsampling);
+        c.hshift = s;
+        c.vshift = s;
+    }
+    try modular.decodeStream(br, arena, &img, 0, .{
+        .max_chan_size = ctx.d.group_dim,
+        .group_dim = ctx.d.group_dim,
+        .global = if (ctx.tree) |*t| t else null,
+        .undo = false,
+    });
+    ctx.full = img;
+    ctx.got_global = true;
+}
+
+const Rect = struct {
+    x0: u64,
+    y0: u64,
+    w: u64,
+    h: u64,
+};
+
+fn clampedSize(pos: u64, size: u64, end: u64) u64 {
+    if (pos + size <= end) return size;
+    return if (end > pos) end - pos else 0;
+}
+
+/// Decodes the channels of one group (an LF group or a pass group) whose
+/// shift falls in `min_shift..max_shift`, within `rect` of the frame, and
+/// copies them into the full image.
+fn group(
+    br: *BitReader,
+    arena: *Arena,
+    ctx: *Context,
+    rect: Rect,
+    min_shift: i32,
+    max_shift: i32,
+    stream_id: u32,
+) Error!void {
+    const full = &ctx.full;
+    const gd = ctx.d.group_dim;
+    var begin = full.nb_meta;
+    while (begin < full.len) : (begin += 1) {
+        const c = &full.buf[begin];
+        if (c.w > gd or c.h > gd) break;
+    }
+    var n: usize = 0;
+    for (full.channels()[begin..]) |*c| {
+        if (try groupRect(c, rect, min_shift, max_shift)) |_| n += 1;
+    }
+    if (n == 0) return;
+    const m = arena.mark();
+    defer arena.release(m);
+    var sub: modular.Image = try .init(arena, n, 0, 0, full.bitdepth);
+    var k: usize = 0;
+    for (full.channels()[begin..]) |*c| {
+        const r = try groupRect(c, rect, min_shift, max_shift) orelse continue;
+        sub.buf[k] = .{ .w = @intCast(r.w), .h = @intCast(r.h), .hshift = c.hshift, .vshift = c.vshift };
+        k += 1;
+    }
+    try modular.decodeStream(br, arena, &sub, stream_id, .{ .global = if (ctx.tree) |*t| t else null });
+    if (sub.len != n) return error.BadImage;
+    k = 0;
+    for (full.channels()[begin..]) |*c| {
+        const r = try groupRect(c, rect, min_shift, max_shift) orelse continue;
+        const s = &sub.buf[k];
+        k += 1;
+        if (s.w != r.w or s.h != r.h) return error.BadImage;
+        for (0..@intCast(r.h)) |y| {
+            const src = s.row(y);
+            const dst = c.row(@intCast(r.y0 + y))[@intCast(r.x0)..][0..@intCast(r.w)];
+            @memcpy(dst, src);
+        }
+    }
+}
+
+/// The part of channel `c` a group at `rect` holds, if the channel's
+/// shift is in range and the part is not empty.
+fn groupRect(c: *const modular.Channel, rect: Rect, min_shift: i32, max_shift: i32) Error!?Rect {
+    const shift = @min(c.hshift, c.vshift);
+    if (shift > max_shift or shift < min_shift) return null;
+    if (c.hshift < 0 or c.vshift < 0 or c.hshift > 63 or c.vshift > 63) return error.BadImage;
+    const hs: u6 = @intCast(c.hshift);
+    const vs: u6 = @intCast(c.vshift);
+    const x0 = rect.x0 >> hs;
+    const y0 = rect.y0 >> vs;
+    const r: Rect = .{
+        .x0 = x0,
+        .y0 = y0,
+        .w = clampedSize(x0, rect.w >> hs, c.w),
+        .h = clampedSize(y0, rect.h >> vs, c.h),
+    };
+    if (r.w == 0 or r.h == 0) return null;
+    return r;
+}
+
+fn lfGroup(br: *BitReader, arena: *Arena, ctx: *Context, g: u32) Error!void {
+    const d = &ctx.d;
+    const dim: u64 = @as(u64, d.group_dim) * 8;
+    const gx = g % d.xsize_lf_groups;
+    const gy = g / d.xsize_lf_groups;
+    const rect: Rect = .{ .x0 = gx * dim, .y0 = gy * dim, .w = dim, .h = dim };
+    try group(br, arena, ctx, rect, 3, 1000, 1 + d.num_lf_groups + g);
+}
+
+fn passGroup(br: *BitReader, arena: *Arena, ctx: *Context, pass: u32, g: u32) Error!void {
+    const d = &ctx.d;
+    const dim: u64 = d.group_dim;
+    const gx = g % d.xsize_groups;
+    const gy = g / d.xsize_groups;
+    const rect: Rect = .{ .x0 = gx * dim, .y0 = gy * dim, .w = dim, .h = dim };
+    const b = bracket(&ctx.fh.passes, pass);
+    const id = 1 + 3 * d.num_lf_groups + num_quant_tables + d.num_groups * pass + g;
+    try group(br, arena, ctx, rect, b[0], b[1], id);
+}
+
+/// The range of channel shifts pass `pass` holds.
+fn bracket(p: *const headers.Passes, pass: u32) [2]i32 {
+    var max_shift: i32 = 2;
+    var min_shift: i32 = 3;
+    var i: u32 = 0;
+    while (true) : (i += 1) {
+        for (0..p.num_ds) |j| {
+            if (i == p.last_pass[j]) {
+                min_shift = switch (p.downsample[j]) {
+                    8 => 3,
+                    4 => 2,
+                    2 => 1,
+                    else => 0,
+                };
+            }
+        }
+        if (i == p.num - 1) min_shift = 0;
+        if (i == pass) return .{ min_shift, max_shift };
+        max_shift = min_shift - 1;
+    }
+}
+
+test "bracket" {
+    const one: headers.Passes = .{};
+    try testing.expectEqual([2]i32{ 0, 2 }, bracket(&one, 0));
+}
+
+test "permutation" {
+    // Nothing to read beyond the code: covered by the conformance files.
+    try testing.expectEqual(@as(usize, 0), permContext(0));
+    try testing.expectEqual(@as(usize, 7), permContext(1000));
+}

@@ -23,6 +23,7 @@ pub const netpbm_encode = @import("netpbm_encode.zig");
 pub const wbmp = @import("wbmp.zig");
 pub const wbmp_encode = @import("wbmp_encode.zig");
 pub const webp = @import("webp.zig");
+pub const jxl = @import("jxl.zig");
 
 const Self = @This();
 

@@ -1,0 +1,231 @@
+//! The JPEG XL fuzz target: the decoder properties in harness.zig, on
+//! mutated corpus files and generated Modular codestreams.
+
+const std = @import("std");
+const image = @import("image");
+const harness = @import("harness.zig");
+
+pub const name = "jxl";
+
+/// Seed directories, relative to the repository root (corpus/README.md),
+/// and the extensions of the files in them to take.
+pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor", "bench/corpus-gen/jxl" };
+pub const extensions = [_][]const u8{".jxl"};
+
+pub fn check(input: []const u8, choice: u64) !void {
+    return harness.checkDecoder(image.jxl.Decoder, input, choice);
+}
+
+/// Bits, least significant first, as the codestream stores them.
+const BitWriter = struct {
+    buf: []u8,
+    bit: usize = 0,
+
+    fn put(w: *BitWriter, v: u64, n: u6) void {
+        for (0..n) |i| {
+            const byte = w.bit / 8;
+            if (byte >= w.buf.len) return;
+            if (w.bit % 8 == 0) w.buf[byte] = 0;
+            if ((v >> @intCast(i)) & 1 == 1) w.buf[byte] |= @as(u8, 1) << @intCast(w.bit % 8);
+            w.bit += 1;
+        }
+    }
+
+    fn pad(w: *BitWriter) void {
+        while (w.bit % 8 != 0) w.put(0, 1);
+    }
+
+    fn bytes(w: *const BitWriter) usize {
+        return @min(w.buf.len, (w.bit + 7) / 8);
+    }
+};
+
+/// A prefix code's alphabet size, as `Code.read` reads it.
+fn alphabetSize(w: *BitWriter, size: u32) void {
+    if (size == 1) return w.put(0, 1);
+    w.put(1, 1);
+    const nbits: u6 = @intCast(std.math.log2_int(u32, size - 1));
+    w.put(nbits, 4);
+    if (nbits > 0) w.put(size - 1 - (@as(u32, 1) << @intCast(nbits)), nbits);
+}
+
+fn maxBits(alphabet: u32) u6 {
+    return if (alphabet > 1) @intCast(32 - @clz(alphabet - 1)) else 0;
+}
+
+/// A JPEG XL codestream of one Modular frame in one group: a valid
+/// header, a one-leaf tree with a random predictor, and random residuals
+/// from a four-symbol prefix code; sometimes a transform, extra channels,
+/// or grey; and sometimes a random body instead.
+pub fn generate(random: std.Random, buf: []u8) []u8 {
+    std.debug.assert(buf.len >= 4096);
+    var w: BitWriter = .{ .buf = buf };
+    w.put(0x0aff, 16);
+    // Size: small, a multiple of 8 up to 64.
+    const h8 = random.uintLessThan(u32, 8);
+    const w8 = random.uintLessThan(u32, 8);
+    w.put(1, 1);
+    w.put(h8, 5);
+    w.put(0, 3);
+    w.put(w8, 5);
+    const width = (w8 + 1) * 8;
+    const height = (h8 + 1) * 8;
+    // Image metadata.
+    w.put(0, 1); // all_default
+    w.put(0, 1); // extra_fields
+    w.put(0, 1); // integer samples
+    const depth_sel = random.uintLessThan(u32, 3);
+    w.put(depth_sel, 2); // 8, 10, or 12 bits
+    w.put(1, 1); // modular_16_bit
+    const num_ec = random.uintLessThan(u32, 2);
+    w.put(num_ec, 2);
+    for (0..num_ec) |_| w.put(1, 1); // an 8-bit alpha channel
+    w.put(0, 1); // not XYB
+    const grey = random.uintLessThan(u8, 4) == 0;
+    if (grey) {
+        w.put(0, 1); // colour_encoding.all_default
+        w.put(0, 1); // want_icc
+        w.put(1, 2); // grey
+        w.put(1, 2); // D65
+        w.put(0, 1); // no gamma
+        w.put(2, 2);
+        w.put(13 - 2, 4); // sRGB transfer
+        w.put(0, 2); // perceptual
+    } else {
+        w.put(1, 1); // sRGB
+    }
+    w.put(0, 2); // extensions
+    w.put(1, 1); // default transform data
+    w.pad();
+    // Frame header.
+    w.put(0, 1);
+    w.put(0, 2); // regular
+    w.put(1, 1); // modular
+    w.put(0, 2); // flags
+    w.put(0, 1); // not YCbCr
+    w.put(0, 2); // upsampling 1
+    for (0..num_ec) |_| w.put(0, 2);
+    w.put(random.uintLessThan(u32, 4), 2); // group size shift
+    w.put(0, 2); // one pass
+    w.put(0, 1); // no crop
+    w.put(0, 2); // replace
+    for (0..num_ec) |_| w.put(0, 2);
+    w.put(1, 1); // is_last
+    w.put(0, 2); // no name
+    w.put(0, 1); // restoration filter not default
+    w.put(0, 1); // no gaborish
+    w.put(0, 2); // no EPF
+    w.put(0, 2); // extensions
+    w.put(0, 2); // extensions
+    // The body goes in the second half first, so the TOC can give its
+    // size.
+    const half = buf.len / 2;
+    var b: BitWriter = .{ .buf = buf[half..] };
+    if (random.uintLessThan(u8, 8) == 0) {
+        const n = random.uintLessThan(usize, 512);
+        random.bytes(b.buf[0..n]);
+        b.bit = n * 8;
+    } else {
+        body(random, &b, width, height, (if (grey) @as(u32, 1) else 3) + num_ec);
+    }
+    b.pad();
+    const size = b.bytes();
+    // TOC of one section.
+    w.put(0, 1);
+    w.pad();
+    if (size < 1024) {
+        w.put(0, 2);
+        w.put(size, 10);
+    } else {
+        w.put(1, 2);
+        w.put(size - 1024, 14);
+    }
+    w.pad();
+    const at = w.bytes();
+    if (at + size > half) return buf[0..at];
+    @memcpy(buf[at..][0..size], b.buf[0..size]);
+    return buf[0 .. at + size];
+}
+
+fn body(random: std.Random, w: *BitWriter, width: u32, height: u32, channels: u32) void {
+    w.put(1, 1); // default LF dequantization
+    w.put(1, 1); // a global tree
+    // The tree's code: six contexts, the predictor's in cluster 1.
+    const pred = random.uintLessThan(u32, 14);
+    w.put(0, 1); // no LZ77
+    w.put(1, 1); // simple context map
+    w.put(1, 2); // one bit per entry
+    for (0..6) |ctx| w.put(@intFromBool(ctx == 2), 1);
+    w.put(1, 1); // prefix codes
+    w.put(15, 4);
+    w.put(15, 4); // configs: every token literal
+    alphabetSize(w, 1);
+    alphabetSize(w, pred + 1);
+    if (pred > 0) {
+        w.put(1, 2); // simple code
+        w.put(0, 2); // one symbol
+        w.put(pred, maxBits(pred + 1));
+    }
+    // The tree's histograms: one context, four symbols under 16.
+    w.put(0, 1); // no LZ77
+    w.put(1, 1); // prefix codes
+    w.put(15, 4);
+    alphabetSize(w, 16);
+    w.put(1, 2);
+    w.put(3, 2); // four symbols
+    var syms: [4]u32 = undefined;
+    var used: u16 = 0;
+    for (&syms) |*s| {
+        var v = random.uintLessThan(u32, 16);
+        while (used & (@as(u16, 1) << @intCast(v)) != 0) v = (v + 1) % 16;
+        used |= @as(u16, 1) << @intCast(v);
+        s.* = v;
+        w.put(v, 4);
+    }
+    w.put(0, 1); // tree_select
+    // The global stream's group header.
+    w.put(1, 1); // the global tree
+    w.put(1, 1); // default weighted predictor
+    switch (random.uintLessThan(u8, 4)) {
+        0 => if (channels >= 3) {
+            w.put(1, 2); // one transform
+            w.put(0, 2); // RCT
+            w.put(0, 2);
+            w.put(0, 3); // from channel 0
+            w.put(2, 2);
+            w.put(random.uintLessThan(u32, 32), 4); // type 2..33
+        } else w.put(0, 2),
+        else => w.put(0, 2),
+    }
+    // Residuals: two bits each.
+    const n = @as(usize, width) * height * channels;
+    for (0..n) |_| w.put(random.uintLessThan(u32, 4), 2);
+}
+
+/// Hand-written seeds for the coverage-guided fuzzer, which has no corpus
+/// on disk: an 8 by 8 grey Modular image of zeros.
+pub const seeds = [_][]const u8{
+    "\xff\x0a\x00\x00\x00\x00",
+};
+
+test "jxl on the coverage-guided fuzzer" {
+    try harness.zigFuzz(@This());
+}
+
+test "generated files decode" {
+    var prng: std.Random.DefaultPrng = .init(1);
+    var buf: [1 << 16]u8 = undefined;
+    var ok: usize = 0;
+    for (0..64) |_| {
+        const file = generate(prng.random(), &buf);
+        var r: std.Io.Reader = .fixed(file);
+        var d = image.jxl.Decoder.init(&r, .{});
+        const c = d.decodeConfig() catch continue;
+        var px: [64 * 64 * 8]u8 = undefined;
+        const dst = try image.PixelBuffer.init(&px, .rgba16, c.width, c.height);
+        const work = try std.testing.allocator.alloc(u8, c.work_len);
+        defer std.testing.allocator.free(work);
+        if (d.decodeFrame(dst, work)) |_| ok += 1 else |_| {}
+    }
+    try std.testing.expect(ok > 32);
+}
