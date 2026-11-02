@@ -19,6 +19,7 @@ pub const jpeg_encode = @import("jpeg_encode.zig");
 pub const qoi = @import("qoi.zig");
 pub const qoi_encode = @import("qoi_encode.zig");
 pub const tiff = @import("tiff.zig");
+pub const tiff_encode = @import("tiff_encode.zig");
 pub const tga = @import("tga.zig");
 pub const tga_encode = @import("tga_encode.zig");
 pub const netpbm = @import("netpbm.zig");
