@@ -339,9 +339,10 @@ owning the files adding-a-format.md assigns to its format plus
   (adapting each input once per op), and reads corpus files from disk as
   batches need them. With the full corpus on an 8 GB orb (6 GiB cgroup),
   `just oracle 100000` peaks at 1.9 GiB (was OOM-killed at 5.6) and `just
-ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. If the
-  compiles grow past about 6 GiB together, run `just test`'s ReleaseFast
-  unit tests after ReleaseSafe instead of beside it.
+ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
+  (results/test-memory-20261102.md) builds `just test`'s ReleaseFast unit
+  tests after ReleaseSafe instead of beside it: `just test` peaks at 3.3 GiB
+  (was 4.9) and takes 203 s (was 113).
 - **WebP lossy encode** (branch `wave5-webp-lossy`, a new orb):
   `src/webp/vp8_encode.zig` and any new `src/webp/vp8_encode_*.zig` files,
   the webp_lossy_encode fuzz and oracle files, and the webp-encode-lossy
@@ -651,7 +652,10 @@ orb asks for a change to them, or for text in this file, in its report.
     text, and bKGD are not. compress's writer takes its per-block scratch
     (about 320 KiB) from the writer's memory, not the stack.
 17. **ICO encode. Decided by the owner:** the default payload is `.auto`: PNG
-    for 256×256 entries, BMP otherwise.
+    for 256×256 entries, BMP otherwise. Landed (wave1-ico-png): `ico.Payload` per
+    image, `.auto` the default; PNG entries measured with
+    `Io.Writer.Discarding`, then written; `encodeAll` takes `work`; a
+    one-entry PNG ICO decodes without `Options.entry`.
 18. **CMYK storage. Decided by the owner:** inverted, as decision 15 landed
     it (the maximum is no ink).
 19. **JPEG. Decided by the owner:** lossless JPEG marked YCbCr or YCCK is
