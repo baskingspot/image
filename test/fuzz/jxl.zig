@@ -52,7 +52,7 @@ fn checkSink(input: []const u8) !void {
 var jpeg_coefs: [1 << 22]i16 = undefined;
 
 /// `decodeJpeg` lays out whole MCUs inside the buffer it was given, and
-/// reads only files the frame decoder reads too.
+/// reads only files whose frame the frame decoder reads too.
 fn checkJpeg(input: []const u8) !void {
     const Decoder = image.jxl.Decoder;
     var r: std.Io.Reader = .fixed(input);
@@ -74,7 +74,9 @@ fn checkJpeg(input: []const u8) !void {
     if (total > n) return error.JpegLayout;
     var frames: [harness.limits.max_frames + 1]Outcome = undefined;
     const m = decodeAll(input, null, &frames);
-    for (frames[0..m]) |o| if (o == .err) return error.JpegDiffers;
+    // The frame decodes; the boxes after the codestream, which the call
+    // after it reads, are not the coefficients' concern.
+    if (m == 0 or frames[0] != .frame) return error.JpegDiffers;
 }
 
 fn decodeAll(input: []const u8, sink: ?Sink, out: []Outcome) usize {

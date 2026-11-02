@@ -133,6 +133,12 @@ the canvas instead of whole planes.
   canvas's pixels; more is `TooComplex`. The specification allows any size;
   the cap keeps the bound finite, and the conformance files stay within it
   (sunset_logo's layers are the largest).
+- **Boxes after the codestream** are read by the `decodeFrame` call after
+  the last frame, the one that returns null, so metadata found there
+  reaches `finalConfig` and a broken or cut-off box there fails that call
+  without losing the image. libjxl reads nothing after a complete
+  codestream and jxl-oxide tolerates cut-off boxes; both return the image
+  whatever follows, which the oracle found on fuzzed transcodes.
 - **The ICC profile** is decoded in the first `decodeFrame`, since
   `decodeConfig` has no work memory, and reported to the blob sink at
   offset 0 with its decoded length. `Config.metadata.icc` names it only

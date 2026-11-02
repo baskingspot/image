@@ -83,7 +83,9 @@ store: Store = .{},
 /// recompressed JPEG; for this package's JPEG reconstruction, not callers.
 coeff_sink: ?vardct.CoeffSink = null,
 
-const State = enum { start, config, frames, done };
+/// `trailer`: the codestream is complete and the container's boxes after
+/// it are still to read, which the call after the last frame does.
+const State = enum { start, config, frames, trailer, done };
 
 /// The composited canvas and the four reference slots, float planes of
 /// the canvas's size at the start of work memory.
@@ -445,6 +447,12 @@ fn micro(v: i32) f32 {
 pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     if (d.err) |e| return e;
     _ = try d.decodeConfig();
+    if (d.state == .trailer) {
+        // The boxes after the codestream: metadata for `finalConfig`. An
+        // error here comes after the image, which has been returned whole.
+        d.br.src.finish() catch |e| return d.fail(e);
+        d.state = .done;
+    }
     if (d.state == .done) return null;
     try dst.check();
     if (dst.width != d.image.width or dst.height != d.image.height) return error.SizeMismatch;
@@ -478,10 +486,7 @@ fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
         defer st.arena.release(st.frame_mark);
         var blended = false;
         const shown = try d.oneFrame(&fh, dst, &blended);
-        if (fh.is_last) {
-            try d.br.src.finish();
-            d.state = .done;
-        }
+        if (fh.is_last) d.state = .trailer;
         if (shown) {
             defer d.index += 1;
             return .{
@@ -561,8 +566,7 @@ fn jpegFrame(d: *Decoder, coefs: []i16, work: []u8) Error!Jpeg {
     const refs: [4]?frame.PatchSource = @splat(null);
     _ = try frame.decode(&d.br, &st.arena, image, &fh, &toc, .{ 1, 0 }, &refs, null, jpeg.sink());
     if (!jpeg.got_quant) return error.NotJpeg;
-    try d.br.src.finish();
-    d.state = .done;
+    d.state = .trailer;
     return jpeg;
 }
 
@@ -1149,6 +1153,33 @@ test "the colour encoding and intensity target are reported" {
         try testing.expectEqual(w.intensity_target, m.intensity_target);
         for (w.primaries.?, m.primaries.?) |a, b| try testing.expectApproxEqAbs(a, b, 1e-6);
     }
+}
+
+test "an image survives a broken box after its codestream" {
+    // cjxl's lossless 2 by 2 image of #204060 in a container.
+    const file =
+        "\x00\x00\x00\x0c\x4a\x58\x4c\x20\x0d\x0a\x87\x0a\x00\x00\x00\x14\x66\x74\x79\x70\x6a\x78\x6c\x20" ++
+        "\x00\x00\x00\x00\x6a\x78\x6c\x20\x00\x00\x00\x27\x6a\x78\x6c\x63\xff\x0a\x08\x10\x10\x50\x5c\x08" ++
+        "\x08\x00\x01\x00\x44\x00\x4b\x18\x8b\x15\xc2\x01\x63\x5c\xf0\x7f\x00\x0e\xc0\xfe\x60\x19\x00";
+    var px: [2 * 2 * 3]u8 = undefined;
+    const dst = try PixelBuffer.init(&px, .rgb8, 2, 2);
+    // A box whose size runs past the end of the file: the image comes back
+    // whole, and the call after it reports the box.
+    var r: Io.Reader = .fixed(file ++ "\x00\x00\x03\xe8zzzz");
+    var d: Decoder = .init(&r, .{});
+    const work = try testing.allocator.alloc(u8, (try d.decodeConfig()).work_len);
+    defer testing.allocator.free(work);
+    _ = (try d.decodeFrame(dst, work)).?;
+    try testing.expectEqualSlices(u8, &([_]u8{ 0x20, 0x40, 0x60 } ** 4), &px);
+    try testing.expectError(error.Truncated, d.decodeFrame(dst, work));
+    // An Exif box after the codestream is reported once the decode ends.
+    r = .fixed(file ++ "\x00\x00\x00\x10Exif\x00\x00\x00\x00MM\x00\x2a");
+    d = .init(&r, .{});
+    _ = try d.decodeConfig();
+    _ = (try d.decodeFrame(dst, work)).?;
+    try testing.expectEqual(null, (try d.decodeConfig()).metadata.exif);
+    try testing.expectEqual(null, try d.decodeFrame(dst, work));
+    try testing.expect((try d.decodeConfig()).metadata.exif != null);
 }
 
 test "16-bit output matches the reference's float path" {
