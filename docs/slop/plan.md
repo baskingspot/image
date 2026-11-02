@@ -408,7 +408,14 @@ owning the files adding-a-format.md assigns to its format plus
   match search at 64 pixels (12% faster on the mid class for 0.1% more
   bytes, flat images up to 5% larger, still below libwebp's totals). Effort
   7 keeps nice 256. Open: flat, few-color images at efforts 1–7 run
-  0.2–0.5× libwebp's speed and need a separate cheap path.
+  0.2–0.5× libwebp's speed and need a separate cheap path. Stage 3
+  (results/webp-encode-alpha-20261102.md): `encodeAlpha` searches no hash
+  chain. Far matches led the optimal parse into a local optimum on alpha
+  planes, and libwebp's ALPH uses no transforms, so the gap was in backward
+  references. Alpha streams are 5–9% smaller and 1.16–1.60× faster from
+  effort 1, and effort 9 is the smallest. Effort 1 beats libwebp -m 2 by
+  4.2% in less time; effort 8 is 1.7% above -m 6 at 1/25 of its time. The
+  fuzz target and the oracle cover `encodeAlpha` through a VP8L header.
 - **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
