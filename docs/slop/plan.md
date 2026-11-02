@@ -226,9 +226,12 @@ Running beside wave 1's tail, started early by the owner:
   of work memory; patches and splines have work budgets past which a file is
   `TooComplex`. Work memory is a header-derived bound, exact when
   `decodeConfig` reads ahead a single last frame. There is no jxl
-  `decodeFrameConfig` yet (it would need work memory). The oracle leaves out
-  lossy frames until the comparison takes a tolerance, and files with
-  header-bundle extensions (a libjxl quirk). `metadata()` reports the colour
+  `decodeFrameConfig` yet (it would need work memory). The oracle compares
+  integer frames exactly and float frames within decision 45's bounds (an
+  internal `Decoder.skim` reads the frame headers to pick one), asks libjxl
+  for grey+alpha on grey images, and leaves out files with header-bundle
+  extensions or libjxl's ftyp quirk (minor_version above 1, or no
+  compatible brand). `metadata()` reports the colour
   encoding's transfer (or gamma), primaries, and intensity target, and
   linear sRGB for XYB images with an ICC (decision 46); the last frame comes
   back before the boxes after the codestream are read, as libjxl and
@@ -242,9 +245,8 @@ Running beside wave 1's tail, started early by the owner:
   `decodeJpeg` rebuilds DC from LF groups with extra precision as libjxl
   does and refuses raw tables whose denominator isn't 1/(8·255); the
   Modular predictors, weighted predictor, and alias table are pub for the
-  encoder. Next: lossy frames in the oracle on the harness's
-  per-input tolerance (decision 45), f32 output (decision 24), render by
-  group row, then speed.
+  encoder. Next: f32 output (decision 24), render by group row, then
+  speed.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
@@ -503,8 +505,16 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   between e6 and e7, and e8 in size; `default` runs at e7's speed above
   icons and 0.43× on icons. Files decode bit for bit in libjxl (oracle),
   jxl-oxide (117 files), and ours. LZ77 was measured with no gain and is not
-  kept. Next: photos (3–4% behind e7), learning memory up to a megapixel
-  (more than libjxl there), prefix codes for small images, and icon speed.
+  kept. Stage 2 (`wave5-jxl-encode2`, results/jxl-encode2-20261102.md): the
+  jxl_encode oracle runs under a minute at 20000 inputs. Tree learning
+  stores u8 property buckets (default peak 158→124 MiB, best 255→144 MiB;
+  libjxl e8 267). Icons encode 1.2–1.7× faster. The fast and default trees
+  grow to 256 and 2048 leaves: default matches e7's size (1.003× total) at
+  0.82× of e7's speed up to 1 MP and 1.01× above. The encoder uses the
+  decoder's predictors, weighted predictor, and alias table; the per-pixel
+  properties stay private until the decoder shares them. Next: screenshots
+  (4–7% larger than e7), count subtraction in split scoring, prefix codes
+  for small images, and work tables sized from the image.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
@@ -901,8 +911,9 @@ width)` for every file with several entries.
     per-input tolerance hook (`toleranceFor(input) ?Oracle.Tolerance`); lossless answers
     stay exact, lossy frames get 3 (float evaluation in the sRGB curve's
     linear segment), and frames that draw splines get the conformance bound
-    (peak 262, RMS ≤ 1e-4). Lossy frames stay out until the hook lands; no
-    coarse erf to sit nearer libjxl.
+    (peak 262, RMS ≤ 1e-4). No coarse erf to sit nearer libjxl. Done:
+    `test/oracle/jxl.zig`'s `toleranceFor`; 433 of 19,974 inputs agree only
+    within a tolerance at 20000, 1,585 of 99,050 at 100000.
 46. **JPEG XL XYB with ICC. Decided by the owner:** the pixels are reported
     as they are (`transfer = .linear`, sRGB `primaries`); the ICC is still
     delivered and documented as the original's space (libjxl's original
