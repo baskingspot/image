@@ -1126,10 +1126,20 @@ const Out = struct {
                 std.mem.writeInt(u16, out[k * 8 + 6 ..][0..2], if (clear) 0 else 65535, .native);
             },
             .palette_rgb, .palette_rgba => {
+                const rgba = o.expand == .palette_rgba;
+                if (depth == 8) {
+                    // A loop each, with nothing to decide per pixel.
+                    const in = raw[start..][0..m];
+                    if (rgba) {
+                        for (in, 0..) |index, k| out[k * 4 ..][0..4].* = d.palette[index];
+                    } else {
+                        for (in, 0..) |index, k| out[k * 3 ..][0..3].* = d.palette[index][0..3].*;
+                    }
+                    return;
+                }
                 const in = raw[start * depth / 8 ..];
                 const per: u8 = 8 / depth;
                 const mask: u8 = @truncate((@as(u16, 1) << @intCast(depth)) - 1);
-                const rgba = o.expand == .palette_rgba;
                 for (0..m) |k| {
                     const index = if (depth == 8) in[k] else blk: {
                         const shift: u3 = @intCast(8 - depth - (k % per) * depth);
