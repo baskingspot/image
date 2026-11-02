@@ -26,6 +26,7 @@ pub const wbmp = @import("wbmp.zig");
 pub const wbmp_encode = @import("wbmp_encode.zig");
 pub const webp = @import("webp.zig");
 pub const jxl = @import("jxl.zig");
+pub const jxl_jbrd = @import("jxl_jbrd.zig");
 
 const Self = @This();
 

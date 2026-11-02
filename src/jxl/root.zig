@@ -1,9 +1,11 @@
 //! JPEG XL (ISO/IEC 18181-1 and -2): decode. Encoding comes later.
 
 pub const Decoder = @import("Decoder.zig");
+pub const JpegReconstructor = @import("JpegReconstructor.zig");
 
 test {
     _ = Decoder;
+    _ = JpegReconstructor;
     _ = @import("BitReader.zig");
     _ = @import("container.zig");
     _ = @import("headers.zig");
@@ -21,4 +23,5 @@ test {
     _ = @import("noise.zig");
     _ = @import("patches.zig");
     _ = @import("splines.zig");
+    _ = @import("jbrd.zig");
 }
