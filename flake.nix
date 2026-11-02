@@ -71,6 +71,9 @@
               # The size bars for PNG encode: oxipng, and zopfli's zopflipng.
               oxipng
               zopfli
+              # gifski, a GIF encoder arm (its C library, libgifski) and the
+              # quantizer the GIF encoder's quality is measured against.
+              gifski
               # The Rust (image, zune-image) and Go (image) arms.
               cargo
               rustc
