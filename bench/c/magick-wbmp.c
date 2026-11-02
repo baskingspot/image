@@ -1,7 +1,6 @@
 // ImageMagick's WBMP coder through MagickWand, the only other library that
-// reads and writes WBMP: decode to gray, and encode raw gray (a header of
-// little-endian u32s, width, height, and channels; bench/corpus/wbmp_encode.sh),
-// which its writer thresholds at half intensity as ours does.
+// reads and writes WBMP: decode to gray, and encode raw gray
+// (bench/corpus/wbmp_encode.sh), which its writer thresholds at half intensity as ours does.
 #include <string.h>
 
 #include <MagickWand/MagickWand.h>
@@ -28,14 +27,10 @@ static size_t wbmp_decode(const uint8_t *in, size_t len, uint8_t *out, size_t ca
   return w * h;
 }
 
-static uint32_t le32(const uint8_t *p) {
-  return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
-}
-
 static size_t wbmp_encode(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
-  if (len < 12) return 0;
+  if (len != (size_t)bench_width * bench_height) return 0;
   start();
-  if (MagickConstituteImage(wand, le32(in), le32(in + 4), "I", CharPixel, in + 12) == MagickFalse)
+  if (MagickConstituteImage(wand, bench_width, bench_height, "I", CharPixel, in) == MagickFalse)
     return 0;
   if (MagickSetImageFormat(wand, "WBMP") == MagickFalse) return 0;
   size_t n = 0;

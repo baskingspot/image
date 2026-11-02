@@ -55,6 +55,19 @@ this package fails one. Its inputs are the files in its directory of `bench/corp
 `bench/ops.tsv` says, and every input's name ends in `-WxH`, its size, so
 throughput is in megapixels per second for every operation.
 
+An encode or conversion row's input is raw pixels, tightly packed, with no
+header; the harness sets `bench_width` and `bench_height` (`bench/c/arm.h`)
+to the size in its name before any call, and the input's bytes per pixel are
+its length over that. The Zig arm reads them through `bench/zig/input.zig`,
+the Rust arms through `input_size()` in `lib.rs`, and the Go arm as
+`inWidth` and `inHeight`.
+
+A rotating operation (`rotate=<op>` in the sixth column of `bench/ops.tsv`)
+times `<op>`'s function on many distinct files, so that a tiny input's
+branches cannot be learned: it has one row per input size,
+`rotate<N>-<W>x<H>`, whose calls take that size's N files in turn, and its
+`check` line sums their lengths and their FNV-1a hashes.
+
 ## Method
 
 1. **Checksums.** Every arm decodes or converts every input once, and its

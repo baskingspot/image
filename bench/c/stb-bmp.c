@@ -2,7 +2,6 @@
 // BMP encoder: 24-bit from RGB and gray, 32-bit (a BITMAPV4HEADER) from
 // RGBA. stb_image allocates the pixels, so a decode is a load and a free,
 // and only `check` copies them out.
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,9 +39,9 @@ static void put(void *context, void *data, int size) {
 }
 
 static size_t encode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, int comp) {
-  int side = (int)sqrt((double)(len / comp));
+  if (len != (size_t)bench_width * bench_height * comp) return 0;
   struct sink s = {out, cap, 0};
-  if (!stbi_write_bmp_to_func(put, &s, side, side, comp, in)) return 0;
+  if (!stbi_write_bmp_to_func(put, &s, (int)bench_width, (int)bench_height, comp, in)) return 0;
   return s.len <= cap ? s.len : 0;
 }
 

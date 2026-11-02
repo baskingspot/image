@@ -2,8 +2,10 @@
 # directory under bench/corpus-gen/, output bytes per pixel, and whether
 # every arm must write the same bytes (`same`), or may round or composite
 # its own way (`own`, so `just bench-compare` reports differences without
-# failing). Input names end in -WxH, the image's size.
-# name	row	dir	out_bpp	output
+# failing). Input names end in -WxH, the image's size. An optional sixth
+# column, rotate=<op>, makes a rotating row: <op>'s function, timed on each
+# input size's files in turn.
+# name	row	dir	out_bpp	output	[rotate=<op>]
 bmp-decode	BmpDecode	bmp/uncompressed	4	same
 bmp-decode-rle	BmpDecodeRle	bmp/rle8	4	same
 bmp-decode-bgra	BmpDecodeBGRA	bmp/uncompressed	4	same

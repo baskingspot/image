@@ -1,10 +1,10 @@
 //! Netpbm's rows: decode a whole file from memory per call, into its own
-//! format or another; and encode raw pixels from memory (an 8-byte header,
-//! the width and height as little-endian u32s, then the pixels) into a
-//! whole file per call.
+//! format or another; and encode raw pixels from memory into a whole file
+//! per call.
 
 const std = @import("std");
 const image = @import("image");
+const input = @import("input.zig");
 
 pub const ops = .{
     .{ "netpbm-decode-ppm", native },
@@ -45,10 +45,7 @@ fn bgra16(in: []const u8, out: []u8) ?usize {
 }
 
 fn encode(in: []const u8, out: []u8, format: image.PixelFormat, options: image.netpbm.EncodeOptions) ?usize {
-    if (in.len < 8) return null;
-    const width = std.mem.readInt(u32, in[0..4], .little);
-    const height = std.mem.readInt(u32, in[4..8], .little);
-    const src = image.PixelBuffer.init(@constCast(in[8..]), format, width, height) catch return null;
+    const src = input.pixels(in, format) orelse return null;
     var w: std.Io.Writer = .fixed(out);
     image.netpbm.encode(&w, src, options, &.{}) catch return null;
     return w.end;

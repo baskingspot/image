@@ -155,8 +155,12 @@ few-bytes-at-a-time writer, for a target's own checks.
   format to read as and whether warnings reject.
 - **Bench.** Every arm's output for a `same` operation must checksum
   identically; mark an operation `own` in `bench/ops.tsv` when the arms may
-  round or composite differently. `just bench-compare 10 png-decode` runs
-  one operation; write the result up in `docs/slop/results/`.
+  round or composite differently. An encode operation's input is raw pixels
+  with no header, and the harness gives its size: `input.pixels(in, format)`
+  in `bench/zig/input.zig`, `bench_width` and `bench_height` in C,
+  `crate::input_size()` in Rust, and `inWidth` and `inHeight` in Go
+  (bench/README.md, "Arm contract"). `just bench-compare 10 png-decode` runs one
+  operation; write the result up in `docs/slop/results/`.
 
 ## Checklist before pushing
 

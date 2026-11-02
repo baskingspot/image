@@ -22,12 +22,11 @@ fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {
 /// The input is the width and height as little-endian u32s, then RGB or
 /// RGBA pixels.
 fn encode(input: &[u8], out: &mut [u8], rle: bool) -> Option<usize> {
-    let w = u32::from_le_bytes(input.get(..4)?.try_into().ok()?);
-    let h = u32::from_le_bytes(input.get(4..8)?.try_into().ok()?);
-    let pixels = &input[8..];
+    let (w, h) = crate::input_size();
     if w == 0 || h == 0 {
         return None;
     }
+    let pixels = input;
     let color = if pixels.len() / w as usize / h as usize == 4 {
         ExtendedColorType::Rgba8
     } else {

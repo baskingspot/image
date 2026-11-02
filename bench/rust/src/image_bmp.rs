@@ -46,9 +46,14 @@ fn widen(out: &mut [u8], px: usize, comps: usize) {
 }
 
 fn encode(input: &[u8], out: &mut [u8], c: ExtendedColorType, bpp: usize) -> Option<usize> {
-    let side = ((input.len() / bpp) as f64).sqrt() as u32;
+    let (width, height) = crate::input_size();
+    if input.len() != width as usize * height as usize * bpp {
+        return None;
+    }
     let mut w = Cursor::new(out);
-    BmpEncoder::new(&mut w).encode(input, side, side, c).ok()?;
+    BmpEncoder::new(&mut w)
+        .encode(input, width, height, c)
+        .ok()?;
     Some(w.position() as usize)
 }
 

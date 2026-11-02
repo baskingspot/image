@@ -24,6 +24,12 @@ void bench_init(void);
 // copies it to `out` only then, so timed calls do not pay for a copy.
 extern int bench_checking;
 
+// The input's width and height, from the `-WxH` that ends its name, set
+// before any call on it. An encode row's input is raw pixels, tightly
+// packed and nothing else; its bytes per pixel are its length over
+// width times height.
+extern uint32_t bench_width, bench_height;
+
 #define BENCH_OP(name, fn)                                      \
   __attribute__((constructor)) static void register_##fn(void) { \
     bench_register(name, fn);                                   \

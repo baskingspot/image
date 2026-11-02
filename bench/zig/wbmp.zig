@@ -1,9 +1,9 @@
 //! WBMP's rows: decode a whole file from memory per call, to gray or RGBA,
-//! and encode raw gray (a 12-byte header of width, height, and channels,
-//! bench/corpus/wbmp_encode.sh) to a file in memory.
+//! and encode raw gray (bench/corpus/wbmp_encode.sh) to a file in memory.
 
 const std = @import("std");
 const image = @import("image");
+const input = @import("input.zig");
 
 pub const ops = .{
     .{ "wbmp-decode", gray },
@@ -29,10 +29,7 @@ fn rgba(in: []const u8, out: []u8) ?usize {
 }
 
 fn encode(in: []const u8, out: []u8) ?usize {
-    if (in.len < 12) return null;
-    const w = std.mem.readInt(u32, in[0..4], .little);
-    const h = std.mem.readInt(u32, in[4..8], .little);
-    const src = image.PixelBuffer.init(@constCast(in[12..]), .gray8, w, h) catch return null;
+    const src = input.pixels(in, .gray8) orelse return null;
     var writer: std.Io.Writer = .fixed(out);
     image.wbmp.encode(&writer, src, .{}, &.{}) catch return null;
     return writer.end;

@@ -45,14 +45,13 @@ static void put(void *context, void *data, int size) {
 }
 
 static size_t encode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, int rle) {
-  if (len < 8) return 0;
-  uint32_t w = in[0] | in[1] << 8 | in[2] << 16 | (uint32_t)in[3] << 24;
-  uint32_t h = in[4] | in[5] << 8 | in[6] << 16 | (uint32_t)in[7] << 24;
-  if (!w || !h) return 0;
-  int comp = (int)((len - 8) / w / h);
+  size_t pixels = (size_t)bench_width * bench_height;
+  if (!pixels || len % pixels) return 0;
+  int comp = (int)(len / pixels);
   struct sink s = {out, cap, 0, 0};
   stbi_write_tga_with_rle = rle;
-  if (!stbi_write_tga_to_func(put, &s, (int)w, (int)h, comp, in + 8) || s.failed) return 0;
+  if (!stbi_write_tga_to_func(put, &s, (int)bench_width, (int)bench_height, comp, in) || s.failed)
+    return 0;
   return s.len;
 }
 

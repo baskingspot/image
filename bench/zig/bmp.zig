@@ -1,9 +1,10 @@
 //! BMP's rows: decode a whole file from memory per call into RGBA or BGRA,
-//! and encode square raw pixels (bench/corpus/raw.sh) as 24-bit, 32-bit,
-//! or 8-bit gray.
+//! and encode raw pixels (bench/corpus/raw.sh) as 24-bit, 32-bit, or 8-bit
+//! gray.
 
 const std = @import("std");
 const image = @import("image");
+const input = @import("input.zig");
 
 pub const ops = .{
     .{ "bmp-decode", Decode(.rgba8).run },
@@ -30,8 +31,7 @@ fn Decode(comptime format: image.PixelFormat) type {
 fn Encode(comptime format: image.PixelFormat) type {
     return struct {
         fn run(in: []const u8, out: []u8) ?usize {
-            const side: u32 = @intFromFloat(@sqrt(@as(f64, @floatFromInt(in.len / format.bytesPerPixel()))));
-            const src = image.PixelBuffer.init(@constCast(in), format, side, side) catch return null;
+            const src = input.pixels(in, format) orelse return null;
             var w: std.Io.Writer = .fixed(out);
             image.bmp.encode(&w, src, .{}, &.{}) catch return null;
             return w.buffered().len;

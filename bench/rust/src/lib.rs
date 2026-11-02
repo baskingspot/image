@@ -40,6 +40,16 @@ extern "C" {
         op: *const c_char,
         f: extern "C" fn(*const u8, usize, *mut u8, usize) -> usize,
     );
+    static bench_width: u32;
+    static bench_height: u32;
+}
+
+/// The input's width and height, from its name (bench/c/arm.h). An encode
+/// row's input is raw pixels at this size, tightly packed.
+pub(crate) fn input_size() -> (u32, u32) {
+    // SAFETY: arm.c sets both before it calls an operation, and calls run on
+    // its one thread.
+    unsafe { (bench_width, bench_height) }
 }
 
 static OPS: OnceLock<Vec<Op>> = OnceLock::new();

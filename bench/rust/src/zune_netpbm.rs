@@ -49,10 +49,9 @@ fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {
 }
 
 fn encode(input: &[u8], out: &mut [u8], colorspace: ColorSpace, depth: BitDepth) -> Option<usize> {
-    let width = u32::from_le_bytes(input.get(..4)?.try_into().ok()?) as usize;
-    let height = u32::from_le_bytes(input.get(4..8)?.try_into().ok()?) as usize;
-    let options = EncoderOptions::new(width, height, colorspace, depth);
-    PPMEncoder::new(&input[8..], options).encode(out).ok()
+    let (width, height) = crate::input_size();
+    let options = EncoderOptions::new(width as usize, height as usize, colorspace, depth);
+    PPMEncoder::new(input, options).encode(out).ok()
 }
 
 fn encode_ppm(input: &[u8], out: &mut [u8]) -> Option<usize> {

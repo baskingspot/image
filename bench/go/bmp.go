@@ -1,5 +1,5 @@
-// golang.org/x/image/bmp: decode to straight RGBA, and encode square raw
-// RGBA (as NRGBA, so 32-bit with alpha) and gray (8-bit with a gray
+// golang.org/x/image/bmp: decode to straight RGBA, and encode raw RGBA
+// (as NRGBA, so 32-bit with alpha) and gray (8-bit with a gray
 // table) pixels. It reads no RLE, and Go has no RGB image to encode from.
 package main
 
@@ -15,12 +15,16 @@ import (
 func init() {
 	register("bmp-decode", bmpDecode)
 	register("bmp-encode-rgba", func(in, out []byte) int {
-		s := side(len(in) / 4)
-		return bmpEncode(out, &image.NRGBA{Pix: in, Stride: 4 * s, Rect: image.Rect(0, 0, s, s)})
+		if len(in) != 4*inWidth*inHeight {
+			return 0
+		}
+		return bmpEncode(out, &image.NRGBA{Pix: in, Stride: 4 * inWidth, Rect: image.Rect(0, 0, inWidth, inHeight)})
 	})
 	register("bmp-encode-gray", func(in, out []byte) int {
-		s := side(len(in))
-		return bmpEncode(out, &image.Gray{Pix: in, Stride: s, Rect: image.Rect(0, 0, s, s)})
+		if len(in) != inWidth*inHeight {
+			return 0
+		}
+		return bmpEncode(out, &image.Gray{Pix: in, Stride: inWidth, Rect: image.Rect(0, 0, inWidth, inHeight)})
 	})
 }
 

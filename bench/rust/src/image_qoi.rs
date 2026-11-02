@@ -17,8 +17,6 @@ fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {
 /// Raw pixels after a header of little-endian u32s: width, height, and
 /// channels (bench/corpus/qoi_encode.sh).
 fn encode(input: &[u8], out: &mut [u8]) -> Option<usize> {
-    let le32 = |i: usize| -> Option<u32> {
-        Some(u32::from_le_bytes(input.get(i..i + 4)?.try_into().ok()?))
-    };
-    qoi::encode_to_buf(out, input.get(12..)?, le32(0)?, le32(4)?).ok()
+    let (width, height) = crate::input_size();
+    qoi::encode_to_buf(out, input, width, height).ok()
 }

@@ -1,10 +1,10 @@
 //! TGA's rows: decode a whole file from memory per call, into the file's
-//! own channels in RGB order or BGRA; and encode RGB or RGBA pixels (after
-//! an 8-byte header holding the width and height) uncompressed or
-//! run-length encoded.
+//! own channels in RGB order or BGRA; and encode raw RGB or RGBA pixels
+//! uncompressed or run-length encoded.
 
 const std = @import("std");
 const image = @import("image");
+const input = @import("input.zig");
 
 pub const ops = .{
     .{ "tga-decode", native },
@@ -40,13 +40,8 @@ fn bgra(in: []const u8, out: []u8) ?usize {
 }
 
 fn encode(in: []const u8, out: []u8, rle: bool) ?usize {
-    if (in.len < 8) return null;
-    const w = std.mem.readInt(u32, in[0..4], .little);
-    const h = std.mem.readInt(u32, in[4..8], .little);
-    const pixels = in[8..];
-    if (w == 0 or h == 0) return null;
-    const format: image.PixelFormat = if (pixels.len / w / h == 4) .rgba8 else .rgb8;
-    const src = image.PixelBuffer.init(@constCast(pixels), format, w, h) catch return null;
+    const format: image.PixelFormat = if (input.bytesPerPixel(in) == 4) .rgba8 else .rgb8;
+    const src = input.pixels(in, format) orelse return null;
     var writer: std.Io.Writer = .fixed(out);
     image.tga.encode(&writer, src, .{ .rle = rle }, &work) catch return null;
     return writer.end;

@@ -19,13 +19,12 @@ fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {
 /// Raw pixels after a header of little-endian u32s: width, height, and
 /// channels (bench/corpus/qoi_encode.sh).
 fn encode(input: &[u8], out: &mut [u8]) -> Option<usize> {
-    let le32 = |i: usize| -> Option<usize> {
-        Some(u32::from_le_bytes(input.get(i..i + 4)?.try_into().ok()?) as usize)
-    };
-    let colorspace = match le32(8)? {
+    let (width, height) = crate::input_size();
+    let pixels = width as usize * height as usize;
+    let colorspace = match input.len().checked_div(pixels)? {
         4 => ColorSpace::RGBA,
         _ => ColorSpace::RGB,
     };
-    let options = EncoderOptions::new(le32(0)?, le32(4)?, colorspace, BitDepth::Eight);
-    QoiEncoder::new(input.get(12..)?, options).encode(out).ok()
+    let options = EncoderOptions::new(width as usize, height as usize, colorspace, BitDepth::Eight);
+    QoiEncoder::new(input, options).encode(out).ok()
 }

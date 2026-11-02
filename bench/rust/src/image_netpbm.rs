@@ -56,12 +56,11 @@ fn encode(
     subtype: PnmSubtype,
     color: ExtendedColorType,
 ) -> Option<usize> {
-    let width = u32::from_le_bytes(input.get(..4)?.try_into().ok()?);
-    let height = u32::from_le_bytes(input.get(4..8)?.try_into().ok()?);
+    let (width, height) = crate::input_size();
     let mut w = Cursor::new(out);
     PnmEncoder::new(&mut w)
         .with_subtype(subtype)
-        .write_image(&input[8..], width, height, color)
+        .write_image(input, width, height, color)
         .ok()?;
     Some(w.position() as usize)
 }

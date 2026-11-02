@@ -20,17 +20,13 @@ static size_t qoi_decode_native(const uint8_t *in, size_t len, uint8_t *out, siz
   return n <= cap ? n : 0;
 }
 
-// Raw pixels after a header of little-endian u32s: width, height, and
-// channels (bench/corpus/qoi_encode.sh).
-static uint32_t le32(const uint8_t *p) {
-  return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24;
-}
-
+// Raw RGB or RGBA pixels (bench/corpus/qoi_encode.sh).
 static size_t qoi_encode_raw(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
-  if (len < 12) return 0;
-  qoi_desc desc = {le32(in), le32(in + 4), (unsigned char)le32(in + 8), QOI_SRGB};
+  size_t pixels = (size_t)bench_width * bench_height;
+  if (!pixels || len % pixels) return 0;
+  qoi_desc desc = {bench_width, bench_height, (unsigned char)(len / pixels), QOI_SRGB};
   int n = 0;
-  void *file = qoi_encode(in + 12, &desc, &n);
+  void *file = qoi_encode(in, &desc, &n);
   if (!file) return 0;
   if (bench_checking && (size_t)n <= cap) memcpy(out, file, n);
   free(file);
