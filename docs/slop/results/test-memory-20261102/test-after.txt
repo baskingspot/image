@@ -1,0 +1,61 @@
+rc=0 wall=202.774533253 peak_anon_mib=3304 memory.peak_mib=4958
+zig build test --summary all
+testingx: Running 1 test...
+testingx: 1 passed, 0 failed, 0 skipped (of 1 total) in 0ms (seed: 0x0)
+ALL TESTS PASSED
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 4949ms (seed: 0x5669cf95)
+ALL TESTS PASSED
+Build Summary: 9/9 steps succeeded; 32/32 tests passed
+test success
++- run test success 4s
+|  +- compile test Debug native success 5s MaxRSS:1G
+|     +- WriteFile dictionary.bin success
+|     +- options success
++- run test fuzz-zig 32 pass (32 total) 2s MaxRSS:22M
+|  +- compile test fuzz-zig Debug native success 5s MaxRSS:1G
+|     +- WriteFile dictionary.bin (reused)
+|     +- options (reused)
++- run test oracle-compare success 11ms
+   +- compile test oracle-compare Debug native success 1s MaxRSS:173M
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+zig build test -Doptimize=ReleaseSafe --summary all
+testingx: Running 1 test...
+testingx: 1 passed, 0 failed, 0 skipped (of 1 total) in 0ms (seed: 0x0)
+ALL TESTS PASSED
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 927ms (seed: 0xce60125b)
+ALL TESTS PASSED
+Build Summary: 9/9 steps succeeded; 32/32 tests passed
+test success
++- run test success 930ms
+|  +- compile test ReleaseSafe native success 1m MaxRSS:1G
+|     +- WriteFile dictionary.bin cached
+|     +- options success
++- run test fuzz-zig 32 pass (32 total) 722ms MaxRSS:12M
+|  +- compile test fuzz-zig ReleaseSafe native success 1m MaxRSS:1G
+|     +- WriteFile dictionary.bin (reused)
+|     +- options (reused)
++- run test oracle-compare success 3ms
+   +- compile test oracle-compare ReleaseSafe native success 22s MaxRSS:348M
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+# The unit tests in ReleaseFast too, which leaves `undefined` memory as it
+# was where Debug and ReleaseSafe write 0xaa over it: only there does a
+# result that reads memory never set (an encoder's table left uncleared)
+# vary. Built after ReleaseSafe, not beside it, so no more than two Zig
+# compilers run at once (docs/slop/results/test-memory-20261102.md).
+zig build test-unit -Doptimize=ReleaseFast --summary all
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 646ms (seed: 0x77085841)
+ALL TESTS PASSED
+Build Summary: 5/5 steps succeeded
+test-unit success
++- run test success 649ms
+   +- compile test ReleaseFast native success 1m MaxRSS:1G
+      +- WriteFile dictionary.bin cached
+      +- options success
+

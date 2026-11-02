@@ -1,0 +1,53 @@
+rc=0 wall=113.424211351 peak_anon_mib=4948 memory.peak_mib=5527
+testingx: Running 1 test...
+testingx: 1 passed, 0 failed, 0 skipped (of 1 total) in 6ms (seed: 0x0)
+ALL TESTS PASSED
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 5696ms (seed: 0x63722390)
+ALL TESTS PASSED
+Build Summary: 9/9 steps succeeded; 32/32 tests passed
+test success
++- run test success 5s
+|  +- compile test Debug native success 5s MaxRSS:1G
+|     +- WriteFile dictionary.bin success
+|     +- options success
++- run test fuzz-zig 32 pass (32 total) 3s MaxRSS:22M
+|  +- compile test fuzz-zig Debug native success 5s MaxRSS:1G
+|     +- WriteFile dictionary.bin (reused)
+|     +- options (reused)
++- run test oracle-compare success 34ms
+   +- compile test oracle-compare Debug native success 1s MaxRSS:181M
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+testingx: Running 1 test...
+testingx: 1 passed, 0 failed, 0 skipped (of 1 total) in 0ms (seed: 0x0)
+ALL TESTS PASSED
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 894ms (seed: 0x454cc7ea)
+ALL TESTS PASSED
+Build Summary: 9/9 steps succeeded; 32/32 tests passed
+test success
++- run test success 898ms
+|  +- compile test ReleaseSafe native success 1m MaxRSS:1G
+|     +- WriteFile dictionary.bin cached
+|     +- options success
++- run test fuzz-zig 32 pass (32 total) 731ms MaxRSS:12M
+|  +- compile test fuzz-zig ReleaseSafe native success 1m MaxRSS:1G
+|     +- WriteFile dictionary.bin (reused)
+|     +- options (reused)
++- run test oracle-compare success 2ms
+   +- compile test oracle-compare ReleaseSafe native success 22s MaxRSS:344M
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+testingx: Running 214 tests...
+testingx: 214 passed, 0 failed, 0 skipped (of 214 total) in 646ms (seed: 0xfede41d0)
+ALL TESTS PASSED
+Build Summary: 5/5 steps succeeded
+test-unit success
++- run test success 649ms
+   +- compile test ReleaseFast native success 1m MaxRSS:1G
+      +- WriteFile dictionary.bin cached
+      +- options success
+

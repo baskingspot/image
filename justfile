@@ -16,19 +16,14 @@ default:
 [doc("Unit tests and each fuzz target over its seeds, in Debug and ReleaseSafe; the unit tests in ReleaseFast")]
 [group("test")]
 test:
-    #!/usr/bin/env bash
-    set -euo pipefail
     zig build test --summary all
+    zig build test -Doptimize=ReleaseSafe --summary all
     # The unit tests in ReleaseFast too, which leaves `undefined` memory as it
     # was where Debug and ReleaseSafe write 0xaa over it: only there does a
     # result that reads memory never set (an encoder's table left uncleared)
-    # vary. Built beside ReleaseSafe's two test binaries, it adds little time.
-    mkdir -p zig-out
-    zig build test-unit -Doptimize=ReleaseFast --summary all > zig-out/test-fast.txt 2>&1 &
-    fast=$!
-    zig build test -Doptimize=ReleaseSafe --summary all
-    wait "$fast" || { cat zig-out/test-fast.txt; exit 1; }
-    cat zig-out/test-fast.txt
+    # vary. Built after ReleaseSafe, not beside it, so one build's compilers
+    # run at a time (docs/slop/results/test-memory-20261102.md).
+    zig build test-unit -Doptimize=ReleaseFast --summary all
 
 [doc("Unit tests on a big-endian target, s390x, under qemu")]
 [group("test")]
