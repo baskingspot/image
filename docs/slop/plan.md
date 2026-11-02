@@ -266,6 +266,21 @@ owning the files adding-a-format.md assigns to its format plus
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
   orb until `wave1-png-strict` lands.
+- **GIF encode** (branch `wave5-gif-encode`, the GIF orb): `src/gif/encode.zig`
+  and any new `src/gif/` files it adds (quantizer, dither), the gif_encode
+  fuzz and oracle files, and the gif-encode bench rows; decision 6
+  (quantizer and dither) is measured here.
+- **JPEG encode** (branch `wave5-jpeg-encode`, the JPEG orb):
+  `src/jpeg/encode.zig` and any new `src/jpeg/` encoder files (forward DCT,
+  Huffman optimization), the jpeg_encode fuzz and oracle files, and the
+  jpeg-encode bench rows; decision 3 (trellis) is measured after the
+  baseline encoder works.
+- **WebP lossless encode** (branch `wave5-webp-encode`, the performance
+  orb): `src/webp/encode.zig` and any new `src/webp/encode_*.zig` files, the
+  webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
+  only its export lines to `src/webp/root.zig`; the rest of `src/webp/`
+  stays with the WebP orb's performance pass.
+- TIFF encode follows TIFF decode's re-land, with the TIFF orb.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
