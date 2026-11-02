@@ -527,7 +527,11 @@ fn lossyImage(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
         while (true) {
             const n = try d.chunk(true);
             switch (n.tag) {
-                tags.alph => alpha_err = try d.alphaChunk(n, d.width, d.height, plane, shared),
+                tags.alph => {
+                    // alphaChunk skips its padding.
+                    alpha_err = try d.alphaChunk(n, d.width, d.height, plane, shared);
+                    continue;
+                },
                 tags.vp8 => {
                     const fw = d.width;
                     const fh = d.height;
@@ -1121,6 +1125,30 @@ test "an extended lossless file: metadata, pixels, and truncation" {
     @memcpy(copy, file);
     copy[20] |= 0x02;
     try testing.expectError(error.BadChunk, testDecode(copy, .rgba8, &out));
+}
+
+test "a lossy file with two ALPH chunks of odd size" {
+    // A 2x2 VP8 frame of 0x4080c0, as cwebp writes it at quality 75.
+    const vp8_body = "\xd0\x01\x00\x9d\x01\x2a\x02\x00\x02\x00\x02\x00\x34\x25\xa0\x02\x74\xba\x01\xf8\x00" ++
+        "\x03\xb0\x00\xfe\xdf\x80\x3f\xf1\xbb\x71\x86\xfc\x17\x7f\xe1\x57\xc6\xe4\x2c\x28\x00";
+    var buf: [128]u8 = undefined;
+    var w: Io.Writer = .fixed(&buf);
+    try w.writeAll("RIFF\x00\x00\x00\x00WEBP");
+    try TestChunk.put(&w, "VP8X", "\x10\x00\x00\x00\x01\x00\x00\x01\x00\x00");
+    // Raw and unfiltered; each is followed by its padding byte, and the
+    // last one counts.
+    try TestChunk.put(&w, "ALPH", "\x00\x01\x02\x03\x04");
+    try TestChunk.put(&w, "ALPH", "\x00\x0a\x14\x1e\x28");
+    try TestChunk.put(&w, "VP8 ", vp8_body);
+    const file = w.buffered();
+    std.mem.writeInt(u32, file[4..8], @intCast(file.len - 8), .little);
+
+    var out: [2 * 2 * 4]u8 = undefined;
+    _ = try testDecode(file, .rgba8, &out);
+    try testing.expectEqualSlices(u8, &.{
+        0x41, 0x80, 0xbf, 0x0a, 0x41, 0x80, 0xbf, 0x14,
+        0x41, 0x80, 0xbf, 0x1e, 0x41, 0x80, 0xbf, 0x28,
+    }, &out);
 }
 
 test "an animation: regions, blending, and the previous frame's disposal" {
