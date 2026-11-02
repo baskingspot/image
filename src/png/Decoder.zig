@@ -1877,6 +1877,34 @@ test "an acTL count past the frame limit fails at the frame past it" {
     try testing.expectError(error.TooManyFrames, d.decodeFrame(dst, work));
 }
 
+test "a tRNS with a bad CRC applies, in an interlaced APNG too" {
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    // Reduced from an oracle input: gray 4-bit, Adam7, key 3, whose frame 0
+    // is the default image. Wuffs applies such a tRNS (it rejects every
+    // interlaced APNG, so on a still image); libpng and libspng drop it.
+    for ([_]bool{ false, true }) |animated| {
+        const raw = [4]u8{ 0x35, 0x30, 0x0f, 0x30 };
+        var t: TestPng = .{};
+        defer t.deinit();
+        var seq: u32 = 0;
+        var fseq: u32 = 0;
+        try t.head(3, 2, 4, 0, true);
+        if (animated) try t.chunk("acTL", "\x00\x00\x00\x01\x00\x00\x00\x00");
+        try t.chunk("tRNS", "\x00\x03");
+        t.bytes.items[t.bytes.items.len - 1] ^= 1;
+        if (animated) try t.fctl(&fseq, 3, 2, 0, 0, 0, 0);
+        try t.image("IDAT", &raw, 3, 2, 4, true, random, 100, &seq);
+        try t.chunk("IEND", "");
+        var out: [24]u8 = undefined;
+        _ = try testDecode(t.bytes.items, .rgba8, &out);
+        try testing.expectEqualSlices(u8, &[_]u8{
+            51, 51, 51, 0,   85,  85,  85,  255, 51, 51, 51, 0,
+            0,  0,  0,  255, 255, 255, 255, 255, 51, 51, 51, 0,
+        }, &out);
+    }
+}
+
 test "an eXIf after the image data reaches the final config, other late chunks do not" {
     const a = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);

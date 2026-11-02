@@ -21,8 +21,12 @@
 //! - libpng and libspng accept what Wuffs and this package reject: image
 //!   data that decompresses to more than the image (libpng warns "Too much
 //!   image data"), bytes after the zlib stream in the last IDAT, and a PLTE
-//!   in a gray image. Both drop an ancillary chunk with a bad CRC, tRNS
-//!   included, where Wuffs and this package do not check ancillary CRCs.
+//!   in a gray image. Both drop an ancillary chunk with a bad CRC, where
+//!   Wuffs and this package do not check ancillary CRCs. Of those chunks
+//!   only tRNS changes the pixels, so `adapt` hands every oracle the tRNS
+//!   with its CRC made good: libpng and libspng then apply it as Wuffs and
+//!   this package do, and their answers still count where Wuffs gives none
+//!   (an interlaced APNG, below).
 //! - libspng accepts a bad CRC on an IDAT chunk in some files where Wuffs,
 //!   libpng, and this package reject it: PngSuite's xcsn0g01 ("incorrect
 //!   IDAT checksum") is one, the corpus split.
@@ -38,8 +42,8 @@
 //!   agree on such a file.
 //! - The specification has decoders mask a gray or truecolor tRNS key to
 //!   the bit depth, as libpng and this package do; libspng compares it
-//!   unmasked and Wuffs rejects it. `adapt` hands both the key already
-//!   masked (a good CRC rewritten to match).
+//!   unmasked and Wuffs rejects it. `adapt` hands every oracle the key
+//!   already masked.
 //! - Wuffs writes the pixels a gray or truecolor tRNS makes transparent as
 //!   transparent black; libpng, libspng, and this package keep their
 //!   color. The Wuffs oracle restores the color from a second decode
@@ -78,13 +82,14 @@ fn beforeIdat(input: []const u8, kind: *const [4]u8) bool {
     return false;
 }
 
-/// For libspng and Wuffs, `input` with a gray or truecolor tRNS key before
-/// IDAT masked to the bit depth (see above).
+/// `input` with its tRNS before IDAT as this package reads it (see above):
+/// a gray or truecolor key masked to the bit depth, and its CRC made good.
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
-    if (std.mem.eql(u8, op, "png-libpng") or input.len < 29) return input;
+    _ = op;
+    if (input.len < 29) return input;
     const depth = input[24];
     const color = input[25];
-    if (depth > 8 or @popCount(depth) != 1 or (color != 0 and color != 2)) return input;
+    const masked = depth <= 8 and @popCount(depth) == 1 and (color == 0 or color == 2);
     var at: usize = 8;
     while (input.len >= at + 12) {
         const len = std.mem.readInt(u32, input[at..][0..4], .big);
@@ -93,17 +98,15 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
         if (std.mem.eql(u8, kind, "tRNS")) {
             if (len > input.len - at - 12) return input;
             const crc_at = at + 8 + len;
-            const Crc = std.hash.Crc32;
-            const crc = std.mem.readInt(u32, input[crc_at..][0..4], .big) == Crc.hash(input[at + 4 .. crc_at]);
             const out = try arena.dupe(u8, input);
             const body = out[at + 8 ..][0..len];
             var i: usize = 0;
-            while (i + 2 <= body.len) : (i += 2) {
+            while (masked and i + 2 <= body.len) : (i += 2) {
                 const key = std.mem.readInt(u16, body[i..][0..2], .big);
                 std.mem.writeInt(u16, body[i..][0..2], key & ((@as(u16, 1) << @intCast(depth)) - 1), .big);
             }
-            // A bad CRC stays bad: libspng drops the chunk then.
-            if (crc) std.mem.writeInt(u32, out[crc_at..][0..4], Crc.hash(out[at + 4 .. crc_at]), .big);
+            const crc = std.hash.Crc32.hash(out[at + 4 .. crc_at]);
+            std.mem.writeInt(u32, out[crc_at..][0..4], crc, .big);
             return out;
         }
         at += @as(usize, 12) + len;
