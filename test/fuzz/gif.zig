@@ -1,7 +1,7 @@
 //! The GIF fuzz target: the decoder properties in harness.zig, with
-//! `ignore_too_much_data` off or on, plus GIF's own: `decodeFrameConfig`
-//! reports the frame `decodeFrame` then returns, and the two settings agree
-//! wherever the strict decode found neither too much data nor a bad code.
+//! `ignore_too_much_data` off or on, plus GIF's own: the two settings agree
+//! wherever the strict decode found neither too much data nor a bad code,
+//! and the blob sink agrees with the metadata reported.
 //! It runs on mutated corpus files and generated files that reach every
 //! block the decoder reads: color tables, graphic control, loop count,
 //! comment, plain text and unknown extensions, interlaced frames inside
@@ -16,8 +16,6 @@ pub const name = "gif";
 
 pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor", "bench/corpus-gen/gif" };
 pub const extensions = [_][]const u8{".gif"};
-
-const Finding = error{ FrameConfigDiffers, LaxDiffers };
 
 var pixels: [harness.limits.max_pixels * 4]u8 = undefined;
 var work: [1 << 17]u8 = undefined;
@@ -50,6 +48,10 @@ const Lax = struct {
 
     pub fn decodeFrame(l: *Lax, dst: image.PixelBuffer, w: []u8) Error!?image.Frame {
         return l.d.decodeFrame(dst, w);
+    }
+
+    pub fn decodeFrameConfig(l: *Lax) Error!?image.Frame {
+        return l.d.decodeFrameConfig();
     }
 };
 
@@ -107,9 +109,8 @@ const Sink = struct {
     }
 };
 
-/// Decodes every frame of `input`, checking that `decodeFrameConfig`
-/// reports each frame `decodeFrame` then returns, and that the blobs the
-/// sink gets agree with the metadata reported.
+/// Decodes every frame of `input`, checking that the blobs the sink gets
+/// agree with the metadata reported.
 fn run(input: []const u8, lax: bool) !Run {
     var result: Run = .{};
     var r: std.Io.Reader = .fixed(input);
@@ -127,15 +128,10 @@ fn run(input: []const u8, lax: bool) !Run {
     const len = @as(usize, c.width) * c.height * 4;
     @memset(pixels[0..len], 0);
     while (result.count < result.frames.len) : (result.count += 1) {
-        const peek = d.decodeFrameConfig() catch |e| {
-            result.err = e;
-            break;
-        };
         const frame = d.decodeFrame(dst, work[0..c.work_len]) catch |e| {
             result.err = e;
             break;
         };
-        if (!std.meta.eql(peek, frame)) return error.FrameConfigDiffers;
         result.frames[result.count] = frame orelse break;
         result.hashes[result.count] = std.hash.Wyhash.hash(0, pixels[0..len]);
     }
