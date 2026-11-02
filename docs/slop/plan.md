@@ -344,8 +344,14 @@ owning the files adding-a-format.md assigns to its format plus
   0.73× giflib over all rows (giflib takes our indices, so the quantized
   rows time our quantize-and-dither against its LZW writer alone), 0.73–0.81×
   on the exact path, which reads the pixels twice; 7–30× the other arms;
-  peak RSS at or below giflib's past icons. Follow-ups: one pass on the
-  exact path, selective dithering, quantizer setup on icons.
+  peak RSS at or below giflib's past icons. Follow-ups landed
+  (results/gif-encode2-20261102.md): exact frames read their pixels once
+  (gif-encode-few 1.14–1.25×, giflib's speed up to 1 MP, same bytes and
+  work memory); Floyd–Steinberg passes on no error from a pixel within 1 a
+  channel of its entry (1.3% fewer bytes, PSNR +0.36 dB, blurred PSNR
+  −0.09 dB); Wu's boxes shrink to their cells and its table is u32 up to
+  16.8 MP (quantized icons 1.16×, same palettes). Not taken: an image-sized
+  index buffer, and LZW loop restructures.
 - **JPEG encode** (landed; results/jpeg-encode-20261102.md): baseline and
   progressive, 4:4:4/4:2:2/4:2:0, optimized tables, byte-identical to
   libjpeg-turbo; 1.87× its speed over all rows, 0.93× on baseline 4:2:0 over
@@ -354,6 +360,10 @@ owning the files adding-a-format.md assigns to its format plus
   libjpeg-turbo, with the same bytes: baseline over 1 MP 1.18× (4:2:0) and
   1.26× (4:4:4), 2.16× over all rows. No zmm in the encoder; the source is
   prefetched 4 rows ahead.
+- **HDR metadata** (branch `wave6-hdr-meta`, a new orb, decision 51): the
+  new `Metadata` fields in `src/decode.zig`, PNG cICP/mDCV/cLLi in
+  `src/png/` (decoder and encode.zig), the gain-map flag in the JPEG
+  decoder's APPn handling, and their fuzz and oracle files.
 - **JPEG for TIFF stage 2** (landed): `Decoder.frameParams()`;
   `Options.tables` reads tables streams as libjpeg's header reader does
   (SOFn dropped, DNL skipped, RSTn and TEM ignored); `keptTables()` and
@@ -375,6 +385,14 @@ owning the files adding-a-format.md assigns to its format plus
   oracle leaves out Wuffs for VP8X files: Wuffs 0.4 decodes no VP8L inside
   VP8X. Stage 2, on `wave5-webp-encode2`: low-effort speed on flat images, work
   memory's fixed part on icons, and no zmm in the code-length builder.
+  Stage 2 landed (results/webp-encode-stage2-20261102.md): no zmm in the
+  encoder (radix sort in buildLengths, u16 lanes in lengthCodeCost);
+  output-identical changes 1.08× overall (icons up to 1.19×); workLen
+  0.17–0.31 MB on a 16×16 icon, from 0.52–4.1 MB; efforts 1 and 2 stop the
+  match search at 64 pixels (12% faster on the mid class for 0.1% more
+  bytes, flat images up to 5% larger, still below libwebp's totals). Effort
+  7 keeps nice 256. Open: flat, few-color images at efforts 1–7 run
+  0.2–0.5× libwebp's speed and need a separate cheap path.
 - **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
@@ -840,6 +858,22 @@ width)` for every file with several entries.
     change in `wave1-ico-png2`. Landed: `png.EncodeOptions.max_depth =
 .@"8"` narrows the base format row by row with no extra work memory; ICO
     sets it for PNG entries.
+51. **HDR metadata and color. Decided by the owner:** image reads and writes
+    PNG's cICP, mDCV, and cLLi (PNG third edition) and flags a JPEG HDR gain
+    map (Ultra HDR, ISO 21496-1) without decoding it, on `wave6-hdr-meta`.
+    Color management (applying ICC, gamut and tone mapping) stays out of
+    image, for a separate baskingspot/color library started after phase 1.
+52. **GIF dead zone. Decided by the owner:** Floyd–Steinberg passes on no
+    error from a pixel within 1 a channel of its palette entry (1.3% fewer
+    bytes, PSNR +0.36 dB, blurred PSNR −0.09 dB), refining decision 43.
+53. **GIF index buffer. Decided by the owner:** not taken; exact frames over
+    2.4 MP map their pixels again rather than spend a byte a pixel.
+54. **WebP lossy defaults. Decided by the owner:** quality 75, effort
+    `default`, `alpha_compression` on, as cwebp's defaults.
+55. **WebP lossy alpha memory. Decided by the owner:** with
+    `alpha_compression` on, `workLen` includes the lossless encoder's work
+    memory whatever the source; a caller encoding opaque images sets it off
+    to ask for 3.2 B/px. Documented.
 
 ## Harness requests
 
