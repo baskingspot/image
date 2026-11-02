@@ -163,7 +163,7 @@ pub const gain_map = struct {
         _ = op;
         _ = format;
         var r: std.Io.Reader = .fixed(input);
-        var d: GainMapDecoder = .init(&r, .{ .limits = .{ .max_pixels = 1 << 26 } });
+        var d: GainMapDecoder = .init(&r, .{});
         _ = d.decodeConfig() catch return false;
         return true;
     }
@@ -332,8 +332,13 @@ const GainMapDecoder = struct {
     pub const Options = image.jpeg.Decoder.Options;
     pub const Error = image.jpeg.Decoder.Error;
 
+    /// Without the caller's size limits: the flag comes from the header,
+    /// and the frame is one byte, so an image past the harness's pixel
+    /// limit is compared too, where libultrahdr has none.
     pub fn init(reader: *std.Io.Reader, options: Options) GainMapDecoder {
-        return .{ .d = .init(reader, options) };
+        var o = options;
+        o.limits = .none;
+        return .{ .d = .init(reader, o) };
     }
 
     pub fn decodeConfig(g: *GainMapDecoder) Error!image.Config {
