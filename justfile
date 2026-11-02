@@ -9,13 +9,36 @@ zig_sources := "src build.zig build.zig.zon test bench/zig docs/slop/results"
 
 rust_arms := "image-rs zune jxl-oxide"
 
+# Zig never prunes .zig-cache, and on an orb's disk it grows past 30 GB and
+# can fill the disk mid-edit, so the recipes that build clear it first when
+# it holds `zig_cache_max_gib` or more or the disk is `disk_max_percent`
+# full (`cache-guard`).
+
+zig_cache_max_gib := "20"
+disk_max_percent := "85"
+
 [private]
 default:
     @just --list
 
+# Not under CI: a GitHub runner's disk starts mostly full, and its cache is
+# fresh, so clearing it would only slow the run. Clearing is safe only with
+# no other build running in this checkout, so run gates one at a time.
+[private]
+cache-guard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "${CI:-}" ] || [ ! -d .zig-cache ]; then exit 0; fi
+    mib=$(du -sm .zig-cache | cut -f1)
+    used=$(df --output=pcent . | tail -1 | tr -dc 0-9)
+    if [ "$mib" -ge $(({{ zig_cache_max_gib }} * 1024)) ] || [ "$used" -ge {{ disk_max_percent }} ]; then
+        echo "cache-guard: .zig-cache holds $mib MiB and the disk is $used% full; clearing .zig-cache" >&2
+        rm -rf .zig-cache
+    fi
+
 [doc("Unit tests and each fuzz target over its seeds, in Debug and ReleaseSafe; the unit tests in ReleaseFast")]
 [group("test")]
-test:
+test: cache-guard
     zig build test --summary all
     zig build test -Doptimize=ReleaseSafe --summary all
     # The unit tests in ReleaseFast too, which leaves `undefined` memory as it
@@ -27,7 +50,7 @@ test:
 
 [doc("Unit tests on a big-endian target, s390x, under qemu")]
 [group("test")]
-test-be:
+test-be: cache-guard
     zig build test -Dtarget=s390x-linux-musl -fqemu --summary all
 
 [doc("Lint Zig, Go, Rust, Nix, Markdown, the workflows, and this justfile")]
@@ -73,7 +96,7 @@ corpus-sums *DIRS:
 
 [doc("Run every fuzz target (or TARGETS) for SECONDS in all, or SECONDS each when written N/target (such as 60/target), ReleaseSafe; findings go to zig-out/fuzz/")]
 [group("fuzz")]
-fuzz SECONDS="600" SEED="" *TARGETS:
+fuzz SECONDS="600" SEED="" *TARGETS: cache-guard
     zig build fuzz -Doptimize=ReleaseSafe
     zig-out/bin/fuzz run {{ TARGETS }} \
         {{ if SECONDS =~ '/target$' { "--seconds-each " + trim_end_match(SECONDS, "/target") } else { "--seconds " + SECONDS } }} \
@@ -81,7 +104,7 @@ fuzz SECONDS="600" SEED="" *TARGETS:
 
 [doc("Run the fuzz targets on Zig's coverage-guided fuzzer for N inputs (such as 1M)")]
 [group("fuzz")]
-fuzz-zig N="1M":
+fuzz-zig N="1M": cache-guard
     zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }}
 
 [doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, `just fuzz SECONDS` (N in all or N/target each), and 100K inputs on Zig's fuzzer")]
@@ -143,7 +166,7 @@ _link *LIBS:
 
 [doc("Compare every decoder and encoder (or FORMATS, such as qoi qoi_encode) with its oracles on its corpus and N fuzzed inputs (default 100000); disagreements go to zig-out/oracle/")]
 [group("oracle")]
-oracle N="100000" SEED="1" *FORMATS:
+oracle N="100000" SEED="1" *FORMATS: cache-guard
     #!/usr/bin/env bash
     set -euo pipefail
     # The C oracle builds while Zig builds the comparison.
@@ -165,7 +188,7 @@ bench-corpus:
 
 [doc("Build every arm into zig-out/bin/bench-<arm>, for this machine's CPU")]
 [group("bench")]
-bench-build:
+bench-build: cache-guard
     #!/usr/bin/env bash
     set -euo pipefail
     export NIX_ENFORCE_NO_NATIVE=0

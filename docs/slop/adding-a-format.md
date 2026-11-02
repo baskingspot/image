@@ -212,3 +212,11 @@ few-bytes-at-a-time writer, for a target's own checks.
 mismatches; `just bench-compare` against the format's bar library is written
 up with megapixels per second and peak RSS; the CHANGELOG bullet names the new
 namespace.
+
+Run the gates one at a time. The recipes that build (`test`, `test-be`,
+`fuzz`, `fuzz-zig`, `oracle`, `bench-build`, and so `ci`) first clear
+`.zig-cache` when it holds 20 GiB or more or the disk is 85% full, since Zig
+never prunes it and a full disk truncates files; the next build is cold. Clearing
+can break a build running beside it, and GitHub CI, where `CI` is set, skips
+the check. Override the limits with `just zig_cache_max_gib=N` or
+`disk_max_percent=N`.
