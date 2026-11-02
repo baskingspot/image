@@ -194,6 +194,13 @@ owning the files adding-a-format.md assigns to its format plus
   encoded as Smith reads them, `N/target` fuzz budgets, the shared
   `magick_decode`, fuzz modules import compress, and a parallel, cached
   oracle that cut warm `just ci` from 241 s to 59 s.
+- **TGA fuzz cleanup** (branch `wave2-tga-fuzz`, the TGA orb):
+  `test/fuzz/tga.zig` and `tga_encode.zig`, dropping the Debug skip and the
+  `seed()` helper.
+- **Netpbm corpus** (landed at `20a1f64`): the CNN screenshot is back in the
+  bench corpus; zune's failure on it is a skipped row.
+- **bmp-stb determinism** (the BMP orb, after `wave1-seeker`):
+  `test/oracle/bmp.c` and `bmp.zig`.
 - **Performance pass** (branch `wave2-perf`): `src/convert.zig`, `src/tga/`,
   and `src/netpbm/` now; `src/png/` (decoder) once `wave1-png-strict` lands
   and `src/qoi/` once `wave1-wbmp-qoi` lands; inflate in baskingspot/compress
