@@ -283,7 +283,8 @@ orb asks for a change to them, or for text in this file, in its report.
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
 - **Decoder contract** (branch `wave2-metadata-hook`, the BMP/ICO orb):
-  `finalConfig` (decision 10) and `decodeFrameConfig` (decision 11) in
+  `finalConfig` (decision 10), `decodeFrameConfig` (decision 11), and
+  `Blob.len` as `?u64` (decision 13, with the harness's sinks) in
   `src/decode.zig`, `src/Decoder.zig`, and adding-a-format.md. Wiring TGA's
   footer and PNG's late chunks waits for the performance pass to release
   `src/tga/` and `src/png/`.
@@ -361,6 +362,11 @@ orb asks for a change to them, or for text in this file, in its report.
     `TooMuchData` unless an off-by-default option (as Wuffs's
     IGNORE_TOO_MUCH_PIXEL_DATA quirk) accepts it; disposal 4 is previous,
     as Wuffs and Chromium read it.
+13. **Blobs whose length is known only at their end. Decided by the owner:**
+    `Blob.len` is `?u64`. Pieces before the end carry null, and the last
+    call carries the final length, its bytes possibly empty; formats that
+    know the length up front pass it on every piece as before. For GIF's ICC
+    and XMP the blob is the payload, not the stored bytes.
 
 ## Harness requests
 
@@ -372,5 +378,3 @@ not yet made:
   (performance pass).
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
-- A blob sink that takes a blob whose length is known only at its end
-  (GIF's XMP and ICC extensions), in `src/decode.zig`.
