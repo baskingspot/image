@@ -170,20 +170,81 @@ pub fn Emit(comptime W: type) type {
     };
 }
 
-/// Counts the tree nodes of tokens instead of writing them.
-pub const Tally = struct {
-    counts: *[8][3][11][2]u32,
+/// How often each token was coded, by block type, band, context, whether
+/// it followed a zero (and so had no end-of-block test), and its class:
+/// 0 to 4 its magnitude, 5 to 10 DCT_CAT1 to DCT_CAT6, 11 the end of
+/// block. `nodeCounts` turns them into the tree's counts.
+pub const Hist = [4][8][3][2][12]u32;
+const eob_class = 11;
 
-    inline fn node(e: Tally, band: u8, ctx: u2, i: u4, bit: u1) void {
-        e.counts[band][ctx][i][bit] += 1;
+/// Counts tokens by class instead of writing them: one count a token
+/// rather than one for each tree node it passes.
+pub const Tally = struct {
+    counts: *[8][3][2][12]u32,
+
+    inline fn token(e: Tally, band: u8, ctx: u2, after_zero: u1, class: u4) void {
+        e.counts[band][ctx][after_zero][class] += 1;
     }
-    inline fn fixed(_: Tally, _: u8, _: u1) void {}
 };
+
+/// Each magnitude's token class, up to DCT_CAT5's last.
+const class_of: [67]u4 = blk: {
+    var t: [67]u4 = undefined;
+    for (&t, 0..) |*c, a| {
+        c.* = if (a <= 4) a else if (a <= 6) 5 else if (a <= 10) 6 else if (a <= 18) 7 else if (a <= 34) 8 else 9;
+    }
+    break :blk t;
+};
+
+/// One block's tokens, as `block` codes them, counted by class.
+inline fn tallyBlock(e: Tally, ctx0: u2, first: u5, last: i32, levels: *const [16]i16) void {
+    var n: u5 = first;
+    var ctx = ctx0;
+    var after_zero: u1 = 0;
+    while (n <= last) : (n += 1) {
+        const a: u32 = @abs(levels[n]);
+        e.token(bands[n], ctx, after_zero, if (a < 67) class_of[a] else 10);
+        after_zero = @intFromBool(a == 0);
+        ctx = @intCast(@min(a, 2));
+    }
+    if (n < 16) e.token(bands[n], ctx, 0, eob_class);
+}
+
+/// The tree's counts (`Counts`) from token counts.
+pub fn nodeCounts(h: *const Hist, out: *Counts) void {
+    for (h, out) |*ht, *ot| for (ht, ot) |*hb, *ob| for (hb, ob) |*hc, *k| {
+        k.* = std.mem.zeroes([11][2]u32);
+        for (hc, 0..) |*row, after_zero| for (row, 0..) |n, class| {
+            if (n == 0) continue;
+            if (after_zero == 0) k[0][@intFromBool(class != eob_class)] += n;
+            if (class == eob_class) continue;
+            k[1][@intFromBool(class != 0)] += n;
+            if (class == 0) continue;
+            k[2][@intFromBool(class != 1)] += n;
+            if (class == 1) continue;
+            k[3][@intFromBool(class >= 5)] += n;
+            if (class <= 4) {
+                k[4][@intFromBool(class != 2)] += n;
+                if (class != 2) k[5][@intFromBool(class == 4)] += n;
+                continue;
+            }
+            k[6][@intFromBool(class >= 7)] += n;
+            if (class <= 6) {
+                k[7][@intFromBool(class == 6)] += n;
+                continue;
+            }
+            const cat = class - 7;
+            k[8][cat >> 1] += n;
+            k[9 + (cat >> 1)][cat & 1] += n;
+        };
+    };
+}
 
 /// The tokens of one block (section 13): `levels` in coding order,
 /// positions `first` to `last` (none when `last < first`), the first
 /// coded in context `ctx0`.
 pub inline fn block(e: anytype, ctx0: u2, first: u5, last: i32, levels: *const [16]i16) void {
+    if (@TypeOf(e) == Tally) return tallyBlock(e, ctx0, first, last, levels);
     var n: u5 = first;
     var ctx = ctx0;
     if (last < first) {
@@ -372,6 +433,50 @@ test "the writer's bytes decode, and the counter counts them" {
             try testing.expectEqual(b, got);
         }
     }
+}
+
+test "token counts give the tree's counts" {
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const r = prng.random();
+    // Every node a token passes, counted by walking the tree.
+    const Nodes = struct {
+        const Self = @This();
+        counts: *[8][3][11][2]u32,
+        fn node(s: Self, band: u8, ctx: u2, i: u4, bit: u1) void {
+            s.counts[band][ctx][i][bit] += 1;
+        }
+        fn fixed(_: Self, _: u8, _: u1) void {}
+    };
+    var want = std.mem.zeroes(Counts);
+    var hist = std.mem.zeroes(Hist);
+    for (0..2000) |_| {
+        const t = r.uintLessThan(usize, 4);
+        const first: u5 = r.uintLessThan(u5, 2);
+        const ctx0: u2 = @intCast(r.uintLessThan(u8, 3));
+        var levels: [16]i16 = @splat(0);
+        // Mostly small magnitudes and zeros, some of every category.
+        for (levels[first..]) |*v| {
+            const mag: i16 = switch (r.uintLessThan(u8, 10)) {
+                0...3 => 0,
+                4, 5 => 1,
+                6 => r.intRangeAtMost(i16, 2, 10),
+                7 => r.intRangeAtMost(i16, 11, 66),
+                8 => r.intRangeAtMost(i16, 67, tables.max_level),
+                else => r.intRangeAtMost(i16, 2, 4),
+            };
+            v.* = if (r.boolean()) mag else -mag;
+        }
+        var last: i32 = @as(i32, first) - 1;
+        if (r.uintLessThan(u8, 8) != 0) {
+            last = r.intRangeAtMost(i32, first, 15);
+            if (levels[@intCast(last)] == 0) levels[@intCast(last)] = 3;
+        }
+        block(Nodes{ .counts = &want[t] }, ctx0, first, last, &levels);
+        block(Tally{ .counts = &hist[t] }, ctx0, first, last, &levels);
+    }
+    var got: Counts = undefined;
+    nodeCounts(&hist, &got);
+    try testing.expectEqualDeep(want, got);
 }
 
 test "costs follow the tokens' booleans" {

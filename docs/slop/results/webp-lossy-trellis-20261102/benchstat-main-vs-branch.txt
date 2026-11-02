@@ -1,0 +1,447 @@
+                                                                                    │   main.txt    │               branch.txt               │
+                                                                                    │    sec/op     │    sec/op      vs base                 │
+WebpEncodeLossy/icon_16-actions_address_book_new-16x16.raw                             91.33µ ±  4%   105.78µ ± 12%   +15.83% (p=0.002 n=10)
+WebpEncodeLossy/icon_16-actions_appointment_new-16x16.raw                              93.26µ ±  5%   107.27µ ± 11%   +15.02% (p=0.000 n=10)
+WebpEncodeLossy/icon_16-actions_bookmark_new-16x16.raw                                 90.30µ ±  3%   100.34µ ±  9%   +11.12% (p=0.000 n=10)
+WebpEncodeLossy/icon_16-actions_contact_new-16x16.raw                                  90.29µ ± 35%   103.73µ ±  5%         ~ (p=0.075 n=10)
+WebpEncodeLossy/icon_32-actions_address_book_new-32x32.raw                             172.1µ ± 10%    199.6µ ±  5%   +15.96% (p=0.002 n=10)
+WebpEncodeLossy/icon_32-actions_appointment_new-32x32.raw                              166.4µ ± 23%    198.2µ ±  5%   +19.11% (p=0.005 n=10)
+WebpEncodeLossy/icon_32-actions_bookmark_new-32x32.raw                                 145.6µ ± 30%    172.4µ ±  7%   +18.39% (p=0.015 n=10)
+WebpEncodeLossy/icon_32-actions_contact_new-32x32.raw                                  157.9µ ± 39%    188.0µ ±  4%   +19.08% (p=0.043 n=10)
+WebpEncodeLossy/icon_64-actions_address_book_new-64x64.raw                             475.5µ ± 13%    573.0µ ±  5%   +20.50% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_appointment_new-64x64.raw                              485.4µ ±  8%    591.2µ ±  4%   +21.79% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_bookmark_new-64x64.raw                                 347.9µ ±  8%    431.7µ ±  6%   +24.07% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_contact_new-64x64.raw                                  411.7µ ± 14%    460.9µ ±  5%   +11.95% (p=0.007 n=10)
+WebpEncodeLossy/icon_512-actions_address_book_new-512x512.raw                          12.55m ±  3%    13.31m ± 17%    +6.00% (p=0.000 n=10)
+WebpEncodeLossy/icon_512-actions_appointment_new-512x512.raw                           13.18m ±  3%    14.41m ± 13%    +9.32% (p=0.000 n=10)
+WebpEncodeLossy/icon_512-actions_bookmark_new-512x512.raw                             10.542m ±  2%    9.540m ± 24%    -9.51% (p=0.023 n=10)
+WebpEncodeLossy/photo_kodak-kodim01-768x512.raw                                        43.23m ±  2%    54.21m ±  5%   +25.40% (p=0.000 n=10)
+WebpEncodeLossy/photo_kodak-kodim02-768x512.raw                                        31.87m ±  9%    37.61m ±  2%   +18.02% (p=0.002 n=10)
+WebpEncodeLossy/photo_kodak-kodim03-768x512.raw                                        27.95m ±  6%    32.18m ±  3%   +15.12% (p=0.000 n=10)
+WebpEncodeLossy/photo_mosaic-50mp-8192x6144.raw                                         2.897 ±  6%     3.017 ±  1%    +4.14% (p=0.035 n=10)
+WebpEncodeLossy/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                       87.21m ±  2%    92.14m ±  4%    +5.66% (p=0.001 n=10)
+WebpEncodeLossy/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                       69.04m ±  2%    57.12m ±  8%   -17.26% (p=0.001 n=10)
+WebpEncodeLossy/photo_wikipedia-001-1276x850.raw                                       87.49m ±  4%   102.82m ±  4%   +17.53% (p=0.000 n=10)
+WebpEncodeLossy/photo_wikipedia-002-1260x806.raw                                       88.80m ± 13%   109.35m ±  6%   +23.15% (p=0.000 n=10)
+WebpEncodeLossy/photo_wikipedia-003-1436x730.raw                                       77.27m ±  6%    87.52m ±  3%   +13.27% (p=0.000 n=10)
+WebpEncodeLossy/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw          14.27m ±  4%    14.04m ±  3%         ~ (p=0.315 n=10)
+WebpEncodeLossy/pngimg-academy_awards_PNG9-447x1192.raw                                26.03m ±  3%    28.79m ±  3%   +10.63% (p=0.000 n=10)
+WebpEncodeLossy/pngimg-air_pump_PNG5-999x772.raw                                       33.24m ±  2%    33.57m ±  2%         ~ (p=0.105 n=10)
+WebpEncodeLossy/screenshot_game-3dbrick2-320x240.raw                                   4.837m ±  2%    5.164m ±  7%    +6.76% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw                 5.691m ±  3%    5.508m ± 14%         ~ (p=0.143 n=10)
+WebpEncodeLossy/screenshot_game-20XX_Menu_picture-634x406.raw                          14.78m ±  2%    16.47m ±  5%   +11.44% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_web-amazon_com-1313x6097.raw                                445.1m ±  4%    486.9m ±  9%    +9.38% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_web-apple_com-1313x4755.raw                                 263.2m ±  2%    268.6m ±  3%    +2.06% (p=0.043 n=10)
+WebpEncodeLossy/screenshot_web-cnn_com-1313x5241.raw                                   343.9m ± 14%    369.2m ±  4%    +7.36% (p=0.029 n=10)
+WebpEncodeLossy/test-dice-800x600.raw                                                  21.93m ±  5%    23.07m ±  7%    +5.20% (p=0.007 n=10)
+WebpEncodeLossy/test-kodim10-512x768.raw                                               30.39m ±  9%    35.74m ±  5%   +17.60% (p=0.000 n=10)
+WebpEncodeLossy/test-kodim23-768x512.raw                                               27.70m ±  7%    30.54m ±  2%   +10.27% (p=0.001 n=10)
+WebpEncodeLossy/test-qoi_logo-448x220.raw                                              4.610m ± 13%    5.016m ±  6%    +8.80% (p=0.015 n=10)
+WebpEncodeLossy/test-testcard-256x256.raw                                              4.257m ± 12%    4.919m ±  2%   +15.54% (p=0.001 n=10)
+WebpEncodeLossy/test-testcard_rgba-256x256.raw                                         4.110m ±  2%    4.683m ±  6%   +13.93% (p=0.001 n=10)
+WebpEncodeLossy/test-wikipedia_008-1152x858.raw                                        60.51m ± 10%    63.34m ± 16%         ~ (p=0.165 n=10)
+WebpEncodeLossy/textures_pk-_0mod_button1-64x64.raw                                    399.3µ ± 23%    523.1µ ± 12%   +31.00% (p=0.001 n=10)
+WebpEncodeLossy/textures_pk-_pkf_water1-128x128.raw                                    1.450m ±  3%    1.826m ± 10%   +25.88% (p=0.001 n=10)
+WebpEncodeLossy/textures_plants-plant_01-166x1022.raw                                  7.163m ± 17%    7.487m ±  2%         ~ (p=0.089 n=10)
+WebpEncodeLossy/textures_plants-plant_02-1024x1316.raw                                 65.58m ±  5%    73.11m ±  9%   +11.49% (p=0.001 n=10)
+WebpEncodeLossyFast/icon_16-actions_address_book_new-16x16.raw                         79.75µ ± 12%    80.67µ ± 15%         ~ (p=0.393 n=10)
+WebpEncodeLossyFast/icon_16-actions_appointment_new-16x16.raw                          82.39µ ±  4%    82.09µ ±  4%         ~ (p=0.436 n=10)
+WebpEncodeLossyFast/icon_16-actions_bookmark_new-16x16.raw                             78.88µ ±  3%    80.24µ ±  3%         ~ (p=0.190 n=10)
+WebpEncodeLossyFast/icon_16-actions_contact_new-16x16.raw                              81.41µ ± 14%    80.91µ ±  9%         ~ (p=1.000 n=10)
+WebpEncodeLossyFast/icon_32-actions_address_book_new-32x32.raw                         125.3µ ±  4%    114.0µ ±  3%    -8.96% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_32-actions_appointment_new-32x32.raw                          128.1µ ± 10%    116.0µ ±  8%    -9.51% (p=0.004 n=10)
+WebpEncodeLossyFast/icon_32-actions_bookmark_new-32x32.raw                             108.5µ ±  2%    103.5µ ±  4%    -4.60% (p=0.011 n=10)
+WebpEncodeLossyFast/icon_32-actions_contact_new-32x32.raw                              115.8µ ±  7%    108.2µ ±  3%    -6.61% (p=0.002 n=10)
+WebpEncodeLossyFast/icon_64-actions_address_book_new-64x64.raw                         280.9µ ±  6%    212.5µ ±  5%   -24.35% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_appointment_new-64x64.raw                          315.5µ ± 15%    234.9µ ±  8%   -25.53% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_bookmark_new-64x64.raw                             211.2µ ± 11%    181.1µ ±  5%   -14.22% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_contact_new-64x64.raw                              246.1µ ± 14%    197.4µ ±  5%   -19.78% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_address_book_new-512x512.raw                      6.973m ± 17%    5.067m ±  3%   -27.34% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_appointment_new-512x512.raw                       7.541m ± 18%    5.422m ±  4%   -28.10% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_bookmark_new-512x512.raw                          5.500m ±  2%    3.775m ±  4%   -31.37% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim01-768x512.raw                                    23.43m ±  5%    17.74m ±  1%   -24.30% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim02-768x512.raw                                    15.33m ±  4%    12.41m ±  2%   -19.05% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim03-768x512.raw                                    14.14m ± 11%    10.89m ±  2%   -23.02% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_mosaic-50mp-8192x6144.raw                                     1.438 ±  3%     1.102 ±  4%   -23.32% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                   45.28m ±  3%    34.61m ± 20%   -23.56% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                   33.82m ± 10%    21.95m ±  7%   -35.09% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_wikipedia-001-1276x850.raw                                   45.26m ±  3%    34.24m ±  3%   -24.35% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_wikipedia-002-1260x806.raw                                   44.80m ± 10%    36.20m ±  6%   -19.19% (p=0.001 n=10)
+WebpEncodeLossyFast/photo_wikipedia-003-1436x730.raw                                   42.54m ±  3%    31.22m ±  6%   -26.61% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw      8.034m ±  3%    5.829m ±  3%   -27.44% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-academy_awards_PNG9-447x1192.raw                            13.79m ± 13%    10.70m ±  1%   -22.39% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-air_pump_PNG5-999x772.raw                                   17.51m ±  2%    12.86m ± 11%   -26.54% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-3dbrick2-320x240.raw                               2.822m ± 10%    1.988m ±  4%   -29.54% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw             3.084m ± 14%    2.183m ±  9%   -29.23% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-20XX_Menu_picture-634x406.raw                      8.067m ±  7%    6.103m ±  2%   -24.35% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-amazon_com-1313x6097.raw                            245.3m ±  6%    179.8m ±  6%   -26.73% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-apple_com-1313x4755.raw                             148.7m ±  6%    104.2m ±  3%   -29.94% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-cnn_com-1313x5241.raw                               197.8m ±  6%    145.5m ±  4%   -26.47% (p=0.000 n=10)
+WebpEncodeLossyFast/test-dice-800x600.raw                                             12.142m ±  3%    9.141m ±  4%   -24.71% (p=0.000 n=10)
+WebpEncodeLossyFast/test-kodim10-512x768.raw                                           14.89m ±  4%    12.10m ±  4%   -18.74% (p=0.000 n=10)
+WebpEncodeLossyFast/test-kodim23-768x512.raw                                           13.56m ±  7%    10.57m ±  2%   -22.02% (p=0.000 n=10)
+WebpEncodeLossyFast/test-qoi_logo-448x220.raw                                          2.526m ±  7%    1.940m ±  4%   -23.20% (p=0.001 n=10)
+WebpEncodeLossyFast/test-testcard-256x256.raw                                          2.383m ±  5%    1.861m ±  3%   -21.90% (p=0.001 n=10)
+WebpEncodeLossyFast/test-testcard_rgba-256x256.raw                                     2.375m ±  4%    1.814m ±  5%   -23.63% (p=0.000 n=10)
+WebpEncodeLossyFast/test-wikipedia_008-1152x858.raw                                    32.57m ±  3%    23.30m ±  3%   -28.44% (p=0.000 n=10)
+WebpEncodeLossyFast/textures_pk-_0mod_button1-64x64.raw                                221.8µ ±  9%    194.5µ ±  5%   -12.33% (p=0.002 n=10)
+WebpEncodeLossyFast/textures_pk-_pkf_water1-128x128.raw                                702.2µ ± 18%    590.4µ ±  4%   -15.93% (p=0.001 n=10)
+WebpEncodeLossyFast/textures_plants-plant_01-166x1022.raw                              4.071m ±  5%    3.018m ±  6%   -25.86% (p=0.000 n=10)
+WebpEncodeLossyFast/textures_plants-plant_02-1024x1316.raw                             35.86m ±  7%    27.34m ±  3%   -23.76% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_address_book_new-16x16.raw                         185.4µ ± 24%    274.4µ ±  2%   +48.03% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_appointment_new-16x16.raw                          192.6µ ± 12%    296.0µ ±  4%   +53.69% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_bookmark_new-16x16.raw                             181.3µ ± 10%    281.0µ ± 12%   +54.98% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_contact_new-16x16.raw                              184.5µ ±  4%    295.6µ ± 11%   +60.21% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_address_book_new-32x32.raw                         371.4µ ± 16%    812.1µ ±  5%  +118.63% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_appointment_new-32x32.raw                          379.0µ ± 10%    804.1µ ±  4%  +112.17% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_bookmark_new-32x32.raw                             343.8µ ± 21%    635.6µ ±  7%   +84.87% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_contact_new-32x32.raw                              368.5µ ± 19%    708.3µ ± 20%   +92.21% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_address_book_new-64x64.raw                         1.205m ± 11%    2.444m ±  3%  +102.91% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_appointment_new-64x64.raw                          1.175m ±  3%    2.514m ±  6%  +113.94% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_bookmark_new-64x64.raw                             965.7µ ± 18%   1996.1µ ±  3%  +106.70% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_contact_new-64x64.raw                              976.6µ ± 14%   1994.5µ ±  6%  +104.23% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_address_book_new-512x512.raw                      31.44m ±  8%    45.42m ±  4%   +44.45% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_appointment_new-512x512.raw                       33.88m ± 17%    49.60m ±  8%   +46.40% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_bookmark_new-512x512.raw                          26.93m ±  6%    36.16m ±  4%   +34.27% (p=0.001 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim01-768x512.raw                                    109.5m ±  4%    248.6m ±  5%  +126.99% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim02-768x512.raw                                    80.63m ±  4%   148.45m ±  4%   +84.13% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim03-768x512.raw                                    72.49m ±  3%   121.92m ±  3%   +68.19% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_mosaic-50mp-8192x6144.raw                                     7.554 ±  3%    10.982 ±  3%   +45.37% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                   221.8m ±  4%    360.3m ±  7%   +62.43% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                   173.5m ±  2%    210.0m ±  1%   +21.00% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-001-1276x850.raw                                   228.3m ±  3%    417.0m ±  2%   +82.68% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-002-1260x806.raw                                   234.1m ±  6%    436.0m ±  3%   +86.21% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-003-1436x730.raw                                   195.3m ±  5%    353.6m ±  3%   +81.02% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw      32.76m ±  8%    45.84m ±  3%   +39.91% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-academy_awards_PNG9-447x1192.raw                            67.75m ± 11%    95.17m ±  3%   +40.47% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-air_pump_PNG5-999x772.raw                                   81.60m ±  5%   111.27m ±  3%   +36.35% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-3dbrick2-320x240.raw                               11.91m ±  3%    22.86m ±  3%   +91.88% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw             13.27m ±  3%    18.56m ±  5%   +39.91% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-20XX_Menu_picture-634x406.raw                      36.72m ±  3%    61.78m ±  4%   +68.24% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-amazon_com-1313x6097.raw                             1.088 ±  3%     1.828 ±  5%   +68.07% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-apple_com-1313x4755.raw                             641.8m ±  6%    950.7m ±  3%   +48.13% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-cnn_com-1313x5241.raw                               829.7m ±  2%   1377.1m ±  4%   +65.96% (p=0.000 n=10)
+WebpEncodeLossyBest/test-dice-800x600.raw                                              51.00m ±  2%    72.88m ±  4%   +42.90% (p=0.000 n=10)
+WebpEncodeLossyBest/test-kodim10-512x768.raw                                           77.77m ±  4%   137.47m ±  2%   +76.75% (p=0.000 n=10)
+WebpEncodeLossyBest/test-kodim23-768x512.raw                                           71.27m ±  3%   112.06m ±  8%   +57.23% (p=0.000 n=10)
+WebpEncodeLossyBest/test-qoi_logo-448x220.raw                                          10.88m ±  1%    16.49m ±  9%   +51.49% (p=0.000 n=10)
+WebpEncodeLossyBest/test-testcard-256x256.raw                                          11.50m ± 36%    20.70m ±  4%   +79.97% (p=0.000 n=10)
+WebpEncodeLossyBest/test-testcard_rgba-256x256.raw                                     10.62m ±  2%    19.13m ±  3%   +80.17% (p=0.000 n=10)
+WebpEncodeLossyBest/test-wikipedia_008-1152x858.raw                                    153.7m ±  7%    263.1m ±  3%   +71.14% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_pk-_0mod_button1-64x64.raw                                1.043m ± 13%    2.323m ±  3%  +122.79% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_pk-_pkf_water1-128x128.raw                                3.798m ±  3%    7.404m ±  8%   +94.94% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_plants-plant_01-166x1022.raw                              16.93m ±  2%    25.27m ±  4%   +49.28% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_plants-plant_02-1024x1316.raw                             158.0m ±  8%    243.7m ±  1%   +54.27% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_address_book_new-16x16.rgba                        175.0µ ± 17%    189.4µ ±  4%         ~ (p=0.063 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_appointment_new-16x16.rgba                         169.4µ ±  7%    179.5µ ±  4%    +5.94% (p=0.023 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_bookmark_new-16x16.rgba                            153.6µ ±  4%    163.8µ ±  5%    +6.66% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_contact_new-16x16.rgba                             150.5µ ±  7%    166.5µ ±  6%   +10.64% (p=0.002 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_address_book_new-32x32.rgba                        377.4µ ±  5%    432.6µ ±  7%   +14.63% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_appointment_new-32x32.rgba                         405.8µ ±  5%    448.9µ ±  4%   +10.63% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_bookmark_new-32x32.rgba                            257.0µ ±  7%    313.6µ ±  6%   +21.99% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_contact_new-32x32.rgba                             264.8µ ±  5%    295.8µ ±  6%   +11.72% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_address_book_new-64x64.rgba                        1.084m ±  5%    1.197m ±  1%   +10.43% (p=0.002 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_appointment_new-64x64.rgba                         1.115m ±  9%    1.232m ±  2%   +10.48% (p=0.002 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_bookmark_new-64x64.rgba                            842.7µ ± 10%    933.4µ ±  4%   +10.76% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_contact_new-64x64.rgba                             835.1µ ± 15%    914.5µ ±  4%    +9.51% (p=0.015 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_address_book_new-512x512.rgba                     27.44m ±  7%    28.06m ± 17%         ~ (p=0.280 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_appointment_new-512x512.rgba                      30.03m ±  7%    30.26m ±  3%         ~ (p=0.436 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_bookmark_new-512x512.rgba                         24.24m ±  4%    23.78m ± 11%         ~ (p=0.218 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim01-768x512.rgb                                    42.60m ± 24%    54.21m ±  2%   +27.25% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim02-768x512.rgb                                    31.21m ± 11%    37.87m ±  8%   +21.36% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim03-768x512.rgb                                    28.70m ±  8%    31.92m ±  2%   +11.23% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_mosaic-50mp-8192x6144.rgb                                     2.899 ±  4%     3.001 ±  2%    +3.53% (p=0.005 n=10)
+WebpEncodeLossyRGBA/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.rgb                   89.43m ± 10%    92.91m ±  2%         ~ (p=0.218 n=10)
+WebpEncodeLossyRGBA/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.rgb                   70.56m ± 18%    57.41m ±  5%   -18.63% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-001-1276x850.rgb                                   88.06m ±  2%   104.21m ±  2%   +18.34% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-002-1260x806.rgb                                   89.60m ±  3%   110.55m ±  2%   +23.38% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-003-1436x730.rgb                                   77.70m ±  9%    87.42m ±  9%   +12.51% (p=0.001 n=10)
+WebpEncodeLossyRGBA/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.rgba     20.93m ±  8%    20.62m ±  5%         ~ (p=0.089 n=10)
+WebpEncodeLossyRGBA/pngimg-academy_awards_PNG9-447x1192.rgba                           39.72m ±  4%    41.79m ±  5%    +5.20% (p=0.004 n=10)
+WebpEncodeLossyRGBA/pngimg-air_pump_PNG5-999x772.rgba                                  49.32m ±  5%    50.47m ±  3%         ~ (p=0.123 n=10)
+WebpEncodeLossyRGBA/screenshot_game-3dbrick2-320x240.rgb                               4.895m ±  6%    5.199m ±  4%    +6.21% (p=0.011 n=10)
+WebpEncodeLossyRGBA/screenshot_game-3dcursedlabyrinth_mazegame-343x480.rgb             5.782m ± 11%    5.594m ±  7%    -3.26% (p=0.035 n=10)
+WebpEncodeLossyRGBA/screenshot_game-20XX_Menu_picture-634x406.rgba                     15.32m ±  2%    17.29m ±  2%   +12.88% (p=0.000 n=10)
+WebpEncodeLossyRGBA/screenshot_web-amazon_com-1313x6097.rgba                           464.8m ±  5%    501.7m ±  8%    +7.93% (p=0.001 n=10)
+WebpEncodeLossyRGBA/screenshot_web-apple_com-1313x4755.rgba                            284.0m ±  4%    290.0m ±  6%         ~ (p=0.190 n=10)
+WebpEncodeLossyRGBA/screenshot_web-cnn_com-1313x5241.rgba                              359.9m ±  6%    387.3m ±  3%    +7.63% (p=0.002 n=10)
+WebpEncodeLossyRGBA/test-dice-800x600.rgba                                             58.50m ±  8%    59.29m ±  3%         ~ (p=0.853 n=10)
+WebpEncodeLossyRGBA/test-kodim10-512x768.rgb                                           30.55m ± 14%    36.27m ±  2%   +18.70% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-kodim23-768x512.rgb                                           28.19m ±  9%    30.64m ±  2%    +8.70% (p=0.023 n=10)
+WebpEncodeLossyRGBA/test-qoi_logo-448x220.rgba                                         7.907m ± 14%    7.806m ±  2%         ~ (p=0.063 n=10)
+WebpEncodeLossyRGBA/test-testcard-256x256.rgba                                         4.394m ±  2%    4.985m ±  3%   +13.45% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-testcard_rgba-256x256.rgba                                    6.159m ±  4%    6.660m ±  8%    +8.15% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-wikipedia_008-1152x858.rgb                                    59.60m ±  3%    64.13m ±  2%    +7.60% (p=0.000 n=10)
+WebpEncodeLossyRGBA/textures_pk-_0mod_button1-64x64.rgb                                394.0µ ± 24%    511.1µ ±  4%   +29.73% (p=0.002 n=10)
+WebpEncodeLossyRGBA/textures_pk-_pkf_water1-128x128.rgb                                1.435m ± 14%    1.806m ±  2%   +25.88% (p=0.000 n=10)
+WebpEncodeLossyRGBA/textures_plants-plant_01-166x1022.rgba                             13.25m ±  4%    13.23m ±  2%         ~ (p=1.000 n=10)
+WebpEncodeLossyRGBA/textures_plants-plant_02-1024x1316.rgba                            98.31m ±  4%   102.20m ±  6%    +3.97% (p=0.005 n=10)
+WebpEncodeLossyFastM0/icon_16-actions_address_book_new-16x16.raw                                       80.06µ ±  3%
+WebpEncodeLossyFastM0/icon_16-actions_appointment_new-16x16.raw                                        83.13µ ±  6%
+WebpEncodeLossyFastM0/icon_16-actions_bookmark_new-16x16.raw                                           82.08µ ±  4%
+WebpEncodeLossyFastM0/icon_16-actions_contact_new-16x16.raw                                            80.52µ ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_address_book_new-32x32.raw                                       113.2µ ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_appointment_new-32x32.raw                                        116.6µ ±  4%
+WebpEncodeLossyFastM0/icon_32-actions_bookmark_new-32x32.raw                                           104.1µ ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_contact_new-32x32.raw                                            108.1µ ±  3%
+WebpEncodeLossyFastM0/icon_64-actions_address_book_new-64x64.raw                                       212.7µ ±  5%
+WebpEncodeLossyFastM0/icon_64-actions_appointment_new-64x64.raw                                        233.4µ ±  4%
+WebpEncodeLossyFastM0/icon_64-actions_bookmark_new-64x64.raw                                           182.0µ ±  4%
+WebpEncodeLossyFastM0/icon_64-actions_contact_new-64x64.raw                                            188.6µ ±  4%
+WebpEncodeLossyFastM0/icon_512-actions_address_book_new-512x512.raw                                    5.022m ±  2%
+WebpEncodeLossyFastM0/icon_512-actions_appointment_new-512x512.raw                                     5.392m ±  3%
+WebpEncodeLossyFastM0/icon_512-actions_bookmark_new-512x512.raw                                        3.744m ±  8%
+WebpEncodeLossyFastM0/photo_kodak-kodim01-768x512.raw                                                  17.61m ±  3%
+WebpEncodeLossyFastM0/photo_kodak-kodim02-768x512.raw                                                  12.25m ±  4%
+WebpEncodeLossyFastM0/photo_kodak-kodim03-768x512.raw                                                  10.90m ±  8%
+WebpEncodeLossyFastM0/photo_mosaic-50mp-8192x6144.raw                                                   1.085 ±  4%
+WebpEncodeLossyFastM0/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                                 33.29m ±  4%
+WebpEncodeLossyFastM0/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                                 21.67m ±  4%
+WebpEncodeLossyFastM0/photo_wikipedia-001-1276x850.raw                                                 34.55m ±  1%
+WebpEncodeLossyFastM0/photo_wikipedia-002-1260x806.raw                                                 36.19m ±  4%
+WebpEncodeLossyFastM0/photo_wikipedia-003-1436x730.raw                                                 31.20m ±  2%
+WebpEncodeLossyFastM0/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw                    5.723m ±  8%
+WebpEncodeLossyFastM0/pngimg-academy_awards_PNG9-447x1192.raw                                          10.65m ±  3%
+WebpEncodeLossyFastM0/pngimg-air_pump_PNG5-999x772.raw                                                 12.81m ±  2%
+WebpEncodeLossyFastM0/screenshot_game-3dbrick2-320x240.raw                                             1.979m ±  3%
+WebpEncodeLossyFastM0/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw                           2.188m ±  6%
+WebpEncodeLossyFastM0/screenshot_game-20XX_Menu_picture-634x406.raw                                    6.086m ±  3%
+WebpEncodeLossyFastM0/screenshot_web-amazon_com-1313x6097.raw                                          182.2m ± 10%
+WebpEncodeLossyFastM0/screenshot_web-apple_com-1313x4755.raw                                           104.7m ±  2%
+WebpEncodeLossyFastM0/screenshot_web-cnn_com-1313x5241.raw                                             141.7m ±  2%
+WebpEncodeLossyFastM0/test-dice-800x600.raw                                                            9.119m ±  3%
+WebpEncodeLossyFastM0/test-kodim10-512x768.raw                                                         12.20m ±  2%
+WebpEncodeLossyFastM0/test-kodim23-768x512.raw                                                         10.78m ±  3%
+WebpEncodeLossyFastM0/test-qoi_logo-448x220.raw                                                        1.900m ±  4%
+WebpEncodeLossyFastM0/test-testcard-256x256.raw                                                        1.874m ±  2%
+WebpEncodeLossyFastM0/test-testcard_rgba-256x256.raw                                                   1.800m ±  4%
+WebpEncodeLossyFastM0/test-wikipedia_008-1152x858.raw                                                  23.36m ±  2%
+WebpEncodeLossyFastM0/textures_pk-_0mod_button1-64x64.raw                                              195.0µ ±  3%
+WebpEncodeLossyFastM0/textures_pk-_pkf_water1-128x128.raw                                              593.2µ ±  4%
+WebpEncodeLossyFastM0/textures_plants-plant_01-166x1022.raw                                            2.980m ±  4%
+WebpEncodeLossyFastM0/textures_plants-plant_02-1024x1316.raw                                           27.08m ±  2%
+geomean                                                                                8.138m          7.400m         +12.64%
+
+                                                                                    │   main.txt    │              branch.txt              │
+                                                                                    │     MP/s      │     MP/s      vs base                │
+WebpEncodeLossy/icon_16-actions_address_book_new-16x16.raw                              2.805 ±  3%    2.420 ± 10%  -13.73% (p=0.001 n=10)
+WebpEncodeLossy/icon_16-actions_appointment_new-16x16.raw                               2.745 ±  5%    2.390 ± 10%  -12.93% (p=0.000 n=10)
+WebpEncodeLossy/icon_16-actions_bookmark_new-16x16.raw                                  2.835 ±  3%    2.550 ±  8%  -10.05% (p=0.000 n=10)
+WebpEncodeLossy/icon_16-actions_contact_new-16x16.raw                                   2.835 ± 26%    2.470 ±  5%        ~ (p=0.072 n=10)
+WebpEncodeLossy/icon_32-actions_address_book_new-32x32.raw                              5.950 ±  9%    5.130 ±  5%  -13.78% (p=0.001 n=10)
+WebpEncodeLossy/icon_32-actions_appointment_new-32x32.raw                               6.150 ± 19%    5.170 ±  5%  -15.93% (p=0.005 n=10)
+WebpEncodeLossy/icon_32-actions_bookmark_new-32x32.raw                                  7.035 ± 23%    5.940 ±  6%  -15.57% (p=0.015 n=10)
+WebpEncodeLossy/icon_32-actions_contact_new-32x32.raw                                   6.485 ± 28%    5.450 ±  5%  -15.96% (p=0.044 n=10)
+WebpEncodeLossy/icon_64-actions_address_book_new-64x64.raw                              8.615 ± 11%    7.150 ±  4%  -17.01% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_appointment_new-64x64.raw                               8.440 ±  7%    6.925 ±  4%  -17.95% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_bookmark_new-64x64.raw                                 11.775 ±  8%    9.490 ±  6%  -19.41% (p=0.000 n=10)
+WebpEncodeLossy/icon_64-actions_contact_new-64x64.raw                                   9.955 ± 12%    8.890 ±  4%  -10.70% (p=0.007 n=10)
+WebpEncodeLossy/icon_512-actions_address_book_new-512x512.raw                           20.88 ±  3%    19.70 ± 15%   -5.65% (p=0.000 n=10)
+WebpEncodeLossy/icon_512-actions_appointment_new-512x512.raw                            19.89 ±  3%    18.20 ± 11%   -8.50% (p=0.000 n=10)
+WebpEncodeLossy/icon_512-actions_bookmark_new-512x512.raw                               24.87 ±  2%    27.48 ± 19%  +10.52% (p=0.023 n=10)
+WebpEncodeLossy/photo_kodak-kodim01-768x512.raw                                         9.095 ±  2%    7.255 ±  4%  -20.23% (p=0.000 n=10)
+WebpEncodeLossy/photo_kodak-kodim02-768x512.raw                                         12.34 ±  8%    10.46 ±  2%  -15.24% (p=0.002 n=10)
+WebpEncodeLossy/photo_kodak-kodim03-768x512.raw                                         14.07 ±  5%    12.23 ±  3%  -13.11% (p=0.000 n=10)
+WebpEncodeLossy/photo_mosaic-50mp-8192x6144.raw                                         17.37 ±  5%    16.69 ±  1%   -3.94% (p=0.035 n=10)
+WebpEncodeLossy/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                        16.51 ±  2%    15.62 ±  4%   -5.36% (p=0.001 n=10)
+WebpEncodeLossy/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                        20.86 ±  2%    25.21 ±  7%  +20.85% (p=0.001 n=10)
+WebpEncodeLossy/photo_wikipedia-001-1276x850.raw                                        12.40 ±  4%    10.55 ±  4%  -14.92% (p=0.000 n=10)
+WebpEncodeLossy/photo_wikipedia-002-1260x806.raw                                       11.435 ± 12%    9.290 ±  5%  -18.76% (p=0.000 n=10)
+WebpEncodeLossy/photo_wikipedia-003-1436x730.raw                                        13.57 ±  6%    11.98 ±  3%  -11.72% (p=0.000 n=10)
+WebpEncodeLossy/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw           25.23 ±  4%    25.63 ±  3%        ~ (p=0.289 n=10)
+WebpEncodeLossy/pngimg-academy_awards_PNG9-447x1192.raw                                 20.48 ±  3%    18.50 ±  3%   -9.62% (p=0.000 n=10)
+WebpEncodeLossy/pngimg-air_pump_PNG5-999x772.raw                                        23.20 ±  2%    22.98 ±  2%        ~ (p=0.101 n=10)
+WebpEncodeLossy/screenshot_game-3dbrick2-320x240.raw                                    15.88 ±  2%    14.87 ±  6%   -6.33% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw                  28.93 ±  2%    29.89 ± 12%        ~ (p=0.138 n=10)
+WebpEncodeLossy/screenshot_game-20XX_Menu_picture-634x406.raw                           17.42 ±  2%    15.63 ±  5%  -10.28% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_web-amazon_com-1313x6097.raw                                 17.98 ±  4%    16.44 ±  8%   -8.59% (p=0.000 n=10)
+WebpEncodeLossy/screenshot_web-apple_com-1313x4755.raw                                  23.73 ±  2%    23.24 ±  3%   -2.02% (p=0.041 n=10)
+WebpEncodeLossy/screenshot_web-cnn_com-1313x5241.raw                                    20.01 ± 12%    18.64 ±  4%   -6.87% (p=0.029 n=10)
+WebpEncodeLossy/test-dice-800x600.raw                                                   21.88 ±  5%    20.80 ±  6%   -4.96% (p=0.006 n=10)
+WebpEncodeLossy/test-kodim10-512x768.raw                                                12.94 ±  8%    11.00 ±  4%  -14.95% (p=0.000 n=10)
+WebpEncodeLossy/test-kodim23-768x512.raw                                                14.20 ±  6%    12.88 ±  2%   -9.30% (p=0.001 n=10)
+WebpEncodeLossy/test-qoi_logo-448x220.raw                                               21.38 ± 11%    19.65 ±  6%   -8.09% (p=0.014 n=10)
+WebpEncodeLossy/test-testcard-256x256.raw                                               15.39 ± 10%    13.32 ±  2%  -13.48% (p=0.001 n=10)
+WebpEncodeLossy/test-testcard_rgba-256x256.raw                                          15.94 ±  2%    14.00 ±  6%  -12.20% (p=0.001 n=10)
+WebpEncodeLossy/test-wikipedia_008-1152x858.raw                                         16.34 ±  9%    15.61 ± 14%        ~ (p=0.165 n=10)
+WebpEncodeLossy/textures_pk-_0mod_button1-64x64.raw                                    10.255 ± 19%    7.830 ± 11%  -23.65% (p=0.001 n=10)
+WebpEncodeLossy/textures_pk-_pkf_water1-128x128.raw                                    11.300 ±  3%    8.975 ±  9%  -20.58% (p=0.001 n=10)
+WebpEncodeLossy/textures_plants-plant_01-166x1022.raw                                   23.69 ± 15%    22.66 ±  2%        ~ (p=0.093 n=10)
+WebpEncodeLossy/textures_plants-plant_02-1024x1316.raw                                  20.55 ±  5%    18.43 ±  8%  -10.32% (p=0.001 n=10)
+WebpEncodeLossyFast/icon_16-actions_address_book_new-16x16.raw                          3.210 ± 11%    3.170 ± 13%        ~ (p=0.362 n=10)
+WebpEncodeLossyFast/icon_16-actions_appointment_new-16x16.raw                           3.105 ±  4%    3.120 ±  4%        ~ (p=0.340 n=10)
+WebpEncodeLossyFast/icon_16-actions_bookmark_new-16x16.raw                              3.245 ±  3%    3.190 ±  3%        ~ (p=0.159 n=10)
+WebpEncodeLossyFast/icon_16-actions_contact_new-16x16.raw                               3.145 ± 12%    3.165 ±  8%        ~ (p=1.000 n=10)
+WebpEncodeLossyFast/icon_32-actions_address_book_new-32x32.raw                          8.175 ±  4%    8.980 ±  3%   +9.85% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_32-actions_appointment_new-32x32.raw                           7.990 ±  9%    8.830 ±  8%  +10.51% (p=0.004 n=10)
+WebpEncodeLossyFast/icon_32-actions_bookmark_new-32x32.raw                              9.435 ±  2%    9.890 ±  4%   +4.82% (p=0.011 n=10)
+WebpEncodeLossyFast/icon_32-actions_contact_new-32x32.raw                               8.845 ±  6%    9.465 ±  3%   +7.01% (p=0.002 n=10)
+WebpEncodeLossyFast/icon_64-actions_address_book_new-64x64.raw                          14.58 ±  5%    19.27 ±  4%  +32.20% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_appointment_new-64x64.raw                           12.98 ± 13%    17.44 ±  7%  +34.31% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_bookmark_new-64x64.raw                              19.39 ± 10%    22.62 ±  5%  +16.60% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_64-actions_contact_new-64x64.raw                               16.64 ± 12%    20.75 ±  6%  +24.66% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_address_book_new-512x512.raw                       37.61 ± 14%    51.73 ±  3%  +37.57% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_appointment_new-512x512.raw                        34.77 ± 15%    48.34 ±  4%  +39.06% (p=0.000 n=10)
+WebpEncodeLossyFast/icon_512-actions_bookmark_new-512x512.raw                           47.66 ±  2%    69.45 ±  4%  +45.71% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim01-768x512.raw                                     16.78 ±  4%    22.17 ±  1%  +32.12% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim02-768x512.raw                                     25.66 ±  4%    31.69 ±  2%  +23.52% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_kodak-kodim03-768x512.raw                                     27.80 ± 10%    36.12 ±  2%  +29.89% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_mosaic-50mp-8192x6144.raw                                     35.02 ±  3%    45.67 ±  4%  +30.44% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                    31.80 ±  3%    41.61 ± 17%  +30.83% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                    42.59 ±  9%    65.61 ±  7%  +54.06% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_wikipedia-001-1276x850.raw                                    23.96 ±  3%    31.67 ±  3%  +32.20% (p=0.000 n=10)
+WebpEncodeLossyFast/photo_wikipedia-002-1260x806.raw                                    22.67 ±  9%    28.05 ±  6%  +23.75% (p=0.001 n=10)
+WebpEncodeLossyFast/photo_wikipedia-003-1436x730.raw                                    24.64 ±  3%    33.58 ±  5%  +36.26% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw       44.81 ±  3%    61.76 ±  2%  +37.81% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-academy_awards_PNG9-447x1192.raw                             38.65 ± 11%    49.80 ±  1%  +28.85% (p=0.000 n=10)
+WebpEncodeLossyFast/pngimg-air_pump_PNG5-999x772.raw                                    44.05 ±  2%    59.97 ± 10%  +36.11% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-3dbrick2-320x240.raw                                27.21 ±  9%    38.62 ±  4%  +41.93% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw              53.39 ± 12%    75.44 ±  8%  +41.31% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_game-20XX_Menu_picture-634x406.raw                       31.91 ±  7%    42.17 ±  2%  +32.17% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-amazon_com-1313x6097.raw                             32.63 ±  5%    44.53 ±  5%  +36.46% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-apple_com-1313x4755.raw                              41.98 ±  5%    59.93 ±  3%  +42.74% (p=0.000 n=10)
+WebpEncodeLossyFast/screenshot_web-cnn_com-1313x5241.raw                                34.79 ±  6%    47.31 ±  4%  +35.99% (p=0.000 n=10)
+WebpEncodeLossyFast/test-dice-800x600.raw                                               39.54 ±  3%    52.51 ±  4%  +32.80% (p=0.000 n=10)
+WebpEncodeLossyFast/test-kodim10-512x768.raw                                            26.41 ±  4%    32.50 ±  3%  +23.04% (p=0.000 n=10)
+WebpEncodeLossyFast/test-kodim23-768x512.raw                                            28.99 ±  7%    37.19 ±  2%  +28.25% (p=0.000 n=10)
+WebpEncodeLossyFast/test-qoi_logo-448x220.raw                                           39.01 ±  7%    50.80 ±  4%  +30.21% (p=0.001 n=10)
+WebpEncodeLossyFast/test-testcard-256x256.raw                                           27.51 ±  5%    35.22 ±  3%  +28.03% (p=0.001 n=10)
+WebpEncodeLossyFast/test-testcard_rgba-256x256.raw                                      27.60 ±  4%    36.14 ±  5%  +30.92% (p=0.000 n=10)
+WebpEncodeLossyFast/test-wikipedia_008-1152x858.raw                                     30.36 ±  3%    42.42 ±  3%  +39.73% (p=0.000 n=10)
+WebpEncodeLossyFast/textures_pk-_0mod_button1-64x64.raw                                 18.46 ±  9%    21.06 ±  4%  +14.08% (p=0.001 n=10)
+WebpEncodeLossyFast/textures_pk-_pkf_water1-128x128.raw                                 23.34 ± 15%    27.75 ±  4%  +18.92% (p=0.001 n=10)
+WebpEncodeLossyFast/textures_plants-plant_01-166x1022.raw                               41.68 ±  4%    56.22 ±  6%  +34.88% (p=0.000 n=10)
+WebpEncodeLossyFast/textures_plants-plant_02-1024x1316.raw                              37.58 ±  6%    49.29 ±  3%  +31.18% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_address_book_new-16x16.raw                        1380.0m ± 20%   935.0m ±  3%  -32.25% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_appointment_new-16x16.raw                         1330.0m ± 11%   865.0m ±  4%  -34.96% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_bookmark_new-16x16.raw                            1410.0m ±  9%   910.0m ± 11%  -35.46% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_16-actions_contact_new-16x16.raw                             1385.0m ±  4%   865.0m ± 10%  -37.55% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_address_book_new-32x32.raw                          2.755 ± 14%    1.260 ±  5%  -54.26% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_appointment_new-32x32.raw                           2.705 ±  9%    1.275 ±  4%  -52.87% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_bookmark_new-32x32.raw                              2.980 ± 17%    1.610 ±  7%  -45.97% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_32-actions_contact_new-32x32.raw                               2.775 ± 16%    1.445 ± 17%  -47.93% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_address_book_new-64x64.raw                          3.400 ± 10%    1.675 ±  3%  -50.74% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_appointment_new-64x64.raw                           3.485 ±  3%    1.630 ±  6%  -53.23% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_bookmark_new-64x64.raw                              4.240 ± 15%    2.050 ±  3%  -51.65% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_64-actions_contact_new-64x64.raw                               4.195 ± 13%    2.050 ±  5%  -51.13% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_address_book_new-512x512.raw                       8.335 ±  7%    5.770 ±  4%  -30.77% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_appointment_new-512x512.raw                        7.740 ± 14%    5.285 ±  7%  -31.72% (p=0.000 n=10)
+WebpEncodeLossyBest/icon_512-actions_bookmark_new-512x512.raw                           9.735 ±  5%    7.250 ±  4%  -25.53% (p=0.001 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim01-768x512.raw                                     3.590 ±  4%    1.580 ±  4%  -55.99% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim02-768x512.raw                                     4.880 ±  3%    2.650 ±  4%  -45.70% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_kodak-kodim03-768x512.raw                                     5.425 ±  3%    3.225 ±  3%  -40.55% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_mosaic-50mp-8192x6144.raw                                     6.665 ±  3%    4.580 ±  3%  -31.28% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                    6.495 ±  3%    3.995 ±  7%  -38.49% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                    8.295 ±  2%    6.860 ±  1%  -17.30% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-001-1276x850.raw                                    4.750 ±  3%    2.600 ±  2%  -45.26% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-002-1260x806.raw                                    4.340 ±  6%    2.330 ±  3%  -46.31% (p=0.000 n=10)
+WebpEncodeLossyBest/photo_wikipedia-003-1436x730.raw                                    5.370 ±  5%    2.965 ±  3%  -44.79% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw      10.990 ±  7%    7.855 ±  2%  -28.53% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-academy_awards_PNG9-447x1192.raw                             7.865 ± 10%    5.600 ±  3%  -28.80% (p=0.000 n=10)
+WebpEncodeLossyBest/pngimg-air_pump_PNG5-999x772.raw                                    9.450 ±  5%    6.935 ±  3%  -26.61% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-3dbrick2-320x240.raw                                6.450 ±  3%    3.360 ±  3%  -47.91% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw             12.410 ±  3%    8.870 ±  5%  -28.53% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_game-20XX_Menu_picture-634x406.raw                       7.010 ±  3%    4.165 ±  4%  -40.58% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-amazon_com-1313x6097.raw                             7.360 ±  3%    4.375 ±  4%  -40.56% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-apple_com-1313x4755.raw                              9.725 ±  6%    6.565 ±  3%  -32.49% (p=0.000 n=10)
+WebpEncodeLossyBest/screenshot_web-cnn_com-1313x5241.raw                                8.295 ±  2%    4.995 ±  4%  -39.78% (p=0.000 n=10)
+WebpEncodeLossyBest/test-dice-800x600.raw                                               9.410 ±  2%    6.585 ±  4%  -30.02% (p=0.000 n=10)
+WebpEncodeLossyBest/test-kodim10-512x768.raw                                            5.055 ±  4%    2.860 ±  2%  -43.42% (p=0.000 n=10)
+WebpEncodeLossyBest/test-kodim23-768x512.raw                                            5.515 ±  3%    3.510 ±  8%  -36.36% (p=0.000 n=10)
+WebpEncodeLossyBest/test-qoi_logo-448x220.raw                                           9.055 ±  1%    5.975 ±  8%  -34.01% (p=0.000 n=10)
+WebpEncodeLossyBest/test-testcard-256x256.raw                                           5.700 ± 26%    3.165 ±  4%  -44.47% (p=0.000 n=10)
+WebpEncodeLossyBest/test-testcard_rgba-256x256.raw                                      6.170 ±  2%    3.430 ±  3%  -44.41% (p=0.000 n=10)
+WebpEncodeLossyBest/test-wikipedia_008-1152x858.raw                                     6.430 ±  6%    3.755 ±  3%  -41.60% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_pk-_0mod_button1-64x64.raw                                 3.925 ± 11%    1.765 ±  3%  -55.03% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_pk-_pkf_water1-128x128.raw                                 4.315 ±  3%    2.215 ±  7%  -48.67% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_plants-plant_01-166x1022.raw                              10.020 ±  2%    6.715 ±  4%  -32.98% (p=0.000 n=10)
+WebpEncodeLossyBest/textures_plants-plant_02-1024x1316.raw                              8.530 ±  7%    5.525 ±  1%  -35.23% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_address_book_new-16x16.rgba                         1.460 ± 14%    1.350 ±  4%        ~ (p=0.060 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_appointment_new-16x16.rgba                          1.510 ±  6%    1.425 ±  3%   -5.63% (p=0.022 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_bookmark_new-16x16.rgba                             1.670 ±  4%    1.565 ±  5%   -6.29% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_16-actions_contact_new-16x16.rgba                              1.705 ±  7%    1.535 ±  6%   -9.97% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_address_book_new-32x32.rgba                         2.715 ±  5%    2.365 ±  7%  -12.89% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_appointment_new-32x32.rgba                          2.525 ±  5%    2.280 ±  4%   -9.70% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_bookmark_new-32x32.rgba                             3.985 ±  6%    3.270 ±  7%  -17.94% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_32-actions_contact_new-32x32.rgba                              3.865 ±  5%    3.465 ±  6%  -10.35% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_address_book_new-64x64.rgba                         3.780 ±  4%    3.420 ±  1%   -9.52% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_appointment_new-64x64.rgba                          3.675 ±  8%    3.325 ±  3%   -9.52% (p=0.001 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_bookmark_new-64x64.rgba                             4.860 ±  9%    4.390 ±  4%   -9.67% (p=0.000 n=10)
+WebpEncodeLossyRGBA/icon_64-actions_contact_new-64x64.rgba                              4.905 ± 13%    4.480 ±  4%   -8.66% (p=0.014 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_address_book_new-512x512.rgba                      9.555 ±  7%    9.340 ± 14%        ~ (p=0.271 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_appointment_new-512x512.rgba                       8.730 ±  6%    8.665 ±  3%        ~ (p=0.446 n=10)
+WebpEncodeLossyRGBA/icon_512-actions_bookmark_new-512x512.rgba                          10.82 ±  4%    11.02 ± 10%        ~ (p=0.218 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim01-768x512.rgb                                     9.230 ± 19%    7.255 ±  2%  -21.40% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim02-768x512.rgb                                     12.60 ± 10%    10.38 ±  8%  -17.62% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_kodak-kodim03-768x512.rgb                                     13.70 ±  7%    12.32 ±  2%  -10.07% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_mosaic-50mp-8192x6144.rgb                                     17.37 ±  3%    16.77 ±  2%   -3.43% (p=0.006 n=10)
+WebpEncodeLossyRGBA/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.rgb                    16.11 ±  9%    15.50 ±  2%        ~ (p=0.210 n=10)
+WebpEncodeLossyRGBA/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.rgb                    20.41 ± 15%    25.08 ±  5%  +22.88% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-001-1276x850.rgb                                    12.32 ±  2%    10.41 ±  2%  -15.47% (p=0.001 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-002-1260x806.rgb                                   11.335 ±  3%    9.185 ±  2%  -18.97% (p=0.000 n=10)
+WebpEncodeLossyRGBA/photo_wikipedia-003-1436x730.rgb                                    13.49 ±  8%    11.99 ±  8%  -11.12% (p=0.001 n=10)
+WebpEncodeLossyRGBA/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.rgba      17.20 ±  8%    17.46 ±  4%        ~ (p=0.085 n=10)
+WebpEncodeLossyRGBA/pngimg-academy_awards_PNG9-447x1192.rgba                            13.41 ±  4%    12.75 ±  4%   -4.92% (p=0.004 n=10)
+WebpEncodeLossyRGBA/pngimg-air_pump_PNG5-999x772.rgba                                   15.64 ±  5%    15.28 ±  3%        ~ (p=0.117 n=10)
+WebpEncodeLossyRGBA/screenshot_game-3dbrick2-320x240.rgb                                15.69 ±  6%    14.77 ±  4%   -5.86% (p=0.010 n=10)
+WebpEncodeLossyRGBA/screenshot_game-3dcursedlabyrinth_mazegame-343x480.rgb              28.48 ± 10%    29.44 ±  7%   +3.37% (p=0.034 n=10)
+WebpEncodeLossyRGBA/screenshot_game-20XX_Menu_picture-634x406.rgba                      16.80 ±  2%    14.89 ±  2%  -11.43% (p=0.000 n=10)
+WebpEncodeLossyRGBA/screenshot_web-amazon_com-1313x6097.rgba                            17.23 ±  4%    15.96 ±  7%   -7.37% (p=0.001 n=10)
+WebpEncodeLossyRGBA/screenshot_web-apple_com-1313x4755.rgba                             21.98 ±  4%    21.53 ±  5%        ~ (p=0.190 n=10)
+WebpEncodeLossyRGBA/screenshot_web-cnn_com-1313x5241.rgba                               19.12 ±  5%    17.77 ±  2%   -7.09% (p=0.002 n=10)
+WebpEncodeLossyRGBA/test-dice-800x600.rgba                                              8.205 ±  7%    8.095 ±  3%        ~ (p=0.956 n=10)
+WebpEncodeLossyRGBA/test-kodim10-512x768.rgb                                            12.87 ± 12%    10.84 ±  2%  -15.77% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-kodim23-768x512.rgb                                            13.95 ±  8%    12.84 ±  2%   -7.99% (p=0.022 n=10)
+WebpEncodeLossyRGBA/test-qoi_logo-448x220.rgba                                          12.46 ± 12%    12.62 ±  2%        ~ (p=0.060 n=10)
+WebpEncodeLossyRGBA/test-testcard-256x256.rgba                                          14.92 ±  2%    13.15 ±  3%  -11.86% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-testcard_rgba-256x256.rgba                                    10.640 ±  4%    9.845 ±  7%   -7.47% (p=0.000 n=10)
+WebpEncodeLossyRGBA/test-wikipedia_008-1152x858.rgb                                     16.58 ±  3%    15.41 ±  2%   -7.03% (p=0.000 n=10)
+WebpEncodeLossyRGBA/textures_pk-_0mod_button1-64x64.rgb                                10.395 ± 19%    8.015 ±  4%  -22.90% (p=0.001 n=10)
+WebpEncodeLossyRGBA/textures_pk-_pkf_water1-128x128.rgb                                11.415 ± 12%    9.075 ±  2%  -20.50% (p=0.000 n=10)
+WebpEncodeLossyRGBA/textures_plants-plant_01-166x1022.rgba                              12.80 ±  4%    12.82 ±  2%        ~ (p=0.956 n=10)
+WebpEncodeLossyRGBA/textures_plants-plant_02-1024x1316.rgba                             13.71 ±  4%    13.18 ±  6%   -3.83% (p=0.006 n=10)
+WebpEncodeLossyFastM0/icon_16-actions_address_book_new-16x16.raw                                       3.195 ±  3%
+WebpEncodeLossyFastM0/icon_16-actions_appointment_new-16x16.raw                                        3.080 ±  6%
+WebpEncodeLossyFastM0/icon_16-actions_bookmark_new-16x16.raw                                           3.115 ±  5%
+WebpEncodeLossyFastM0/icon_16-actions_contact_new-16x16.raw                                            3.180 ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_address_book_new-32x32.raw                                       9.050 ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_appointment_new-32x32.raw                                        8.780 ±  4%
+WebpEncodeLossyFastM0/icon_32-actions_bookmark_new-32x32.raw                                           9.835 ±  3%
+WebpEncodeLossyFastM0/icon_32-actions_contact_new-32x32.raw                                            9.475 ±  3%
+WebpEncodeLossyFastM0/icon_64-actions_address_book_new-64x64.raw                                       19.26 ±  5%
+WebpEncodeLossyFastM0/icon_64-actions_appointment_new-64x64.raw                                        17.55 ±  4%
+WebpEncodeLossyFastM0/icon_64-actions_bookmark_new-64x64.raw                                           22.51 ±  4%
+WebpEncodeLossyFastM0/icon_64-actions_contact_new-64x64.raw                                            21.71 ±  4%
+WebpEncodeLossyFastM0/icon_512-actions_address_book_new-512x512.raw                                    52.20 ±  2%
+WebpEncodeLossyFastM0/icon_512-actions_appointment_new-512x512.raw                                     48.62 ±  3%
+WebpEncodeLossyFastM0/icon_512-actions_bookmark_new-512x512.raw                                        70.02 ±  7%
+WebpEncodeLossyFastM0/photo_kodak-kodim01-768x512.raw                                                  22.33 ±  3%
+WebpEncodeLossyFastM0/photo_kodak-kodim02-768x512.raw                                                  32.09 ±  4%
+WebpEncodeLossyFastM0/photo_kodak-kodim03-768x512.raw                                                  36.08 ±  7%
+WebpEncodeLossyFastM0/photo_mosaic-50mp-8192x6144.raw                                                  46.38 ±  4%
+WebpEncodeLossyFastM0/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw                                 43.27 ±  4%
+WebpEncodeLossyFastM0/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw                                 66.44 ±  3%
+WebpEncodeLossyFastM0/photo_wikipedia-001-1276x850.raw                                                 31.39 ±  1%
+WebpEncodeLossyFastM0/photo_wikipedia-002-1260x806.raw                                                 28.06 ±  4%
+WebpEncodeLossyFastM0/photo_wikipedia-003-1436x730.raw                                                 33.59 ±  2%
+WebpEncodeLossyFastM0/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw                    62.91 ±  7%
+WebpEncodeLossyFastM0/pngimg-academy_awards_PNG9-447x1192.raw                                          50.02 ±  3%
+WebpEncodeLossyFastM0/pngimg-air_pump_PNG5-999x772.raw                                                 60.19 ±  2%
+WebpEncodeLossyFastM0/screenshot_game-3dbrick2-320x240.raw                                             38.80 ±  3%
+WebpEncodeLossyFastM0/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw                           75.24 ±  6%
+WebpEncodeLossyFastM0/screenshot_game-20XX_Menu_picture-634x406.raw                                    42.29 ±  3%
+WebpEncodeLossyFastM0/screenshot_web-amazon_com-1313x6097.raw                                          43.94 ±  9%
+WebpEncodeLossyFastM0/screenshot_web-apple_com-1313x4755.raw                                           59.63 ±  2%
+WebpEncodeLossyFastM0/screenshot_web-cnn_com-1313x5241.raw                                             48.57 ±  2%
+WebpEncodeLossyFastM0/test-dice-800x600.raw                                                            52.64 ±  3%
+WebpEncodeLossyFastM0/test-kodim10-512x768.raw                                                         32.23 ±  2%
+WebpEncodeLossyFastM0/test-kodim23-768x512.raw                                                         36.47 ±  3%
+WebpEncodeLossyFastM0/test-qoi_logo-448x220.raw                                                        51.88 ±  4%
+WebpEncodeLossyFastM0/test-testcard-256x256.raw                                                        34.98 ±  2%
+WebpEncodeLossyFastM0/test-testcard_rgba-256x256.raw                                                   36.42 ±  4%
+WebpEncodeLossyFastM0/test-wikipedia_008-1152x858.raw                                                  42.31 ±  2%
+WebpEncodeLossyFastM0/textures_pk-_0mod_button1-64x64.raw                                              21.01 ±  3%
+WebpEncodeLossyFastM0/textures_pk-_pkf_water1-128x128.raw                                              27.62 ±  4%
+WebpEncodeLossyFastM0/textures_plants-plant_01-166x1022.raw                                            56.94 ±  4%
+WebpEncodeLossyFastM0/textures_plants-plant_02-1024x1316.raw                                           49.76 ±  2%
+geomean                                                                                 10.58          11.64        -11.22%

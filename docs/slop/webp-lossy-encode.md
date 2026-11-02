@@ -2,7 +2,8 @@
 
 `image.webp.lossy` writes one VP8 key frame (RFC 6386) in a RIFF container
 (RFC 9649), written from the specifications; libwebp is the oracle and the
-bar. Results: `results/webp-lossy-encode-20261102.md`.
+bar. Results: `results/webp-lossy-encode-20261102.md`, and for trellis
+quantization and the speed pass, `results/webp-lossy-trellis-20261102.md`.
 
 ## Shape
 
@@ -11,12 +12,16 @@ bar. Results: `results/webp-lossy-encode-20261102.md`.
 - `vp8_encode_dsp.zig`: the forward DCT and WHT (16-lane vectors), the
   decoder's inverse transforms and predictors copied privately (the WebP
   orb owns `vp8.zig`), quantization with 16-lane step, reciprocal, and
-  rounding vectors in zigzag order, a 4x4 Hadamard SATD, and SSE.
+  rounding vectors in zigzag order, a 4x4 Hadamard SATD (and the same
+  over a strip of blocks four rows high), and SSE.
+- `vp8_encode_trellis.zig`: trellis quantization, the levels of a block
+  that cost least in squared error plus lambda times their bits.
 - `vp8_encode_bool.zig`: the boolean encoder (`Writer`, which streams
   through a one-byte cache and a count of pending 0xff bytes for carries),
   a `Counter` that follows only the range to size a partition without
-  writing it, one token walker shared by the writer, the counter, and the
-  tallies, and coefficient costs from the current probabilities.
+  writing it, one token walker shared by the writer and the counter, the
+  tallies (a count per token, by class, turned into the tree's counts
+  afterwards), and coefficient costs from the current probabilities.
 - `vp8_encode_tables.zig`: the specification's tables (copied from
   `vp8_tables.zig`), the zigzag order and bands, and a cost table in 1/256
   bit.
@@ -42,18 +47,21 @@ One encode:
 4. The token probabilities are updated where the counts save more than
    the update costs; the skip flag is used when it costs less than the
    empty macroblocks' end-of-block tokens.
-5. Both partitions are sized by a `Counter` pass, then the file is written
-   in one pass to the caller's writer: nothing is buffered whole.
+5. The token partition is coded into the level store's spare room (its
+   worst case leaves 2.7 bytes a pixel at quality 75), the first partition
+   is sized by a `Counter` pass, and the file is written to the caller's
+   writer. When the token partition does not fit, its length is still
+   counted, and it is coded a second time straight to the output.
 
 Work memory (`workLen`) is about 45 KiB of state, 803 bytes per
 macroblock (the level store's worst case, the modes, and the activity),
 and 37 bytes per pixel of width: 3.2 bytes per pixel in all. With
 `alpha_compression` it adds the alpha plane, its stream (a byte a pixel
-each), and the lossless encoder's work memory at the alpha effort: 24, 30,
-and 38 MB at 1024×1024 for `fast`, `default`, and `best`, and 1.1 GB for
-the 50-megapixel mosaic. An encode touches the state, the rows, and about
-its output's size again in levels, and the alpha parts only when the
-source has alpha, so peak RSS stays below libwebp's.
+each), and the lossless encoder's work memory at the alpha effort: 30, 30,
+and 40 MB at 1024×1024 for `fast`, `default`, and `best`, and 1.1 GB for
+the 50-megapixel mosaic. An encode touches the state, the rows, about its
+output's size in levels and again in the token partition, and the alpha
+parts only when the source has alpha, so peak RSS stays below libwebp's.
 
 ## Decisions
 
@@ -72,10 +80,28 @@ source has alpha, so peak RSS stays below libwebp's.
   SATD, and rate and distortion only between 16x16 and 4x4. `default`:
   segments, all four 16x16 and chroma modes by rate and distortion, and
   each 4x4 block's three best modes by SATD tried by rate and distortion
-  (all ten measured 0.3% smaller on PSNR and 0.5% on SSIM). `best`: every
-  4x4 mode, and two passes, under 1% smaller than `default` for 2.5× the
-  time.
-- **Segments balance PSNR and SSIM.** On the tuning images, equal
+  (all ten measured 0.3% smaller on PSNR and 0.5% on SSIM), and the
+  chosen modes coded again with trellis quantization. `best`: every
+  4x4 mode, trellis quantization in every choice, and two passes. Below
+  `best`, a macroblock whose 16x16 choice costs under 64 bits' worth is
+  not tried as 4x4: free at `fast`, 0.1% at `default`, and 4-13% faster.
+- **Trellis quantization** chooses each block's levels by dynamic
+  programming over its coding positions: at each, the magnitude rounded
+  to nearest and one less, scored by squared error plus lambda times the
+  token's bits in the context the previous level leaves, ending after any
+  nonzero level. Its lambda is 10/16 of the mode decisions' in luma and
+  5/16 in chroma: more made files smaller at equal PSNR and larger at
+  equal SSIM (a trade, not a gain), and chroma, which PSNR over RGB
+  weighs heavily, keeps more of its levels. In the mode search (`best`)
+  it gains 2.5% at equal PSNR and 0.5% at equal SSIM for 35% more time;
+  only for the chosen modes (`default`), 1.6% and none for 20%. Coding
+  the chosen modes again after the 16x16 or 4x4 decision, rather than
+  within it, measured worse than no trellis on SSIM.
+- **Perceptual (SNS-like) tuning** found nothing past the segments: on
+  the dev set, a loop filter level from 1/4 to 5/8 of the quantizer
+  index, filter levels or lambdas that follow the segments' activity, a
+  sharpness, stronger segments, and more chroma rounding each moved
+  files along the PSNR-SSIM trade or lost on both.- **Segments balance PSNR and SSIM.** On the tuning images, equal
   quantizers in every segment gave the best PSNR (5.2% under cwebp -m4)
   but the worst SSIM (3.1% under); 3/32 gives 3.8% and 4.7%. More
   measured no better on either. On held-out images it is 1.5% over on
@@ -91,8 +117,8 @@ source has alpha, so peak RSS stays below libwebp's.
 - **One token partition.** Several partitions only help a multithreaded
   decoder; one is smallest.
 - **Alpha** goes in ALPH compressed by the lossless encoder
-  (`image.webp.encodeAlpha`, compression 1) at effort 0, 1, and 5 for
-  `fast`, `default`, and `best`, kept only when it is smaller than the raw
+  (`image.webp.encodeAlpha`, compression 1) at effort 1, 1, and 8 for
+  `fast`, `default`, and `best` (plan.md decision 65), kept only when it is smaller than the raw
   plane (compression 0), as libwebp keeps it. It is never filtered: on ten
   images with transparency, prefiltering made the lossless streams
   10-22% larger in total at every effort, since its own predictors do better, and the
@@ -100,6 +126,9 @@ source has alpha, so peak RSS stays below libwebp's.
   encodes; raw alpha is the same size filtered or not. Efforts 0, 1, and
   5 gave 147,524, 138,528, and 134,951 bytes on those images (libwebp at
   -m 2, 4, and 6: 138,509, 131,943, 124,968); effort 9 gave 135,972.
+  Since the lossless encoder stopped searching a hash chain for alpha
+  (623e5e6), effort 1 writes 132,681 bytes in 115 ms and effort 8
+  127,123 in 0.79 s (results/webp-encode-alpha-20261102.md).
   Fully opaque alpha writes no ALPH. A file with alpha or metadata is
   VP8X; otherwise it is the simple format.
 - **Hidden colors are free.** A pixel whose alpha is 0 shows nothing, so
@@ -111,10 +140,9 @@ source has alpha, so peak RSS stays below libwebp's.
   instance of the mode search without the masks, so they cost nothing.
 - **`alpha_compression`** (on by default) needs the lossless encoder's
   work memory, the plane, and its stream: `workLen` grows from about 3.2
-  to 23-36 bytes per pixel at a megapixel, and 0.5-1.3 MB for an icon,
+  to 29-38 bytes per pixel at a megapixel, and 0.3-0.9 MB for an icon,
   whatever the source, since `workLen` cannot know whether the pixels
   have alpha. An RGB caller that sizes work memory tightly can turn it off.
-- **Not done**, left for a later pass:
-  trellis quantization, perceptual (SNS-like) tuning of quantizers and
-  filter strength beyond the segments, sharp RGB to YUV, the loop filter's
-  sharpness, and target-size encoding.
+- **Not done**, left for a later pass: sharp RGB to YUV, target-size
+  encoding, and choosing the loop filter level by measuring it, which
+  needs the reconstructed frame kept.

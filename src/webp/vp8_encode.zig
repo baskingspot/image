@@ -14,12 +14,15 @@
 //! - Each macroblock's luma is predicted as one 16x16 block or as sixteen
 //!   4x4 blocks, and its chroma as two 8x8 blocks, choosing the modes that
 //!   cost least in squared error plus lambda times the bits, the bits
-//!   estimated from the token probabilities.
+//!   estimated from the token probabilities. Above `fast`, trellis
+//!   quantization (vp8_encode_trellis.zig) chooses the levels the same
+//!   way.
 //! - Coefficients are kept compactly in work memory as they are chosen,
-//!   with the counts of every token tree node. After the last macroblock
-//!   the token probabilities are chosen from the counts, both partitions
-//!   are sized by a pass of the boolean coder that writes nothing, and the
-//!   file is written in one pass, so the output streams.
+//!   with the counts of every token. After the last macroblock the token
+//!   probabilities are chosen from the counts, the token partition is
+//!   coded into the spare room of the coefficients' memory (or sized,
+//!   when it does not fit), the first is sized by a pass of the boolean
+//!   coder that writes nothing, and the file is written in one pass.
 //! - Alpha goes in ALPH, compressed by the lossless encoder
 //!   (src/webp/encode.zig) when that is smaller than raw.
 
@@ -35,6 +38,7 @@ const lossless = @import("encode.zig");
 const tables = @import("vp8_encode_tables.zig");
 const dsp = @import("vp8_encode_dsp.zig");
 const coder = @import("vp8_encode_bool.zig");
+const trellis = @import("vp8_encode_trellis.zig");
 
 /// How hard the encoder works to make the file small for its quality.
 pub const Effort = enum {
@@ -44,10 +48,12 @@ pub const Effort = enum {
     fast,
     /// Segments. The 16x16 and chroma modes are chosen by rate and
     /// distortion, and each 4x4 block's by rate and distortion among the
-    /// three closest predictions.
+    /// three closest predictions; the chosen modes' levels are chosen
+    /// again by trellis quantization.
     default,
-    /// As `default` with every 4x4 mode tried, after a first pass whose
-    /// token statistics refine the rate estimates.
+    /// As `default` with every 4x4 mode tried, trellis quantization in
+    /// every choice, and every macroblock tried as 4x4, after a first
+    /// pass whose token statistics refine the rate estimates.
     best,
 };
 
@@ -64,7 +70,7 @@ pub const EncodeOptions = struct {
     /// Whether alpha is compressed with the lossless encoder (ALPH
     /// compression 1), kept only when that is smaller than storing it
     /// raw, as libwebp does. While it is on, `workLen` includes the
-    /// lossless encoder's work memory whatever the source, about 23 to 36
+    /// lossless encoder's work memory whatever the source, about 29 to 38
     /// bytes per pixel at a megapixel; a caller whose images are opaque
     /// turns it off to ask for about 3.2. False stores alpha raw.
     alpha_compression: bool = true,
@@ -112,11 +118,11 @@ const max_mb_bytes = 25 + 384 * 2;
 
 /// What the encoder keeps in work memory beside its rows.
 const State = struct {
-    /// Token tree counts of the macroblocks that have coefficients, and
+    /// Token counts of the macroblocks that have coefficients, and
     /// the end-of-block tokens of those that have none, which are only
     /// coded when the skip flag is off.
-    counts: coder.Counts,
-    empty_counts: coder.Counts,
+    counts: coder.Hist,
+    empty_counts: coder.Hist,
     costs: coder.Costs,
     probs: coder.Probs,
     y: [dsp.ys * 17]u8,
@@ -217,14 +223,16 @@ pub fn workLen(options: EncodeOptions, width: u32, height: u32) ?usize {
     return l.total;
 }
 
-/// The lossless encoder's effort for alpha at each effort: no more than
-/// libwebp spends at the method each is measured against, since alpha
-/// compresses well at low efforts (webp-lossy-encode.md).
+/// The lossless encoder's effort for alpha at each effort (plan.md
+/// decision 65): effort 1 is 4% smaller than libwebp's -m 2 alpha and
+/// within 1% of -m 4's, in less time, and 8 within 2% of -m 6's in a
+/// twenty-fifth of its time
+/// (results/webp-encode-alpha-20261102.md).
 fn alphaEffort(effort: Effort) u4 {
     return switch (effort) {
-        .fast => 0,
+        .fast => 1,
         .default => 1,
-        .best => 5,
+        .best => 8,
     };
 }
 
@@ -260,6 +268,17 @@ const lambda = 180;
 /// fewer bits.
 const round_dc = 64;
 const round_ac = 48;
+/// Trellis quantization's lambdas, in 1/16 of the mode decisions': bits
+/// weigh less there. More made files smaller at equal PSNR and larger at
+/// equal SSIM, and chroma, which PSNR over RGB weighs heavily, keeps more
+/// of its levels.
+const trellis_luma = 10;
+const trellis_chroma = 5;
+/// Below `best`, a macroblock whose 16x16 choice costs less than this
+/// many bits' worth of squared error and bits is not tried as 4x4: such
+/// flat ones rarely gain from it. Skipping them measured as small at
+/// `fast` and 0.1% larger at `default`, for 4-13% more speed.
+const i4_threshold = 64;
 
 /// One segment's quantizers and rate-distortion weights.
 const Segment = struct {
@@ -270,6 +289,9 @@ const Segment = struct {
     uv: dsp.Quant,
     /// Lambda in 1/256 squared error per bit.
     lam: u64,
+    /// Lambdas for trellis quantization of luma and chroma blocks.
+    tlam: u64,
+    tlam_uv: u64,
 
     fn init(qi: u7) Segment {
         const q: usize = qi;
@@ -285,6 +307,8 @@ const Segment = struct {
             .y2 = .init(2 * @as(u32, dc[q]), y2ac, round_dc, round_ac),
             .uv = .init(dc[@min(q, 117)], ac[q], round_dc, round_ac),
             .lam = lam,
+            .tlam = lam * trellis_luma / 16,
+            .tlam_uv = lam * trellis_chroma / 16,
         };
     }
 };
@@ -406,16 +430,7 @@ fn bestPrediction(
         if (hide) |h| blended = unhidden(n, plain, p, h);
         const src = if (hide != null) &blended else plain;
         var sum: u64 = 0;
-        for (0..n / w / 4) |ty| for (0..w / 4) |tx| {
-            var a: [16]u8 = undefined;
-            var b: [16]u8 = undefined;
-            for (0..4) |r| {
-                const at = (ty * 4 + r) * w + tx * 4;
-                a[r * 4 ..][0..4].* = src[at..][0..4].*;
-                b[r * 4 ..][0..4].* = p[at..][0..4].*;
-            }
-            sum += dsp.satd4(&a, &b);
-        };
+        for (0..n / w / 4) |ty| sum += dsp.satdStrip(w, src[ty * 4 * w ..][0 .. 4 * w], p[ty * 4 * w ..][0 .. 4 * w]);
         const score = (sum << 8) + mode_cost[m] * @as(u64, q) / 2;
         if (score < least) {
             least = score;
@@ -428,6 +443,8 @@ fn bestPrediction(
 inline fn rdCost(d: u32, rate: u32, lam: u64) u64 {
     return (@as(u64, d) << 8) + ((lam * rate) >> 8);
 }
+
+const Trellis = enum { off, final, all };
 
 const Enc = struct {
     src: PixelBuffer,
@@ -471,6 +488,8 @@ const Enc = struct {
     rgb_format: PixelFormat,
     conv: Converter,
     segments: bool = false,
+    /// Where trellis quantization chooses the levels.
+    trellis: Trellis = .off,
     segs: [4]Segment = undefined,
     seg_probs: [3]u8 = .{ 255, 255, 255 },
     frame_filter: u6 = 0,
@@ -709,7 +728,10 @@ const Enc = struct {
                 const unlimited = e.mode_budget == std.math.maxInt(u64);
                 const within = unlimited or (e.mode_budget > 0 and e.mode_spent <= k * e.mode_budget);
                 const top_modes = e.top_modes[4 * mbx ..][0..4];
-                if (within and e.lumaI4(hidden, seg, &sy, top[0], e.left_nz[0], top_modes, best.j, &sub)) best = sub;
+                const worth = e.effort == .best or best.j >= i4_threshold * seg.lam;
+                if (within and worth and e.lumaI4(hidden, seg, &sy, top[0], e.left_nz[0], top_modes, best.j, &sub)) {
+                    best = sub;
+                }
                 for (0..16) |r| @memcpy(st.y[dsp.y0 + r * dsp.ys ..][0..16], best.recon[r * 16 ..][0..16]);
                 e.chroma(hidden, seg, &suv, top[0], e.left_nz[0], has_top, has_left, &ch);
             },
@@ -800,58 +822,90 @@ const Enc = struct {
             bestPrediction(16, 256, sy, hide, &preds, &ymode_cost, seg.y1.q[1])
         else
             null;
+        var best_mode: u8 = 0;
         for (0..4) |m| {
             const mode: u8 = @intCast(m);
             if (only) |o| if (o != mode) continue;
-            const pred = &preds[m];
-            var blended: [256]u8 = undefined;
-            if (hide) |h| blended = unhidden(256, sy, pred, h);
-            const src = if (hide != null) &blended else sy;
-            var coefs: [16][16]i16 = undefined;
-            var dcs: [16]i32 = undefined;
-            for (0..16) |b| {
-                var res: [16]i16 = undefined;
-                const at = (b / 4) * 64 + (b % 4) * 4;
-                for (0..4) |r| for (0..4) |c| {
-                    res[r * 4 + c] = @as(i16, src[at + r * 16 + c]) - pred[at + r * 16 + c];
-                };
-                dsp.fdct(&res, &coefs[b]);
-                dcs[b] = coefs[b][0];
+            e.codeI16(hidden, seg, sy, &preds[m], mode, top, left, e.trellis == .all, &cand);
+            if (cand.j < out.j) {
+                out.* = cand;
+                best_mode = mode;
             }
-            var y2c: [16]i16 = undefined;
-            dsp.fwht(&dcs, &y2c);
-            var y2deq: [16]i16 = undefined;
-            cand.y2_last = dsp.quantize(&y2c, &seg.y2, 0, &cand.y2, &y2deq);
-            var deq: [16][16]i16 = undefined;
-            for (0..16) |b| cand.last[b] = dsp.quantize(&coefs[b], &seg.y1, 1, &cand.lv[b], &deq[b]);
-            if (cand.y2_last > 0) {
-                dsp.inverseWht(&y2deq, &deq);
-            } else {
-                const dc: i16 = @truncate((@as(i32, y2deq[0]) + 3) >> 3);
-                for (&deq) |*blk| blk[0] = dc;
-            }
-            cand.recon = pred.*;
-            var rate = i4_flag_cost[0] + ymode_cost[mode];
-            rate += e.st.costs.blockCost(1, @intCast(top[1] + left[1]), 0, cand.y2_last, &cand.y2);
-            var tnz = top[0];
-            var lnz = left[0];
-            for (0..16) |b| {
-                const at = (b / 4) * 64 + (b % 4) * 4;
-                dsp.inverse(@max(cand.last[b] + 1, 1), &deq[b], cand.recon[at..], 16);
-                const x: u3 = @intCast(b % 4);
-                const y: u3 = @intCast(b / 4);
-                const ctx: u2 = @intCast(((tnz >> x) & 1) + ((lnz >> y) & 1));
-                rate += e.st.costs.blockCost(0, ctx, 1, cand.last[b], &cand.lv[b]);
-                const f: u8 = @intFromBool(cand.last[b] >= 1);
-                tnz = (tnz & ~(@as(u8, 1) << x)) | (f << x);
-                lnz = (lnz & ~(@as(u8, 1) << y)) | (f << y);
-            }
-            const d = dsp.sse(16, 16, &cand.recon, 16, src);
-            cand.j = rdCost(d, rate, seg.lam);
-            cand.mode = mode;
-            cand.mode_rate = i4_flag_cost[0] + ymode_cost[mode];
-            if (cand.j < out.j) out.* = cand;
         }
+        // With trellis quantization for the final choice only, the best
+        // mode is coded again with it.
+        if (e.trellis == .final) e.codeI16(hidden, seg, sy, &preds[best_mode], best_mode, top, left, true, out);
+    }
+
+    /// Codes the macroblock's luma predicted as 16x16 by `pred` into `out`.
+    fn codeI16(
+        e: *Enc,
+        comptime hidden: bool,
+        seg: *const Segment,
+        sy: *const [256]u8,
+        pred: *const [256]u8,
+        mode: u8,
+        top: [2]u8,
+        left: [2]u8,
+        use_trellis: bool,
+        cand: *Luma,
+    ) void {
+        var blended: [256]u8 = undefined;
+        if (hidden) blended = unhidden(256, sy, pred, &e.hide_y);
+        const src = if (hidden) &blended else sy;
+        var coefs: [16][16]i16 = undefined;
+        var dcs: [16]i32 = undefined;
+        for (0..16) |b| {
+            var res: [16]i16 = undefined;
+            const at = (b / 4) * 64 + (b % 4) * 4;
+            for (0..4) |r| for (0..4) |c| {
+                res[r * 4 + c] = @as(i16, src[at + r * 16 + c]) - pred[at + r * 16 + c];
+            };
+            dsp.fdct(&res, &coefs[b]);
+            dcs[b] = coefs[b][0];
+        }
+        var y2c: [16]i16 = undefined;
+        dsp.fwht(&dcs, &y2c);
+        var y2deq: [16]i16 = undefined;
+        const y2ctx: u2 = @intCast(top[1] + left[1]);
+        cand.y2_last = if (use_trellis)
+            trellis.quantize(&e.st.costs, 1, y2ctx, &y2c, &seg.y2, 0, 4, seg.tlam, &cand.y2, &y2deq)
+        else
+            dsp.quantize(&y2c, &seg.y2, 0, &cand.y2, &y2deq);
+        // The blocks' DC, from the Y2 block.
+        var dc_blocks: [16][16]i16 = undefined;
+        if (cand.y2_last > 0) {
+            dsp.inverseWht(&y2deq, &dc_blocks);
+        } else {
+            const dc: i16 = @truncate((@as(i32, y2deq[0]) + 3) >> 3);
+            for (&dc_blocks) |*blk| blk[0] = dc;
+        }
+        cand.recon = pred.*;
+        var rate = i4_flag_cost[0] + ymode_cost[mode];
+        rate += e.st.costs.blockCost(1, y2ctx, 0, cand.y2_last, &cand.y2);
+        var tnz = top[0];
+        var lnz = left[0];
+        for (0..16) |b| {
+            const at = (b / 4) * 64 + (b % 4) * 4;
+            const x: u3 = @intCast(b % 4);
+            const y: u3 = @intCast(b / 4);
+            const ctx: u2 = @intCast(((tnz >> x) & 1) + ((lnz >> y) & 1));
+            var deq: [16]i16 = undefined;
+            cand.last[b] = if (use_trellis)
+                trellis.quantize(&e.st.costs, 0, ctx, &coefs[b], &seg.y1, 1, 6, seg.tlam, &cand.lv[b], &deq)
+            else
+                dsp.quantize(&coefs[b], &seg.y1, 1, &cand.lv[b], &deq);
+            deq[0] = dc_blocks[b][0];
+            dsp.inverse(@max(cand.last[b] + 1, 1), &deq, cand.recon[at..], 16);
+            rate += e.st.costs.blockCost(0, ctx, 1, cand.last[b], &cand.lv[b]);
+            const f: u8 = @intFromBool(cand.last[b] >= 1);
+            tnz = (tnz & ~(@as(u8, 1) << x)) | (f << x);
+            lnz = (lnz & ~(@as(u8, 1) << y)) | (f << y);
+        }
+        const d = dsp.sse(16, 16, &cand.recon, 16, src);
+        cand.j = rdCost(d, rate, seg.lam);
+        cand.mode = mode;
+        cand.mode_rate = i4_flag_cost[0] + ymode_cost[mode];
     }
 
     /// The 4x4 choice for a macroblock, into `out`; false when it costs
@@ -925,7 +979,12 @@ const Enc = struct {
                 .default => 3,
                 .best => 10,
             };
-            for (order[0..@min(tries, ranked)]) |mode| {
+            const tried = order[0..@min(tries, ranked)];
+            for (0..tried.len + @intFromBool(e.trellis == .final)) |k| {
+                // With trellis quantization for the final choice only, the
+                // best mode is coded again with it.
+                const again = k == tried.len;
+                const mode = if (again) best_mode else tried[k];
                 const pred = &preds[mode];
                 var res: [16]i16 = undefined;
                 for (&res, srcs[mode], pred) |*r, s, p| r.* = @as(i16, s) - p;
@@ -933,13 +992,16 @@ const Enc = struct {
                 dsp.fdct(&res, &coefs);
                 var lv: [16]i16 = undefined;
                 var deq: [16]i16 = undefined;
-                const last = dsp.quantize(&coefs, &seg.y1, 0, &lv, &deq);
+                const last = if (again or e.trellis == .all)
+                    trellis.quantize(&e.st.costs, 3, ctx, &coefs, &seg.y1, 0, 6, seg.tlam, &lv, &deq)
+                else
+                    dsp.quantize(&coefs, &seg.y1, 0, &lv, &deq);
                 var recon = pred.*;
                 dsp.inverse(last + 1, &deq, &recon, 4);
                 const d = dsp.sse(4, 4, &recon, 4, srcs[mode]);
                 const rate = mode_costs[mode] + e.st.costs.blockCost(3, ctx, 0, last, &lv);
                 const j = rdCost(d, rate, seg.lam);
-                if (j < best_j) {
+                if (j < best_j or again) {
                     best_j = j;
                     best_mode = mode;
                     best_lv = lv;
@@ -992,18 +1054,24 @@ const Enc = struct {
             bestPrediction(8, 128, @ptrCast(suv), hide, @ptrCast(&preds), &uvmode_cost, seg.uv.q[1])
         else
             null;
-        for (0..4) |m| {
-            const mode: u8 = @intCast(m);
+        var best_mode: u8 = 0;
+        for (0..5) |m| {
+            // With trellis quantization only for the final choice, the
+            // best mode is coded again with it.
+            const again = m == 4;
+            if (again and e.trellis != .final) break;
+            const mode: u8 = if (again) best_mode else @intCast(m);
             if (only) |o| if (o != mode) continue;
+            const use_trellis = again or e.trellis == .all;
             var rate = uvmode_cost[mode];
             var d: u32 = 0;
             var blended: [2][64]u8 = undefined;
             if (hide != null) for (0..2) |ch| {
-                blended[ch] = unhidden(64, &suv[ch], &preds[m][ch], &e.hide_uv);
+                blended[ch] = unhidden(64, &suv[ch], &preds[mode][ch], &e.hide_uv);
             };
             const srcs = if (hide != null) &blended else suv;
             for (0..2) |ch| {
-                const pred = &preds[m][ch];
+                const pred = &preds[mode][ch];
                 cand.recon[ch] = pred.*;
                 const shift: u3 = @intCast(4 + 2 * ch);
                 var ct: u8 = (top_nz >> shift) & 3;
@@ -1020,9 +1088,12 @@ const Enc = struct {
                     dsp.fdct(&res, &coefs);
                     const k = ch * 4 + b;
                     var deq: [16]i16 = undefined;
-                    cand.last[k] = dsp.quantize(&coefs, &seg.uv, 0, &cand.lv[k], &deq);
-                    dsp.inverse(cand.last[k] + 1, &deq, cand.recon[ch][at..], 8);
                     const ctx: u2 = @intCast(((ct >> x) & 1) + ((cl >> y) & 1));
+                    cand.last[k] = if (use_trellis)
+                        trellis.quantize(&e.st.costs, 2, ctx, &coefs, &seg.uv, 0, 6, seg.tlam_uv, &cand.lv[k], &deq)
+                    else
+                        dsp.quantize(&coefs, &seg.uv, 0, &cand.lv[k], &deq);
+                    dsp.inverse(cand.last[k] + 1, &deq, cand.recon[ch][at..], 8);
                     rate += e.st.costs.blockCost(2, ctx, 0, cand.last[k], &cand.lv[k]);
                     const f: u8 = @intFromBool(cand.last[k] >= 0);
                     ct = (ct & ~(@as(u8, 1) << x)) | (f << x);
@@ -1032,7 +1103,10 @@ const Enc = struct {
             }
             cand.j = rdCost(d, rate, seg.lam);
             cand.mode = mode;
-            if (cand.j < out.j) out.* = cand;
+            if (cand.j < out.j or again) {
+                out.* = cand;
+                best_mode = mode;
+            }
         }
     }
 
@@ -1042,8 +1116,8 @@ const Enc = struct {
         @memset(e.top_modes, dsp.b_dc);
         e.coefs_end = 0;
         e.mode_spent = 0;
-        e.st.counts = std.mem.zeroes(coder.Counts);
-        e.st.empty_counts = std.mem.zeroes(coder.Counts);
+        e.st.counts = std.mem.zeroes(coder.Hist);
+        e.st.empty_counts = std.mem.zeroes(coder.Hist);
         for (0..e.mbh) |mby| {
             e.loadBand(mby);
             @memset(&e.left_modes, dsp.b_dc);
@@ -1055,6 +1129,10 @@ const Enc = struct {
     /// Chooses the token probabilities, and whether to code the skip flag.
     fn chooseProbs(e: *Enc) void {
         const st = e.st;
+        var counts: coder.Counts = undefined;
+        var empty_counts: coder.Counts = undefined;
+        coder.nodeCounts(&st.counts, &counts);
+        coder.nodeCounts(&st.empty_counts, &empty_counts);
         var empty: u64 = 0;
         for (e.info) |m| empty += @intFromBool(m.empty());
         const n: u64 = e.info.len;
@@ -1062,17 +1140,17 @@ const Enc = struct {
         // block: the flag pays when it costs less than those.
         var eob_bits: u64 = 0;
         for (0..4) |t| for (0..8) |b| for (0..3) |c| {
-            const k = st.empty_counts[t][b][c][0];
+            const k = empty_counts[t][b][c][0];
             eob_bits += @as(u64, k[0]) * tables.cost(tables.default_coeff_probs[t][b][c][0], 0);
         };
         e.skip_prob = branchProb(n - empty, empty);
         const flag_bits = 8 * 256 + (n - empty) * tables.cost(e.skip_prob, 0) + empty * tables.cost(e.skip_prob, 1);
         e.skip = empty > 0 and flag_bits < eob_bits;
         for (0..4) |t| for (0..8) |b| for (0..3) |c| for (0..11) |i| {
-            var k = st.counts[t][b][c][i];
+            var k = counts[t][b][c][i];
             if (!e.skip) {
-                k[0] += st.empty_counts[t][b][c][i][0];
-                k[1] += st.empty_counts[t][b][c][i][1];
+                k[0] += empty_counts[t][b][c][i][0];
+                k[1] += empty_counts[t][b][c][i][1];
             }
             const old = tables.default_coeff_probs[t][b][c][i];
             st.probs[t][b][c][i] = old;
@@ -1381,6 +1459,11 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     if (has_alpha and options.alpha_compression) compressed = try e.compressAlpha(options.effort);
 
     const base_qi = quantizerIndex(options.quality);
+    e.trellis = switch (options.effort) {
+        .fast => .off,
+        .default => .final,
+        .best => .all,
+    };
     for (e.info) |*m| m.* = .{ .flags = 0, .bmodes = @splat(0) };
     e.segments = options.effort != .fast and mbs > 1;
     if (e.segments) {
@@ -1428,9 +1511,15 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     if (first_len >= 1 << 19) return error.ImageTooLarge;
 
     // Size the second, then write the file.
-    var c1: coder.Counter = .{};
-    e.writeTokens(coder.Counter, &c1);
-    const vp8_len = 10 + first_len + c1.bytes();
+    // The token partition is coded into the level store's spare room,
+    // which its worst case leaves, and copied out from there; should it
+    // not fit, its length is still counted, and it is coded again
+    // straight to the output.
+    var spare: Io.Writer = .fixed(e.coefs[e.coefs_end..]);
+    var b1: coder.Writer = .{ .out = &spare };
+    e.writeTokens(coder.Writer, &b1);
+    const held: ?[]const u8 = if (b1.finish()) spare.buffered() else |_| null;
+    const vp8_len = 10 + first_len + b1.written;
     const alpha_len: u64 = if (!has_alpha) 0 else 1 + (compressed orelse @as(u64, src.width) * src.height);
     const extended = has_alpha or options.icc != null or options.exif != null or options.xmp != null;
     var riff_len: u64 = 4 + chunkLen(vp8_len);
@@ -1470,11 +1559,15 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     var b0: coder.Writer = .{ .out = w };
     e.writeFirst(&b0);
     try b0.finish();
-    var b1: coder.Writer = .{ .out = w };
-    e.writeTokens(coder.Writer, &b1);
-    try b1.finish();
+    if (held) |bytes| {
+        try w.writeAll(bytes);
+    } else {
+        var again: coder.Writer = .{ .out = w };
+        e.writeTokens(coder.Writer, &again);
+        try again.finish();
+        std.debug.assert(again.written == b1.written);
+    }
     std.debug.assert(b0.written == first_len);
-    std.debug.assert(10 + b0.written + b1.written == vp8_len);
     if (vp8_len % 2 == 1) try w.writeByte(0);
     if (extended) {
         if (options.exif) |b| try writeChunk(w, "EXIF", b);
@@ -1512,6 +1605,7 @@ inline fn luma(p: *const [3]u8) u8 {
 test {
     _ = dsp;
     _ = coder;
+    _ = trellis;
 }
 
 const Decoder = @import("Decoder.zig");

@@ -1,0 +1,55 @@
+== both
+ours-fast vs cwebp0: mean psnr -17.5%  ssim -16.0%
+ours-default vs cwebp0: mean psnr -23.2%  ssim -25.7%
+ours-best vs cwebp0: mean psnr -24.2%  ssim -25.7%
+ours-fast vs cwebp2: mean psnr -4.4%  ssim -1.1%
+ours-default vs cwebp2: mean psnr -10.2%  ssim -10.9%
+ours-best vs cwebp2: mean psnr -11.6%  ssim -11.4%
+ours-fast vs cwebp4: mean psnr +3.4%  ssim +6.5%
+ours-default vs cwebp4: mean psnr -2.7%  ssim -4.4%
+ours-best vs cwebp4: mean psnr -4.2%  ssim -5.8%
+ours-fast vs cwebp6: mean psnr +6.2%  ssim +7.4%
+ours-default vs cwebp6: mean psnr -0.1%  ssim -3.5%
+ours-best vs cwebp6: mean psnr -1.6%  ssim -5.0%
+ours-fast vs main-fast: mean psnr +0.1%  ssim +0.1%
+ours-default vs main-default: mean psnr -1.6%  ssim +0.2%
+ours-best vs main-best: mean psnr -2.5%  ssim -0.5%
+== dev
+ours-fast vs cwebp0: mean psnr -17.8%  ssim -14.1%
+ours-default vs cwebp0: mean psnr -23.3%  ssim -24.6%
+ours-best vs cwebp0: mean psnr -24.5%  ssim -23.9%
+ours-fast vs cwebp2: mean psnr -6.2%  ssim -2.2%
+ours-default vs cwebp2: mean psnr -12.3%  ssim -12.2%
+ours-best vs cwebp2: mean psnr -13.8%  ssim -12.7%
+ours-fast vs cwebp4: mean psnr +1.4%  ssim +6.2%
+ours-default vs cwebp4: mean psnr -5.1%  ssim -5.0%
+ours-best vs cwebp4: mean psnr -6.7%  ssim -6.9%
+ours-fast vs cwebp6: mean psnr +4.7%  ssim +7.2%
+ours-default vs cwebp6: mean psnr -2.1%  ssim -4.2%
+ours-best vs cwebp6: mean psnr -3.8%  ssim -6.4%
+ours-fast vs main-fast: mean psnr +0.0%  ssim +0.0%
+ours-default vs main-default: mean psnr -1.4%  ssim -0.4%
+ours-best vs main-best: mean psnr -2.3%  ssim -1.0%
+== hold
+ours-fast vs cwebp0: mean psnr -17.2%  ssim -17.7%
+ours-default vs cwebp0: mean psnr -23.1%  ssim -26.8%
+ours-best vs cwebp0: mean psnr -24.0%  ssim -27.3%
+ours-fast vs cwebp2: mean psnr -2.7%  ssim -0.1%
+ours-default vs cwebp2: mean psnr -8.1%  ssim -9.7%
+ours-best vs cwebp2: mean psnr -9.3%  ssim -10.5%
+ours-fast vs cwebp4: mean psnr +5.3%  ssim +6.8%
+ours-default vs cwebp4: mean psnr -0.3%  ssim -3.9%
+ours-best vs cwebp4: mean psnr -1.7%  ssim -4.8%
+ours-fast vs cwebp6: mean psnr +7.7%  ssim +7.6%
+ours-default vs cwebp6: mean psnr +1.9%  ssim -2.9%
+ours-best vs cwebp6: mean psnr +0.5%  ssim -3.7%
+ours-fast vs main-fast: mean psnr +0.1%  ssim +0.2%
+ours-default vs main-default: mean psnr -1.8%  ssim +0.7%
+ours-best vs main-best: mean psnr -2.8%  ssim +0.1%
+== alpha (psnr over pixels whose alpha is not 0)
+ours-fast vs cwebp2: mean psnr -7.2%  ssim +7.2%
+ours-default vs cwebp4: mean psnr -6.1%  ssim +49.6%
+ours-best vs cwebp6: mean psnr -2.7%  ssim -16.6%
+ours-fast vs main-fast: mean psnr -3.6%  ssim -3.8%
+ours-default vs main-default: mean psnr -0.8%  ssim -0.1%
+ours-best vs main-best: mean psnr -1.2%  ssim -0.3%

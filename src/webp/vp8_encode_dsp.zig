@@ -420,12 +420,12 @@ const U16x = @Vector(16, u32);
 const I16x = @Vector(16, i32);
 
 /// The inverse of `zigzag`: the coding position of each raster position.
-const unzigzag = blk: {
+pub const unzigzag = blk: {
     var t: [16]i32 = undefined;
     for (zigzag, 0..) |j, n| t[j] = n;
     break :blk t;
 };
-const zigzag_mask = blk: {
+pub const zigzag_mask = blk: {
     var t: [16]i32 = undefined;
     for (zigzag, 0..) |j, n| t[n] = j;
     break :blk t;
@@ -460,24 +460,55 @@ pub fn satd4(a: *const [16]u8, b: *const [16]u8) u32 {
     // Four butterfly stages across the 16 lanes: rows 0 and 1 and rows 2
     // and 3, then the sums and differences two rows apart, then the same
     // for columns. Values stay within 16 * 255.
+    // The last is folded into the sum, as in `satdStrip`.
     var d: V = @as(V, @as(@Vector(16, u8), a.*)) - @as(V, @as(@Vector(16, u8), b.*));
-    d = d * sign(.{ 1, -1, 1, -1 }, 4) + @shuffle(i16, d, undefined, swapMask(4));
-    d = d * sign(.{ 1, 1, -1, -1 }, 4) + @shuffle(i16, d, undefined, swapMask(8));
-    d = d * sign(.{ 1, -1, 1, -1 }, 1) + @shuffle(i16, d, undefined, swapMask(1));
-    d = d * sign(.{ 1, 1, -1, -1 }, 1) + @shuffle(i16, d, undefined, swapMask(2));
-    return @reduce(.Add, @as(@Vector(16, u32), @abs(d)));
+    d = d * sign(16, .{ 1, -1, 1, -1 }, 4) + @shuffle(i16, d, undefined, swapMask(16, 4));
+    d = d * sign(16, .{ 1, 1, -1, -1 }, 4) + @shuffle(i16, d, undefined, swapMask(16, 8));
+    d = d * sign(16, .{ 1, -1, 1, -1 }, 1) + @shuffle(i16, d, undefined, swapMask(16, 1));
+    const h = @abs(d);
+    return @reduce(.Add, @as(@Vector(16, u32), @max(h, @shuffle(u16, h, undefined, swapMask(16, 2)))));
+}
+
+/// `satd4` summed over the 4x4 blocks of a strip four rows high and `w`
+/// wide (8 or 16), both packed `w` wide.
+pub fn satdStrip(comptime w: usize, a: *const [4 * w]u8, b: *const [4 * w]u8) u32 {
+    const V = @Vector(w, i16);
+    var r: [4]V = undefined;
+    for (&r, 0..) |*x, i| {
+        x.* = @as(V, @as(@Vector(w, u8), a[i * w ..][0..w].*)) - @as(V, @as(@Vector(w, u8), b[i * w ..][0..w].*));
+    }
+    // Down the columns, a row to a vector, then across each block's
+    // columns. The last stage is folded into the sum, since
+    // |x + y| + |x - y| = 2 max(|x|, |y|): each pair's maximum lands in
+    // both its lanes. Values stay within 16 * 255.
+    const s01 = r[0] + r[1];
+    const d01 = r[0] - r[1];
+    const s23 = r[2] + r[3];
+    const d23 = r[2] - r[3];
+    const low = comptime blk: {
+        var m: [w]bool = undefined;
+        for (&m, 0..) |*x, i| x.* = i & 1 == 0;
+        break :blk m;
+    };
+    var sum: @Vector(w, u16) = @splat(0);
+    for ([4]V{ s01 + s23, s01 - s23, d01 - d23, d01 + d23 }) |x| {
+        const y = @shuffle(i16, x, undefined, swapMask(w, 1));
+        const h = @abs(@select(i16, low, x + y, y - x));
+        sum += @max(h, @shuffle(u16, h, undefined, swapMask(w, 2)));
+    }
+    return @reduce(.Add, @as(@Vector(w, u32), sum));
 }
 
 /// Lane `i` of a butterfly's sign: `s[(i / stride) % 4]`.
-fn sign(comptime s: [4]i16, comptime stride: usize) @Vector(16, i16) {
-    var v: [16]i16 = undefined;
+fn sign(comptime n: usize, comptime s: [4]i16, comptime stride: usize) @Vector(n, i16) {
+    var v: [n]i16 = undefined;
     for (&v, 0..) |*x, i| x.* = s[(i / stride) % 4];
     return v;
 }
 
 /// Each lane's partner `k` lanes away in its group of `2k`.
-fn swapMask(comptime k: usize) [16]i32 {
-    var m: [16]i32 = undefined;
+fn swapMask(comptime n: usize, comptime k: usize) [n]i32 {
+    var m: [n]i32 = undefined;
     for (&m, 0..) |*x, i| x.* = @intCast(i ^ k);
     return m;
 }
@@ -521,7 +552,7 @@ test "the forward transforms invert" {
     }
 }
 
-test "satd4 is the Hadamard transform's absolute sum" {
+test "satd is the Hadamard transform's absolute sum" {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const r = prng.random();
     for (0..200) |_| {
@@ -539,6 +570,24 @@ test "satd4 is the Hadamard transform's absolute sum" {
             want += @abs(t);
         };
         try testing.expectEqual(want, satd4(&a, &b));
+    }
+    // A strip's is the sum of its blocks'.
+    var a: [64]u8 = undefined;
+    var b: [64]u8 = undefined;
+    r.bytes(&a);
+    r.bytes(&b);
+    inline for (.{ 8, 16 }) |w| {
+        var want: u32 = 0;
+        for (0..w / 4) |k| {
+            var x: [16]u8 = undefined;
+            var y: [16]u8 = undefined;
+            for (0..4) |row| {
+                x[row * 4 ..][0..4].* = a[row * w + 4 * k ..][0..4].*;
+                y[row * 4 ..][0..4].* = b[row * w + 4 * k ..][0..4].*;
+            }
+            want += satd4(&x, &y);
+        }
+        try testing.expectEqual(want, satdStrip(w, a[0 .. 4 * w], b[0 .. 4 * w]));
     }
 }
 
