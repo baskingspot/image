@@ -449,8 +449,16 @@ orb asks for a change to them, or for text in this file, in its report.
 15. **CMYK. Decided by the owner:** CMYK and YCCK decode to RGB by the
     naive conversion by default, and the raw inks are available. Shared
     `cmyk8` and `cmyk16` pixel formats make the inks native for JPEG and
-    TIFF, with the naive RGB in `image.convert`; added after the performance
-    pass releases `src/convert.zig`.
+    TIFF, with the naive RGB in `image.convert`. Landed
+    (results/convert-cmyk-20261102.md): `cmyk8` and `cmyk16` hold inks
+    stored inverted, as Adobe's JPEGs and libjpeg-turbo's output have them,
+    so all-zero bytes are black as in every format. `image.convert` gives
+    libjpeg-turbo's naive RGB bit for bit (SIMD from `cmyk8`, 1.3–1.8 GP/s)
+    and a naive inverse. JPEG's `.raw` can report `cmyk8` with its samples
+    unchanged (wider samples scaled to `cmyk16`); TIFF writes `max - ink`.
+    Adding `PixelFormat` values reseeds TGA's oracle inputs (its generator
+    draws the encoder's source format from every format), so TGA's counts
+    move once without a decoder change.
 
 ## Harness requests
 
