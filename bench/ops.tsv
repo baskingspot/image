@@ -16,6 +16,8 @@ ico-decode	IcoDecode	ico	4	same
 gif-decode	GifDecode	gif/still	4	same
 gif-decode-anim	GifDecodeAnim	gif/anim	4	same
 png-decode	PngDecode	png	4	same
+png-encode	PngEncode	tga/rgba	5	own
+png-encode-fast	PngEncodeFast	tga/rgba	5	own
 qoi-decode	QoiDecode	qoi	4	same
 qoi-decode-bgra	QoiDecodeBGRA	qoi	4	same
 png-decode-icons	PngDecodeIcons	icons/png	4	same	rotate=png-decode
