@@ -36,10 +36,11 @@ pub const fuzz = @import("fuzz").jxl;
 pub const oracles = [_][]const u8{"jxl-libjxl"};
 pub const formats = [_]image.PixelFormat{ .rgba16, .rgba16_premul, .rgba_f32 };
 
-/// image.jxl.Decoder, holding its work memory only while it decodes. The
-/// comparison keeps every work buffer a batch of inputs asks for until the
-/// batch ends, and this decoder's work memory is large, so this wrapper
-/// reports none and allocates its own for each frame. It also notes, for
+/// image.jxl.Decoder, with work memory it maps itself. The comparison
+/// allocates an input's work memory with `alloc`, which in safe builds
+/// writes 0xaa over all of it, and this decoder's bound is hundreds of
+/// megabytes, mostly untouched; so this wrapper reports none and maps its
+/// own for each frame with `rawAlloc`. It also notes, for
 /// `comparable`, whether the input decoded to `Unsupported`, whether a
 /// frame was drawn in floats, and whether its native format is float.
 pub const Decoder = struct {
