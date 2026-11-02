@@ -2,10 +2,11 @@
 //! `PixelFormat`, and allocates nothing.
 //!
 //! Format: TIFF 6.0 with BigTIFF. Classic and BigTIFF files in either byte
-//! order; strips and tiles; uncompressed, PackBits, LZW, Deflate, and CCITT
-//! modified Huffman, Group 3, and Group 4 data; predictors 2 and 3; 1 to
-//! 32-bit integer and 16, 24, 32, and 64-bit float samples, chunky or
-//! planar; gray, palette, RGB, CMYK (as `cmyk8` or `cmyk16`), and YCbCr with
+//! order; strips and tiles; uncompressed, PackBits, LZW, Deflate, CCITT
+//! modified Huffman, Group 3, and Group 4, and JPEG data (through
+//! `image.jpeg`, TIFF Technical Note 2); predictors 2 and 3; 1 to 32-bit
+//! integer and 16, 24, 32, and 64-bit float samples, chunky or planar;
+//! gray, palette, RGB, CMYK (as `cmyk8` or `cmyk16`), and YCbCr with
 //! subsampling. Every IFD in the main chain is a page and a frame.
 //! samples.zig says how samples become the native format;
 //! docs/slop/tiff.md records the decisions.
@@ -27,7 +28,10 @@
 //! Work memory is the page's strip or tile offsets and byte counts, the
 //! decompressor's state, and one row of the strip or tile (one strip or
 //! tile of every plane for planar data, which interleaves them), so for
-//! chunky data it does not grow with the image's height.
+//! chunky data it does not grow with the image's height. JPEG gray, RGB,
+//! and YCbCr decode straight to the caller's rows; other JPEG pages take a
+//! strip or tile of samples. A JPEG stream that is progressive or not
+//! interleaved, which keeps every coefficient, is `error.Unsupported`.
 
 const std = @import("std");
 const testing = std.testing;
@@ -43,6 +47,10 @@ const samples = @import("samples.zig");
 const lzw = @import("lzw.zig");
 const packbits = @import("packbits.zig");
 const fax = @import("fax.zig");
+const jpeg = @import("../jpeg/root.zig");
+
+/// Whether `image.jpeg` reads TIFF's abbreviated streams.
+const have_jpeg = @hasDecl(jpeg, "Decoder") and @hasField(jpeg.Decoder.Options, "tables");
 
 const Decoder = @This();
 
@@ -71,6 +79,9 @@ pub const Error = decode.Error || error{
     BadZlib,
     /// CCITT data has an invalid code, or runs past a row.
     BadFax,
+    /// A JPEG strip or tile is not a JPEG stream `image.jpeg` reads, or
+    /// its size or component count is not the strip's or tile's.
+    BadJpeg,
 };
 
 in: ifd.Input,
@@ -91,6 +102,8 @@ lzw_old: ?bool = null,
 /// Whether the page's Group 3 data is read without EOLs, as libtiff reads
 /// the rest of a page once one is missing.
 fax_no_eol: bool = false,
+/// The luma sampling of the page's JPEG streams.
+jpeg_sub: [2]u16 = .{ 1, 1 },
 /// The next frame's index, and its IFD's offset when not loaded.
 index: u32 = 0,
 next_ifd: u64 = 0,
@@ -351,6 +364,16 @@ const Layout = struct {
     swap: bool,
     predictor: u16,
     palette_8bit: bool,
+    /// JPEG: where JPEGTables and `image.jpeg`'s work go, and whether the
+    /// streams decode straight to the caller's rows.
+    tables_at: usize,
+    tables_len: usize,
+    jpeg_direct: bool,
+    /// Whether chunky YCbCr JPEG data takes its sampling from the first
+    /// strip or tile, for want of YCbCrSubSampling.
+    jpeg_fixup: bool,
+    jpeg_at: usize,
+    jpeg_len: usize,
     offsets_len: usize,
     counts_len: usize,
     stage_at: usize,
@@ -411,6 +434,11 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     switch (p.compression) {
         1, 5, 8, 32946, 32773 => {},
         2, 3, 4 => if (p.bits != 1 or p.spp != 1) return error.BadHeader,
+        // JPEG (TIFF Technical Note 2): 8 or 12-bit samples, one
+        // component per sample, which libjpeg reads for 1, 3, or 4 (or one
+        // per plane).
+        7 => if (!have_jpeg or (p.bits != 8 and p.bits != 12) or p.sample == .float or
+            (p.planar != 2 and p.spp != 1 and p.spp != 3 and p.spp != 4)) return error.Unsupported,
         else => return error.Unsupported,
     }
     if (p.bits == 0 or p.bits > 64) return error.BadHeader;
@@ -425,10 +453,13 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     switch (model) {
         .palette => if (p.bits > 8 or p.sample != .uint or p.spp != 1) return error.Unsupported,
         .ycbcr => {
-            if (p.bits != 8 or p.sample != .uint or p.spp != 3) return error.Unsupported;
+            const jpeg12 = p.compression == 7 and p.bits == 12;
+            if ((p.bits != 8 and !jpeg12) or p.sample != .uint or p.spp != 3) return error.Unsupported;
             const h = p.subsampling[0];
             const v = p.subsampling[1];
-            if (!(h == 1 or h == 2 or h == 4) or !(v == 1 or v == 2 or v == 4) or v > h) return error.BadHeader;
+            // libjpeg checks a JPEG stream's sampling itself.
+            const ok = (h == 1 or h == 2 or h == 4) and (v == 1 or v == 2 or v == 4) and v <= h;
+            if (!ok and p.compression != 7) return error.BadHeader;
         },
         .gray, .rgb, .cmyk => if (p.sample == .float and p.photometric.? == 0) return error.Unsupported,
     }
@@ -449,10 +480,15 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     }
 
     var l: Layout = undefined;
+    l.tables_at = 0;
+    l.tables_len = 0;
+    l.jpeg_direct = false;
+    l.jpeg_fixup = false;
     l.native = samples.nativeFormat(p, false);
     l.palette_8bit = false;
     l.planes = if (planar) p.spp else 1;
-    l.unit = if (p.subsampled()) p.subsampling else .{ 1, 1 };
+    // JPEG streams carry their own subsampling, undone by `image.jpeg`.
+    l.unit = if (p.subsampled() and p.compression != 7) p.subsampling else .{ 1, 1 };
     l.bytes = bytes;
     l.stride = if (planar) 1 else p.spp;
     l.swap = p.compression != 7 and bytes > 1 and predictor != 3 and samples.native_endian != p.endian;
@@ -504,6 +540,7 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     at = try add(at, l.counts_len);
     l.stage_at = @intCast(at);
     if (p.compression != 1) at = try add(at, stage_len);
+    if (p.compression == 7) return planJpeg(p, &l, at);
     l.codec_at = @intCast(at);
     at = try add(at, switch (p.compression) {
         5 => lzw.work_len,
@@ -521,6 +558,89 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     if (predictor == 3) at = try add(at, l.line_len);
     l.work_len = std.math.cast(usize, at) orelse return error.WorkTooLarge;
     return l;
+}
+
+/// The rest of a JPEG page's work memory, after the stage: JPEGTables,
+/// `image.jpeg`'s work, and, unless the streams decode straight to the
+/// caller's rows, a strip or tile of samples (of every plane).
+fn planJpeg(p: *const ifd.Page, l: *Layout, start: u64) Error!Layout {
+    var at = start;
+    l.tables_at = @intCast(at);
+    l.tables_len = if (p.jpeg_tables.at == null)
+        0
+    else
+        std.math.cast(usize, p.jpeg_tables.len() orelse return error.WorkTooLarge) orelse return error.WorkTooLarge;
+    at = try add(at, l.tables_len);
+    l.jpeg_direct = l.planes == 1 and p.sample == .uint and switch (p.photometric.?) {
+        1 => p.spp == 1,
+        2, 6 => p.spp == 3,
+        else => false,
+    };
+    // 12-bit samples only as pixels: libtiff hands out the streams' 16-bit
+    // samples packed in 12 bits.
+    if (!l.jpeg_direct and p.bits != 8) return error.Unsupported;
+    l.jpeg_at = @intCast(at);
+    // Single-scan streams only, as libtiff writes them: a progressive or
+    // non-interleaved stream keeps every coefficient of the strip or tile.
+    l.jpeg_fixup = l.planes == 1 and p.model() == .ycbcr and !p.subsampling_set;
+    if (l.jpeg_fixup) {
+        // Any sampling the first stream may give: the most work any needs.
+        l.jpeg_len = 0;
+        for (fixup_sampling) |h| for (fixup_sampling) |v| {
+            const n = jpeg.Decoder.workLen(jpegFrame(p, l, .{ h, v }), jpegOptions(p, l, null)) catch continue;
+            l.jpeg_len = @max(l.jpeg_len, n);
+        };
+    } else {
+        // libjpeg's sampling factors are 1 to 4.
+        const sub: [2]u16 = if (l.planes == 1 and p.model() == .ycbcr) p.subsampling else .{ 1, 1 };
+        if (sub[0] < 1 or sub[0] > 4 or sub[1] < 1 or sub[1] > 4) return error.BadHeader;
+        l.jpeg_len = jpeg.Decoder.workLen(jpegFrame(p, l, sub), jpegOptions(p, l, null)) catch return error.Unsupported;
+    }
+    at = try add(at, l.jpeg_len);
+    l.codec_at = @intCast(at);
+    l.lines_at = @intCast(at);
+    if (!l.jpeg_direct) at = try add(at, std.math.mul(u64, try mulWork(l.line_len, l.chunk_h), l.planes) catch
+        return error.WorkTooLarge);
+    l.temp_at = @intCast(at);
+    l.work_len = std.math.cast(usize, at) orelse return error.WorkTooLarge;
+    return l.*;
+}
+
+/// The luma sampling libtiff takes from a JPEG page's first stream when
+/// YCbCrSubSampling is missing; with any other, it keeps the default.
+const fixup_sampling = [_]u16{ 1, 2, 4 };
+
+/// The frame each strip or tile's stream must have, as libtiff checks it:
+/// one component per sample (one per plane for planar data), the samples'
+/// precision, and luma sampled `sub` for chunky YCbCr, the rest 1 by 1.
+fn jpegFrame(p: *const ifd.Page, l: *const Layout, sub: [2]u16) jpeg.Decoder.FrameParams {
+    // A stream is at most libjpeg's 65500 samples on a side; a strip wider
+    // than that can only hold a narrower stream, which leaves the rest
+    // zero.
+    var f: jpeg.Decoder.FrameParams = .{
+        .width = @min(l.chunk_w, 65500),
+        .height = @min(l.chunk_h, 65500),
+        .components = @intCast(if (l.planes > 1) 1 else p.spp),
+        .precision = @intCast(p.bits),
+        .multi_scan = false,
+    };
+    if (l.planes == 1 and p.model() == .ycbcr) {
+        f.sampling[0] = .{ .h = @intCast(sub[0]), .v = @intCast(sub[1]) };
+    }
+    return f;
+}
+
+/// How `image.jpeg` reads a page's streams: YCbCr converted to RGB, as
+/// libtiff has libjpeg convert it, and other components as stored, with
+/// no color transform whatever their markers say.
+fn jpegOptions(p: *const ifd.Page, l: *const Layout, tables: ?[]const u8) jpeg.Decoder.Options {
+    return .{
+        .limits = .none,
+        .tables = tables,
+        .color = if (l.planes == 1 and p.model() == .ycbcr) .ycc else .none,
+        .cmyk = .raw,
+        .crop = true,
+    };
 }
 
 fn mulWork(a: u64, b: u64) Error!u64 {
@@ -556,7 +676,8 @@ const Arrays = struct {
     }
 };
 
-/// Reads the stored arrays into work memory, the earlier first.
+/// Reads the stored arrays, and a JPEG page's JPEGTables, into work
+/// memory, the earliest first.
 fn loadArrays(d: *Decoder, work: []u8) Error!Arrays {
     const p = &d.page;
     const l = &d.layout;
@@ -567,13 +688,26 @@ fn loadArrays(d: *Decoder, work: []u8) Error!Arrays {
         .counts_bytes = work[l.offsets_len..][0..l.counts_len],
         .endian = d.in.endian,
     };
-    const first_counts = p.offsets.at != null and p.counts.at != null and p.counts.at.? < p.offsets.at.?;
-    const order = if (first_counts) [2]u1{ 1, 0 } else [2]u1{ 0, 1 };
-    for (order) |which| {
-        const f = if (which == 0) p.offsets else p.counts;
+    const Item = struct { at: u64, buf: []u8 };
+    var items: [3]Item = undefined;
+    var n: usize = 0;
+    const tables: ifd.Field = if (p.compression == 7) p.jpeg_tables else .{};
+    const fields = [_]ifd.Field{ p.offsets, p.counts, tables };
+    const bufs = [_][]u8{
+        work[0..l.offsets_len],
+        work[l.offsets_len..][0..l.counts_len],
+        work[l.tables_at..][0..l.tables_len],
+    };
+    for (fields, bufs) |f, buf| {
         const at = f.at orelse continue;
-        try d.in.goTo(at);
-        try d.in.read(work[if (which == 0) 0 else l.offsets_len..][0..if (which == 0) l.offsets_len else l.counts_len]);
+        var i = n;
+        while (i > 0 and items[i - 1].at > at) : (i -= 1) items[i] = items[i - 1];
+        items[i] = .{ .at = at, .buf = buf };
+        n += 1;
+    }
+    for (items[0..n]) |item| {
+        try d.in.goTo(item.at);
+        try d.in.read(item.buf);
     }
     return a;
 }
@@ -584,6 +718,7 @@ fn decodePage(d: *Decoder, region: PixelBuffer, work: []u8) Error!void {
     const arrays = try d.loadArrays(work);
     d.lzw_old = null;
     d.fax_no_eol = false;
+    if (p.compression == 7) return d.decodeJpegPage(&arrays, region, work);
     var out: Out = undefined;
     out.init(p, l, &d.colormap, region);
     for (0..l.down) |cy| {
@@ -623,6 +758,140 @@ fn decodePage(d: *Decoder, region: PixelBuffer, work: []u8) Error!void {
             }
         }
     }
+}
+
+/// Decodes a JPEG page (TIFF Technical Note 2): each strip or tile is a
+/// JPEG stream, abbreviated when JPEGTables holds its tables. Gray, RGB,
+/// and YCbCr streams decode straight into the caller's rows; the rest
+/// (planar data, white-is-zero, CMYK, signed or extra samples) into a
+/// strip or tile of samples, which become pixels as uncompressed ones do.
+fn decodeJpegPage(d: *Decoder, arrays: *const Arrays, region: PixelBuffer, work: []u8) Error!void {
+    const p = &d.page;
+    const l = &d.layout;
+    const t = p.jpeg_tables;
+    const tables: ?[]const u8 = if (!t.present())
+        null
+    else if (t.at != null)
+        work[l.tables_at..][0..l.tables_len]
+    else
+        t.raw[0..@intCast(@min(t.len() orelse 0, 8))];
+    var out: Out = undefined;
+    if (!l.jpeg_direct) out.init(p, l, &d.colormap, region);
+    d.jpeg_sub = p.subsampling;
+    const comps: u8 = if (l.planes > 1) 1 else @intCast(p.spp);
+    const format: PixelFormat = switch (comps) {
+        1 => .gray8,
+        3 => .rgb8,
+        else => .cmyk8,
+    };
+    const plane_len = l.line_len * l.chunk_h;
+    for (0..l.down) |cy| {
+        for (0..l.across) |cx| {
+            const x0: u32 = @intCast(cx * l.chunk_w);
+            const y0: u32 = @intCast(cy * l.chunk_h);
+            const vw = @min(l.chunk_w, p.width - x0);
+            const vh = @min(l.chunk_h, p.height - y0);
+            const index = cy * l.across + cx;
+            if (l.jpeg_direct) {
+                try d.decodeJpegChunk(arrays, work, index, tables, region.sub(x0, y0, vw, vh), y0 + vh == p.height);
+                continue;
+            }
+            for (0..l.planes) |pl| {
+                const buf = work[l.lines_at + pl * plane_len ..][0..plane_len];
+                const dst = PixelBuffer.initStride(buf, format, l.chunk_w, l.chunk_h, l.line_len) catch unreachable;
+                const chunk = pl * l.per_plane + index;
+                try d.decodeJpegChunk(arrays, work, chunk, tables, dst.sub(0, 0, vw, vh), y0 + vh == p.height);
+            }
+            var planes: [64][]const u8 = undefined;
+            const n = @min(l.planes, planes.len);
+            for (0..vh) |r| {
+                for (planes[0..n], 0..) |*s, pl| {
+                    s.* = work[l.lines_at + pl * plane_len + r * l.line_len ..][0..l.line_len];
+                }
+                out.emitRow(planes[0..n], y0 + @as(u32, @intCast(r)), x0, vw);
+            }
+        }
+    }
+}
+
+/// Decodes chunk `index`'s stream into `dst`, its visible part, and moves
+/// to the chunk's end. As in libtiff, a stream larger than the strip or
+/// tile is an error, but for the last strip's, which may have the other
+/// strips' height; a smaller one leaves the rest of the chunk zero.
+fn decodeJpegChunk(
+    d: *Decoder,
+    arrays: *const Arrays,
+    work: []u8,
+    index: u64,
+    tables: ?[]const u8,
+    dst: PixelBuffer,
+    last_row: bool,
+) Error!void {
+    const p = &d.page;
+    const l = &d.layout;
+    var len = arrays.count(index);
+    // A byte count over 1 MiB and over ten times the chunk's decoded size
+    // (plus 4096) is cut to that, as libtiff cuts it.
+    const decoded = @as(u64, l.line_len) * l.chunk_h;
+    if (len > 1 << 20 and (len - 4096) / 10 > decoded) len = decoded * 10 + 4096;
+    const offset = arrays.offset(index);
+    const end = std.math.add(u64, offset, len) catch return error.BadHeader;
+    try d.in.goTo(offset);
+    // libtiff reads JPEG data in stored order, whatever the FillOrder.
+    var src: Source = .init(&d.in, len, false, work[l.stage_at..][0..stage_len]);
+    var j = jpeg.Decoder.init(&src.reader, jpegOptions(p, l, tables));
+    const c = j.decodeConfig() catch |e| return jpegError(e, &src);
+    if (l.jpeg_fixup and index == 0) {
+        // As libtiff reads the first stream's frame header: luma sampled 1,
+        // 2, or 4 each way, the rest 1 by 1, or else the default.
+        const h = j.comps[0].h;
+        const v = j.comps[0].v;
+        var fits = j.ncomp == 3 and (h == 1 or h == 2 or h == 4) and (v == 1 or v == 2 or v == 4);
+        for (j.comps[1..@min(j.ncomp, 3)]) |comp| fits = fits and comp.h == 1 and comp.v == 1;
+        if (fits) d.jpeg_sub = .{ h, v };
+    }
+    const want = jpegFrame(p, l, d.jpeg_sub);
+    if (j.ncomp != want.components or j.precision != want.precision) return error.BadJpeg;
+    for (j.comps[0..j.ncomp], want.sampling[0..j.ncomp]) |got, s| {
+        if (got.h != s.h or got.v != s.v) return error.BadJpeg;
+    }
+    const strile_h = if (p.tiled()) l.chunk_h else dst.height;
+    const taller_last = !p.tiled() and last_row and c.width == l.chunk_w;
+    if (c.width > l.chunk_w or (c.height > strile_h and !taller_last)) return error.BadJpeg;
+    const w = @min(dst.width, c.width);
+    const h = @min(dst.height, c.height);
+    if (w < dst.width or h < dst.height) fillZero(dst, if (l.jpeg_direct) l.native else dst.format);
+    _ = j.decodeFrame(dst.sub(0, 0, w, h), work[l.jpeg_at..][0..l.jpeg_len]) catch |e| return jpegError(e, &src);
+    try d.in.goTo(end);
+}
+
+/// Fills `dst` with zero samples of `native`, in `dst`'s format.
+fn fillZero(dst: PixelBuffer, native: PixelFormat) void {
+    const zero: [16]u8 = @splat(0);
+    var px: [16]u8 = undefined;
+    Converter.init(dst.format, native).run(&px, &zero, 1);
+    const bpp = dst.format.bytesPerPixel();
+    for (0..dst.height) |y| {
+        const row = dst.row(@intCast(y));
+        for (0..dst.width) |x| @memcpy(row[x * bpp ..][0..bpp], px[0..bpp]);
+    }
+}
+
+/// An error of `image.jpeg`'s as this decoder's: a read failure as the
+/// input's, too little work memory as a stream this decoder does not
+/// read (progressive, or not interleaved), another shared error as it is,
+/// and the rest `error.BadJpeg`.
+fn jpegError(e: jpeg.Decoder.Error, src: *const Source) Error {
+    return switch (e) {
+        error.ReadFailed => src.err orelse error.ReadFailed,
+        error.WorkTooSmall => error.Unsupported,
+        inline else => |x| if (comptime inSet(Error, @errorName(x))) @errorCast(x) else error.BadJpeg,
+    };
+}
+
+fn inSet(comptime S: type, comptime name: []const u8) bool {
+    for (@typeInfo(S).error_set.?) |f| if (std.mem.eql(u8, f.name, name)) return true;
+    return false;
 }
 
 /// Where a chunky chunk's lines go: straight to the caller's rows.
@@ -1441,4 +1710,55 @@ test "pages are frames: the canvas holds the largest, and data behind needs a se
     _ = (try d.decodeFrame(dst4, work4)).?;
     _ = (try d.decodeFrame(dst4, work4)).?;
     try testing.expectError(error.TooManyFrames, d.decodeFrame(dst4, work4));
+}
+
+test "JPEG tiles take their tables from JPEGTables and are cut off at the image's edge" {
+    // A flat 8×8 gray stream (sample 128), its quantization table in
+    // JPEGTables and its Huffman tables the standard ones, as one tile of
+    // a 5×3 page, black-is-zero and white-is-zero.
+    const tables = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++ "\xff\xd9";
+    const stream = "\xff\xd8" ++
+        "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
+        "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
+        "\x28\xff\xd9";
+    const ifd_len = 2 + 11 * 12 + 4;
+    const tables_at = 8 + ifd_len;
+    const stream_at = tables_at + tables.len;
+    inline for (.{ 1, 0 }) |photometric| {
+        const file = comptime "II*\x00\x08\x00\x00\x00" ++ "\x0b\x00" ++
+            testEntry(256, 3, 1, 5) ++ testEntry(257, 3, 1, 3) ++ testEntry(258, 3, 1, 8) ++
+            testEntry(259, 3, 1, 7) ++ testEntry(262, 3, 1, photometric) ++ testEntry(277, 3, 1, 1) ++
+            testEntry(322, 3, 1, 8) ++ testEntry(323, 3, 1, 8) ++ testEntry(324, 4, 1, stream_at) ++
+            testEntry(325, 4, 1, stream.len) ++ testEntry(347, 7, tables.len, tables_at) ++
+            "\x00\x00\x00\x00" ++ tables ++ stream;
+        var r: Io.Reader = .fixed(file);
+        var d = Decoder.init(&r, .{});
+        const config = try d.decodeConfig();
+        try testing.expectEqual(PixelFormat.gray8, config.native);
+        const work = try testing.allocator.alloc(u8, config.work_len);
+        defer testing.allocator.free(work);
+        var rgb: [5 * 3 * 3]u8 = undefined;
+        _ = (try d.decodeFrame(try PixelBuffer.init(&rgb, .rgb8, 5, 3), work)).?;
+        for (rgb) |v| try testing.expectEqual(if (photometric == 1) 128 else 127, v);
+    }
+}
+
+fn testEntry(tag: u16, kind: u16, count: u32, value: u32) [12]u8 {
+    var e: [12]u8 = undefined;
+    std.mem.writeInt(u16, e[0..2], tag, .little);
+    std.mem.writeInt(u16, e[2..4], kind, .little);
+    std.mem.writeInt(u32, e[4..8], count, .little);
+    std.mem.writeInt(u32, e[8..12], value, .little);
+    return e;
+}
+
+test "JPEG YCbCr sampling past libjpeg's 1 to 4 is an error" {
+    const file = comptime "II*\x00\x08\x00\x00\x00" ++ "\x09\x00" ++
+        testEntry(256, 3, 1, 16) ++ testEntry(257, 3, 1, 16) ++ testEntry(258, 3, 1, 8) ++
+        testEntry(259, 3, 1, 7) ++ testEntry(262, 3, 1, 6) ++ testEntry(273, 4, 1, 0) ++
+        testEntry(277, 3, 1, 3) ++ testEntry(279, 4, 1, 0) ++ testEntry(530, 3, 2, 300 | 2 << 16) ++
+        "\x00\x00\x00\x00";
+    var r: Io.Reader = .fixed(file);
+    var d = Decoder.init(&r, .{});
+    try testing.expectError(error.BadHeader, d.decodeConfig());
 }

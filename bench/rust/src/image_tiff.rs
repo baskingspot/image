@@ -9,6 +9,7 @@ pub const OPS: &[super::Op] = &[
     (c"tiff-decode-lzw", decode),
     (c"tiff-decode-deflate", decode),
     (c"tiff-decode-packbits", decode),
+    (c"tiff-decode-jpeg", decode),
     (c"tiff-decode-g4", decode),
 ];
 

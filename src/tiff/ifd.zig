@@ -209,6 +209,9 @@ pub const Page = struct {
     extra: u16 = 0,
     extra_count: u64 = 0,
     subsampling: [2]u16 = .{ 2, 2 },
+    /// Whether YCbCrSubSampling was read: without it, libtiff takes a JPEG
+    /// page's from its first strip or tile.
+    subsampling_set: bool = false,
     t4: u32 = 0,
     t6: u32 = 0,
     orientation: u16 = 1,
@@ -329,7 +332,7 @@ pub fn readIfd(in: *Input, p: *Page) Error!void {
             // A field of the wrong type or count is ignored, as libtiff
             // ignores it, where the decoder has a default or can do
             // without.
-            262, 266, 274, 292, 293, 296, 317, 332, 530 => {},
+            262, 266, 274, 292, 293, 296, 317, 332, 347, 530 => {},
             else => return err,
         };
     }
@@ -424,7 +427,13 @@ fn setField(endian: Endian, p: *Page, tag: u16, f: Field) Error!void {
             if (f.at == null) p.extra = @intCast(@min(0xffff, intAt(f.type, &f.raw, 0, endian)));
         },
         339 => p.format_field = f,
-        347 => p.jpeg_tables = f,
+        // libtiff reads JPEGTables as bytes: of a byte type, or of another
+        // integer type whose values fit, which a stream's 0xff never does
+        // but in UNDEFINED, BYTE, or ASCII.
+        347 => switch (f.type) {
+            1, 2, 7 => p.jpeg_tables = f,
+            else => return error.BadHeader,
+        },
         529 => p.coefs_field = f,
         530 => {
             // libtiff ignores a count other than 2, a type other than an
@@ -444,6 +453,7 @@ fn setField(endian: Endian, p: *Page, tag: u16, f: Field) Error!void {
                 o.* = std.math.cast(u16, v) orelse return error.BadHeader;
             }
             p.subsampling = sub;
+            p.subsampling_set = true;
         },
         532 => p.ref_bw_field = f,
         700 => p.xmp = f,

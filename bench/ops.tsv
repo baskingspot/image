@@ -69,6 +69,7 @@ tiff-decode-none	TiffDecodeNone	tiff/none	4	same
 tiff-decode-lzw	TiffDecodeLZW	tiff/lzw	4	same
 tiff-decode-deflate	TiffDecodeDeflate	tiff/deflate	4	same
 tiff-decode-packbits	TiffDecodePackBits	tiff/packbits	4	same
+tiff-decode-jpeg	TiffDecodeJPEG	tiff/jpeg	4	own
 tiff-decode-g4	TiffDecodeG4	tiff/g4	4	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own

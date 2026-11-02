@@ -9,13 +9,14 @@ T.4 and T.6 for CCITT. libtiff 4.7.2 is the oracle and the speed bar.
 
 ## Scope
 
-Stage 1 (branch `wave3-tiff`) decodes:
+Stages 1 and 2 (branch `wave3-tiff`) decode:
 
 - classic and BigTIFF, either byte order; strips and tiles; chunky and
   planar;
 - compression 1 (none), 32773 (PackBits), 5 (LZW, new style and the old
   LSB-first style), 8 and 32946 (Deflate, through `compress.zlib`), 2
-  (modified Huffman), 3 (T.4 Group 3, 1D and 2D), and 4 (T.6 Group 4);
+  (modified Huffman), 3 (T.4 Group 3, 1D and 2D), 4 (T.6 Group 4), and 7
+  (JPEG, through `image.jpeg`; below);
 - predictors 2 (8, 16, 32, and 64-bit samples) and 3 (float);
 - 1 to 32-bit unsigned and signed integer samples and 16, 24, 32, and 64-bit
   float samples, with FillOrder 2;
@@ -25,8 +26,7 @@ Stage 1 (branch `wave3-tiff`) decodes:
   samples, the first of which is alpha when ExtraSamples says 1 or 2;
 - every IFD of the main chain as a frame.
 
-Not yet: JPEG (compression 7) waits for `image.jpeg` (below). Out of scope,
-`error.Unsupported`: old-style JPEG (6), LogLuv, CIE L*a*b*, JBIG, WebP,
+Out of scope, `error.Unsupported`: old-style JPEG (6), LogLuv, CIE L*a*b*, JBIG, WebP,
 ZSTD, LZMA, CCITT uncompressed mode, planar YCbCr, more than 32-bit
 integers, and palettes over 8 bits. SubIFDs and EXIF IFDs are not pages.
 
@@ -81,7 +81,11 @@ bounded by the page's fields and checked against `Limits.max_work`:
 - one line of a strip or tile for chunky data, so it does not grow with
   the height; for planar data one whole strip or tile of every plane,
   since rows interleave across planes;
-- a line for the float predictor's byte shuffle.
+- a line for the float predictor's byte shuffle;
+- for JPEG, JPEGTables, `image.jpeg`'s work for the strip or tile's frame
+  (`jpeg.Decoder.workLen`, single scan), and for the pages whose streams do
+  not decode straight to the caller's rows a whole strip or tile of samples
+  (below).
 
 A planar page stored as one strip per plane needs the whole image in work
 memory; past `max_work` that is `error.WorkTooLarge`. That is the one
@@ -103,7 +107,7 @@ the page:
 | RGB 9–32 bits         | `rgb16`, `rgba16`, `rgba16_premul`            |
 | CMYK 1–8 bits         | `cmyk8`                                       |
 | CMYK 9–32 bits, float | `cmyk16`                                      |
-| YCbCr                 | `rgb8`                                        |
+| YCbCr                 | `rgb8` (`rgb16` for 12-bit JPEG)              |
 | float, but CMYK       | `rgba_f32` (`rgba_f32_premul`)                |
 
 Decisions for what the shared formats cannot hold (asking the owner whether
@@ -196,32 +200,70 @@ refuses, the decoder does the same, found by the oracle and pinned by it:
   and a code that starts past the end is `error.NotEnoughData`, as libtiff
   pads its bit buffer.
 
-## JPEG (compression 7): what `image.jpeg` needs to provide
+## JPEG (compression 7)
 
-TIFF stores JPEG as one abbreviated stream per strip or tile, with the
-shared tables (DQT, DHT) in JPEGTables (347), itself a tables-only stream.
-`image.jpeg` stage 1 (main at 9caf0db) already has the pieces for the
-stream itself: `Options.tables` primes the tables, `Options.color` takes
-the photometric interpretation instead of guessing, and `Options.cmyk =
-.raw` keeps the inks (which TIFF stores the other way up: it inverts
-them). The TIFF decoder can hold JPEGTables in its work
-memory and give each strip's bytes as a limited reader. What it still
-needs, for stage 2:
+TIFF Technical Note 2: each strip or tile is a JPEG stream, abbreviated
+when JPEGTables (347) holds the tables it shares, itself a tables-only
+stream. `image.jpeg` decodes each stream (`Options.tables` primes it with
+JPEGTables, read into work memory in file order with the offsets and
+counts), so its pixels are libjpeg-turbo's, which is what libtiff hands
+out. The stream's bytes come through the same limited `Source` as the other
+codecs, at the strip's offset and byte count, never bit-reversed: libtiff
+reads JPEG data in stored order whatever FillOrder says.
 
-1. **Work memory before the strips are read.** `decodeConfig` must state
-   `work_len` from the IFD alone. A `jpeg.workLen(width, height,
-components, sampling, progressive)` upper bound (or one for the worst
-   case of the frame's size and component count) would do; today the
-   figure comes from the stream's own `decodeConfig`, which for TIFF means
-   reading every strip's header first.
-2. **A destination smaller than the stream's frame.** A tile's stream is
-   the whole tile, and edge tiles extend past the image; `decodeFrame`
-   requires a buffer of the stream's size. Either crop to a sub-rectangle
-   of the caller's buffer, or hand rows to a callback, so the TIFF decoder
-   need not keep a tile-sized buffer in work memory.
-
-Until then, compression 7 is `error.Unsupported` and the oracle leaves it
-out.
+- Work memory comes from the IFD alone: `jpeg.Decoder.workLen` for a frame
+  of the strip or tile's size, one component per sample (one per plane for
+  planar data), the samples' precision, and luma sampled as
+  YCbCrSubSampling says, with `multi_scan = false`. libtiff writes
+  single-scan streams; a progressive or non-interleaved one would keep
+  every coefficient of the strip, and is `error.Unsupported` (libtiff reads
+  it with a warning).
+- Gray (MinIsBlack), RGB, and chunky YCbCr with unsigned samples decode
+  straight into the caller's rows, `Options.crop` writing the visible part
+  of an edge tile; YCbCr is converted by libjpeg-turbo's equations
+  (`Options.color = .ycc`), as libtiff's JPEGCOLORMODE_RGB has libjpeg do,
+  so YCbCrCoefficients and ReferenceBlackWhite do not apply. Everything
+  else (planar data, MinIsWhite, CMYK, palette, signed samples, extra
+  samples) decodes as stored (`Options.color = .none`, `.cmyk = .raw`) into
+  a strip or tile of samples in work memory, which then become pixels as
+  uncompressed samples do. 12-bit samples are read only straight to pixels
+  (`gray16`, `rgb16`): libtiff hands out the others packed in 12 bits, which
+  tiff-raw expands with this package's rules, and the samples path would
+  need its own 12-bit layout.
+- As libtiff checks: a stream's components must be the samples per pixel
+  (1 per plane), libjpeg reading 1, 3, or 4; its precision must be
+  BitsPerSample (8 or 12); its first component's sampling must be
+  YCbCrSubSampling for chunky YCbCr and 1 by 1 otherwise, the others 1
+  by 1. A stream wider or taller than its strip or tile is `error.BadJpeg`,
+  but for the last strip, whose stream may have the other strips' height;
+  a smaller one leaves the rest of the chunk zero, as libtiff's buffer is.
+  `image.jpeg`'s own errors are `error.BadJpeg`, or the shared error they
+  are.
+- JPEGTables of a type other than BYTE, ASCII, or UNDEFINED is ignored:
+  libtiff reads it as bytes from any integer type whose values fit, which
+  a stream starting with 0xff never does.
+- Chunky YCbCr JPEG data without a YCbCrSubSampling that libtiff reads
+  (missing, or of the wrong count) takes its sampling from the first strip
+  or tile's frame header when that is 1, 2, or 4 each way with the chroma
+  1 by 1, and keeps the default 2 by 2 otherwise, as libtiff's
+  JPEGFixupTags does; work memory then covers any of those samplings. Any
+  YCbCrSubSampling is accepted for JPEG data, which libjpeg checks against
+  the streams (1 to 4, at most 10 blocks a unit).
+- `image.jpeg` has no public accessor for the frame's components,
+  precision, and sampling after `decodeConfig`; the checks read its `ncomp`,
+  `precision`, and `comps` fields. A `Decoder.frameParams()` returning
+  `FrameParams` would make that a contract (asked of the JPEG owner).
+- Not followed: libjpeg keeps a table that one strip's stream defines for
+  the strips after it, and this decoder starts each strip from JPEGTables
+  alone; a file that relies on that fails here (the oracle skips pages
+  whose streams define different tables, conditioning, or restart
+  intervals). libjpeg reads JPEGTables
+  as a stream header, skipping RSTn and TEM and taking SOFn and DNL, which
+  `image.jpeg`'s tables reader refuses (`error.BadJpeg`); the oracle skips
+  such tables, and the JPEG owner is asked to follow libjpeg there. A
+  libtiff that cannot find the first frame header by its own marker scan
+  (a DAC segment before it, say) keeps 2 by 2 where this decoder takes the
+  frame's sampling.
 
 ## Testing
 
@@ -231,12 +273,19 @@ out.
   test their codecs, packbits.zig its own.
 - Fuzz (`test/fuzz/tiff.zig`): the harness's decoder properties on the
   corpus, mutated, and on generated files of every layout, compression,
-  and sample format, reading forward and with a seeker (`Seeking`, which
-  wraps the harness's trickling reader with one that can seek).
+  and sample format, JPEG among them (flat streams with the standard
+  Huffman tables, their quantization table inline or in JPEGTables), read
+  forward and through the harness's own seeker pass.
 - Oracle (`test/oracle/tiff.{c,zig}`): libtiff's RGBA interface and a raw
   op (libtiff decompression with this package's sample rules) on the first
-  page; `comparable` lists what each leaves out and why.
-- Corpus: libtiff's test images and `corpus/gen/tiff.sh`, 188 files that
+  page; `comparable` lists what each leaves out and why. JPEG data goes
+  through libjpeg-turbo under libtiff, which conceals corrupt data, so
+  tiff.c first decodes every strip or tile strictly (warnings are errors,
+  256 bytes at a time, as test/oracle/jpeg.c does) and rejects a page that
+  fails, and skips one with a multi-scan stream.
+- Corpus: libtiff's test images and `corpus/gen/tiff.sh`, 205 files that
   ImageMagick makes from PngSuite, one per kind of pixel, and `tiffcp`
   rewrites with each compression, predictor, layout, byte order, and
-  BigTIFF.
+  BigTIFF, and with JPEG: YCbCr 2×2 in strips and tiles at 32×32 and
+  37×29, RGB, planar RGB, gray, MinIsWhite gray, CMYK, RGB with alpha, and
+  12-bit gray and YCbCr.

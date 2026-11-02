@@ -92,7 +92,8 @@ pub fn nativeFormat(p: *const ifd.Page, palette_8bit: bool) PixelFormat {
     const wide = p.bits > 8;
     return switch (p.model()) {
         .palette => if (palette_8bit) .rgb8 else .rgb16,
-        .ycbcr => .rgb8,
+        // YCbCr is 8-bit but in JPEG data.
+        .ycbcr => if (wide) .rgb16 else .rgb8,
         .gray => if (alpha == null)
             (if (wide) .gray16 else .gray8)
         else if (wide)

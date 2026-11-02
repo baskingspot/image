@@ -24,11 +24,15 @@
 // happens to be empty it ends the line at the width with no warning, as
 // this decoder does.
 #include <math.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <tiffio.h>
 #include <zlib.h>
+
+#include <jpeglib.h>
+#include <jerror.h>
 
 #include "oracle.h"
 
@@ -212,6 +216,242 @@ static int deflate_overruns(TIFF *tif) {
   return found;
 }
 
+// JPEG data (compression 7) is libjpeg-turbo's, under libtiff. libtiff hands
+// libjpeg a whole strip or tile at once, on which its Huffman decoder takes
+// a fast path that decodes a code its table lacks without a warning, and it
+// passes libjpeg's warnings on as its own and reads on. So each strip or
+// tile is first decoded strictly, as test/oracle/jpeg.c decodes a JPEG
+// file: after JPEGTables, 256 bytes at a time, with any warning an error
+// but the three that cannot change the pixels. A stream that fails is
+// corrupt, and rejects; one with more than one scan (progressive, or not
+// interleaved) skips, since this decoder does not read those, as does a
+// chunky page of other than 1, 3, or 4 samples, one whose JPEGTables
+// image.jpeg reads more strictly than libjpeg (tables_odd), and one whose
+// streams define different tables (stream_defines). SIMD is off for the
+// whole oracle (jpeg.c).
+struct jstrict {
+  struct jpeg_error_mgr pub;
+  jmp_buf jump;
+};
+
+static void jstrict_exit(j_common_ptr cinfo) { longjmp(((struct jstrict *)cinfo->err)->jump, 1); }
+
+static void jstrict_emit(j_common_ptr cinfo, int level) {
+  if (level >= 0) return;
+  int code = cinfo->err->msg_code;
+  if (code == JWRN_EXTRANEOUS_DATA || code == JWRN_NOT_SEQUENTIAL || code == JWRN_JFIF_MAJOR) return;
+  longjmp(((struct jstrict *)cinfo->err)->jump, 1);
+}
+
+struct jchunked {
+  struct jpeg_source_mgr pub;
+  const uint8_t *data;
+  size_t len, at;
+};
+
+static void jchunked_init(j_decompress_ptr cinfo) { (void)cinfo; }
+
+static boolean jchunked_fill(j_decompress_ptr cinfo) {
+  static const JOCTET eoi[2] = {0xFF, JPEG_EOI};
+  struct jchunked *src = (struct jchunked *)cinfo->src;
+  if (src->at >= src->len) {
+    WARNMS(cinfo, JWRN_JPEG_EOF);
+    src->pub.next_input_byte = eoi;
+    src->pub.bytes_in_buffer = 2;
+    return TRUE;
+  }
+  size_t n = src->len - src->at < 256 ? src->len - src->at : 256;
+  src->pub.next_input_byte = src->data + src->at;
+  src->pub.bytes_in_buffer = n;
+  src->at += n;
+  return TRUE;
+}
+
+static void jchunked_skip(j_decompress_ptr cinfo, long n) {
+  struct jchunked *src = (struct jchunked *)cinfo->src;
+  while (n > (long)src->pub.bytes_in_buffer) {
+    n -= (long)src->pub.bytes_in_buffer;
+    jchunked_fill(cinfo);
+  }
+  src->pub.next_input_byte += n;
+  src->pub.bytes_in_buffer -= (size_t)n;
+}
+
+static void jchunked_term(j_decompress_ptr cinfo) { (void)cinfo; }
+
+static void jchunked_set(struct jchunked *src, const uint8_t *data, size_t len) {
+  src->data = data;
+  src->len = len;
+  src->at = 0;
+  src->pub.bytes_in_buffer = 0;
+  src->pub.next_input_byte = NULL;
+}
+
+// Whether a JPEGTables stream has a marker libjpeg reads there but
+// image.jpeg's tables reader refuses: libjpeg reads it as a stream header,
+// skipping RSTn and TEM and taking SOFn and DNL, where image.jpeg takes
+// only DQT, DHT, DAC, DRI, COM, and APPn before EOI.
+static int tables_odd(const uint8_t *t, uint32_t len) {
+  if (len < 2 || t[0] != 0xff || t[1] != 0xd8) return 0;
+  uint32_t i = 2;
+  for (;;) {
+    while (i < len && t[i] != 0xff) i++;
+    while (i < len && t[i] == 0xff) i++;
+    if (i >= len) return 0;
+    uint8_t m = t[i++];
+    if (m == 0xd9) return 0;
+    if (!(m == 0xdb || m == 0xc4 || m == 0xcc || m == 0xdd || m == 0xfe || (m >= 0xe0 && m <= 0xef))) return 1;
+    if (i + 2 > len) return 0;
+    i += (uint32_t)t[i] << 8 | t[i + 1];
+  }
+}
+
+// The tables, conditioning, and restart interval a strip or tile's own
+// stream defines before its scan, as bits: DQT 0-3, DHT DC 0-3 and AC 0-3,
+// DAC DC 0-3 and AC 0-3, and DRI. libjpeg keeps what one strip's stream
+// defines for the strips after it; image.jpeg starts each from JPEGTables.
+static uint32_t stream_defines(const uint8_t *b, size_t len) {
+  uint32_t bits = 0;
+  size_t i = 0;
+  for (;;) {
+    while (i < len && b[i] != 0xff) i++;
+    while (i < len && b[i] == 0xff) i++;
+    if (i >= len) return bits;
+    uint8_t m = b[i++];
+    if (m == 0xd8 || (m >= 0xd0 && m <= 0xd7) || m == 0x01) continue;
+    if (m == 0xda || m == 0xd9 || i + 2 > len) return bits;
+    size_t n = (size_t)b[i] << 8 | b[i + 1];
+    size_t end = i + n < len ? i + n : len, k = i + 2;
+    switch (m) {
+      case 0xdb:
+        while (k < end) {
+          bits |= 1u << (b[k] & 3);
+          k += 1 + (b[k] >> 4 ? 128 : 64);
+        }
+        break;
+      case 0xc4:
+        while (k + 17 <= end) {
+          size_t count = 0;
+          for (int c = 1; c <= 16; c++) count += b[k + c];
+          bits |= 1u << (4 + (b[k] >> 4 ? 4 : 0) + (b[k] & 3));
+          k += 17 + count;
+        }
+        break;
+      case 0xcc:
+        for (; k + 2 <= end; k += 2) bits |= 1u << (12 + (b[k] >> 4 ? 4 : 0) + (b[k] & 3));
+        break;
+      case 0xdd:
+        bits |= 1u << 20;
+        break;
+    }
+    i += n;
+  }
+}
+
+// 0 if every strip or tile of a JPEG page decodes strictly (or the page is
+// not JPEG), 1 if one is corrupt, 2 if the page is one of those skipped.
+static int jpeg_strict(TIFF *tif) {
+  uint16_t c = COMPRESSION_NONE, photometric = 0, planar = PLANARCONFIG_CONTIG, spp = 1;
+  TIFFGetFieldDefaulted(tif, TIFFTAG_COMPRESSION, &c);
+  if (c != COMPRESSION_JPEG) return 0;
+  TIFFGetField(tif, TIFFTAG_PHOTOMETRIC, &photometric);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
+  TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
+  // libjpeg reads 1 to 10 components; image.jpeg 1, 3, or 4.
+  if (planar == PLANARCONFIG_CONTIG && spp != 1 && spp != 3 && spp != 4) return 2;
+  uint32_t tables_len = 0;
+  void *tables = NULL;
+  TIFFGetField(tif, TIFFTAG_JPEGTABLES, &tables_len, &tables);
+  if (tables && tables_odd(tables, tables_len)) return 2;
+  int tiled = TIFFIsTiled(tif);
+  uint32_t n = tiled ? TIFFNumberOfTiles(tif) : TIFFNumberOfStrips(tif);
+  int result = 0, was_failed = failed;
+  uint32_t defined_any = 0, defined_all = ~0u;
+  for (uint32_t i = 0; i < n && result == 0; i++) {
+    uint64_t raw_len = TIFFGetStrileByteCount(tif, i);
+    if (raw_len == 0 || raw_len > (1u << 28)) continue;
+    uint8_t *raw = malloc((size_t)raw_len);
+    tmsize_t got = tiled ? TIFFReadRawTile(tif, i, raw, (tmsize_t)raw_len) : TIFFReadRawStrip(tif, i, raw, (tmsize_t)raw_len);
+    if (got <= 0) {
+      free(raw);
+      continue;
+    }
+    uint32_t defined = stream_defines(raw, (size_t)got);
+    defined_any |= defined;
+    defined_all &= defined;
+    struct jpeg_decompress_struct cinfo;
+    struct jstrict err;
+    struct jchunked src = {{0}};
+    JSAMPARRAY row = NULL;
+    cinfo.err = jpeg_std_error(&err.pub);
+    err.pub.error_exit = jstrict_exit;
+    err.pub.emit_message = jstrict_emit;
+    if (setjmp(err.jump)) {
+      result = 1;
+      jpeg_destroy_decompress(&cinfo);
+      free(raw);
+      break;
+    }
+    jpeg_create_decompress(&cinfo);
+    src.pub.init_source = jchunked_init;
+    src.pub.fill_input_buffer = jchunked_fill;
+    src.pub.skip_input_data = jchunked_skip;
+    src.pub.resync_to_restart = jpeg_resync_to_restart;
+    src.pub.term_source = jchunked_term;
+    cinfo.src = &src.pub;
+    if (tables && tables_len > 0) {
+      jchunked_set(&src, tables, tables_len);
+      jpeg_read_header(&cinfo, FALSE);
+    }
+    jchunked_set(&src, raw, (size_t)got);
+    jpeg_read_header(&cinfo, TRUE);
+    if (cinfo.progressive_mode || jpeg_has_multiple_scans(&cinfo)) {
+      result = 2;
+    } else {
+      // As libtiff sets them.
+      if (planar == PLANARCONFIG_CONTIG && photometric == PHOTOMETRIC_YCBCR) {
+        cinfo.jpeg_color_space = JCS_YCbCr;
+        cinfo.out_color_space = JCS_RGB;
+      } else {
+        cinfo.jpeg_color_space = JCS_UNKNOWN;
+        cinfo.out_color_space = JCS_UNKNOWN;
+      }
+      jpeg_start_decompress(&cinfo);
+      row = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,
+                                       cinfo.output_width * cinfo.output_components * 2, 1);
+      while (cinfo.output_scanline < cinfo.output_height) {
+        if (cinfo.data_precision == 12) jpeg12_read_scanlines(&cinfo, (J12SAMPARRAY)row, 1);
+        else if (cinfo.data_precision > 8) jpeg16_read_scanlines(&cinfo, (J16SAMPARRAY)row, 1);
+        else jpeg_read_scanlines(&cinfo, row, 1);
+      }
+      jpeg_finish_decompress(&cinfo);
+    }
+    jpeg_destroy_decompress(&cinfo);
+    free(raw);
+  }
+  // What one stream defines and another does not, libjpeg may carry over.
+  if (result == 0 && (defined_any & ~defined_all)) result = 2;
+  failed = was_failed;
+  return result;
+}
+
+// Opens the input's first page for an oracle: NULL with `*status` set when
+// it is rejected or skipped before decoding.
+static TIFF *open_page(struct mem *m, enum status *status) {
+  TIFF *tif = open_mem(m);
+  if (!tif) {
+    *status = estimated ? STATUS_SKIPPED : STATUS_REJECTED;
+    return NULL;
+  }
+  int j = deflate_overruns(tif) ? 2 : jpeg_strict(tif);
+  if (j) {
+    TIFFClose(tif);
+    *status = j == 1 ? STATUS_REJECTED : STATUS_SKIPPED;
+    return NULL;
+  }
+  return tif;
+}
+
 // Whether tiff-raw accepts the input in its native format.
 static int raw_reads(const uint8_t *in, size_t len, uint64_t max_pixels) {
   for (int f = PF_GRAY8; f <= PF_CMYK16; f++) {
@@ -227,12 +467,9 @@ static enum status tiff_rgba(const uint8_t *in, size_t len, enum pixel_format fo
                              uint64_t max_pixels, struct image *out) {
   if (format != PF_RGBA8_PREMUL) return STATUS_SKIPPED;
   struct mem m = {in, len, 0};
-  TIFF *tif = open_mem(&m);
-  if (!tif) return estimated ? STATUS_SKIPPED : STATUS_REJECTED;
-  if (deflate_overruns(tif)) {
-    TIFFClose(tif);
-    return STATUS_SKIPPED;
-  }
+  enum status opened;
+  TIFF *tif = open_page(&m, &opened);
+  if (!tif) return opened;
   enum status result = STATUS_REJECTED;
   uint32_t *raster = NULL;
   char emsg[1024];
@@ -453,12 +690,9 @@ done:
 static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format format,
                             uint64_t max_pixels, struct image *out) {
   struct mem m = {in, len, 0};
-  TIFF *tif = open_mem(&m);
-  if (!tif) return estimated ? STATUS_SKIPPED : STATUS_REJECTED;
-  if (deflate_overruns(tif)) {
-    TIFFClose(tif);
-    return STATUS_SKIPPED;
-  }
+  enum status opened;
+  TIFF *tif = open_page(&m, &opened);
+  if (!tif) return opened;
   enum status result = STATUS_REJECTED;
   uint8_t **planes = NULL;
   uint8_t *chunk = NULL;
@@ -483,6 +717,14 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
     goto done;
   }
   if (p.fmt == 4) p.fmt = 1;
+  // Chunky YCbCr JPEG data libjpeg converts to RGB, as libtiff's RGBA
+  // interface has it.
+  uint16_t compression = COMPRESSION_NONE;
+  TIFFGetFieldDefaulted(tif, TIFFTAG_COMPRESSION, &compression);
+  if (compression == COMPRESSION_JPEG && p.photometric == PHOTOMETRIC_YCBCR && p.planar == PLANARCONFIG_CONTIG) {
+    TIFFSetField(tif, TIFFTAG_JPEGCOLORMODE, JPEGCOLORMODE_RGB);
+    p.photometric = PHOTOMETRIC_RGB;
+  }
   if (p.photometric == PHOTOMETRIC_YCBCR) {
     result = raw_ycbcr(tif, &p, format, out);
     goto done;

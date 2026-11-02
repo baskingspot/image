@@ -11,6 +11,7 @@ pub const ops = .{
     .{ "tiff-decode-lzw", rgba },
     .{ "tiff-decode-deflate", rgba },
     .{ "tiff-decode-packbits", rgba },
+    .{ "tiff-decode-jpeg", rgba },
     .{ "tiff-decode-g4", rgba },
 };
 

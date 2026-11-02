@@ -9,7 +9,7 @@
 //!
 //! - a compression out of this decoder's scope, which libtiff reads and
 //!   this decoder rejects as unsupported: old-style JPEG (6), LogLuv,
-//!   JBIG, WebP, ZSTD, LZMA, and the rest. JPEG (7) waits for `image.jpeg`.
+//!   JBIG, WebP, ZSTD, LZMA, and the rest.
 //! - an entry of a type the specification does not define: libtiff refuses
 //!   some fields of unknown type and reads past others, by rules of its own.
 //! - a sample range field (Min, Max, SMin, SMaxSampleValue) without one
@@ -20,7 +20,14 @@
 //!   warning, and this decoder refuses them as the specification has it.
 //! - YCbCr with YCbCrCoefficients or ReferenceBlackWhite: libtiff ignores
 //!   malformed ones that this decoder reads, and tiff-raw evaluates the
-//!   equations only with the defaults.
+//!   equations only with the defaults. Chunky YCbCr JPEG data is the
+//!   exception, which libjpeg converts with its own equations, ignoring
+//!   both fields, as this decoder does.
+//!
+//! JPEG data is libjpeg-turbo's under libtiff, which conceals corrupt
+//! data; tiff.c decodes each strip or tile strictly first, and rejects the
+//! page if one fails, or skips it if one has more than one scan, which
+//! this decoder does not read.
 //!
 //! The C side answers SKIPPED (the file says nothing about the decoder)
 //! when libtiff replaces the byte counts with its own estimate, when a
@@ -33,7 +40,8 @@
 //! conversion is the decoder's; `comparable` also leaves its answer out
 //! for:
 //!
-//! - photometric interpretations other than gray, palette, and RGB. Its
+//! - photometric interpretations other than gray, palette, RGB, and
+//!   chunky YCbCr JPEG data, which libjpeg converts for both. Its
 //!   CMYK to RGB truncates, and `image.convert` rounds, as libjpeg-turbo
 //!   does; tiff-raw compares CMYK natively, in `cmyk8` or `cmyk16`.
 //! - what the interface does not read: sample widths other than 1, 2, 4,
@@ -81,26 +89,29 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
     _ = format;
     const p = firstPage(input) orelse return true;
     switch (p.compression) {
-        1, 2, 3, 4, 5, 8, 32946, 32773 => {},
+        1, 2, 3, 4, 5, 7, 8, 32946, 32773 => {},
         else => return false,
     }
     if (p.unknown_type or p.odd_sample_range) return false;
     if (p.offsets_count != p.counts_count or p.odd_array_type) return false;
-    if (p.photometric == 6 and p.ycc_fields) return false;
+    // libjpeg converts chunky YCbCr JPEG data with its own equations.
+    const jpeg_ycc = p.compression == 7 and p.photometric == 6 and p.planar != 2;
+    if (p.photometric == 6 and p.ycc_fields and !jpeg_ycc) return false;
     if (!std.mem.eql(u8, op, "tiff-rgba")) return true;
     switch (p.photometric) {
         0, 1, 2, 3 => {},
+        6 => if (!jpeg_ycc) return false,
         else => return false,
     }
     if (p.format != 1) return false;
     switch (p.photometric) {
-        2 => if (p.bits != 8) return false,
+        2, 6 => if (p.bits != 8) return false,
         else => switch (p.bits) {
             1, 2, 4, 8, 16 => {},
             else => return false,
         },
     }
-    const color: u16 = if (p.photometric == 2) 3 else 1;
+    const color: u16 = if (p.photometric == 2 or p.photometric == 6) 3 else 1;
     if (p.spp > color and p.extra != 1) return false;
     const gray_alpha_ok = p.bits == 8 and p.spp == 2 and p.photometric == 1 and p.tile_w == 0;
     if (p.spp > 1 and p.photometric <= 1 and !gray_alpha_ok) return false;
@@ -167,6 +178,7 @@ const Page = struct {
     odd_array_type: bool = false,
     /// YCbCrCoefficients or ReferenceBlackWhite, of any type.
     ycc_fields: bool = false,
+    planar: u64 = 1,
 };
 
 /// The first IFD's fields `comparable` needs, or null if it cannot be read.
@@ -248,6 +260,7 @@ fn firstPage(in: []const u8) ?Page {
                 else => {},
             },
             277 => p.spp = first,
+            284 => p.planar = first,
             338 => p.extra = first,
             322 => p.tile_w = first,
             323 => p.tile_h = first,

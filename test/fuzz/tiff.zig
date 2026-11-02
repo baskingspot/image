@@ -128,7 +128,44 @@ fn writeIfd(o: *Out, entries: []const Entry) usize {
     return next_at;
 }
 
-const Compression = enum(u16) { none = 1, lzw = 5, deflate = 8, packbits = 32773, mh = 2, g3 = 3, g4 = 4, _ };
+const Compression = enum(u16) { none = 1, lzw = 5, deflate = 8, packbits = 32773, mh = 2, g3 = 3, g4 = 4, jpeg = 7, _ };
+
+/// JPEGTables: a quantization table of ones.
+const jpeg_tables = "\xff\xd8" ++ jpeg_dqt ++ "\xff\xd9";
+const jpeg_dqt = "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64;
+
+/// A flat baseline JPEG stream of `w` by `h` with `comps` components, the
+/// first sampled `sub`: every block's DC difference and AC coefficients
+/// zero in the standard luminance Huffman tables, which the stream leaves
+/// out. Its quantization table is in JPEGTables unless `dqt`.
+fn flatJpeg(o: *Out, w: u32, h: u32, comps: u8, sub: [2]u16, dqt: bool) void {
+    o.bytes("\xff\xd8");
+    if (dqt) o.bytes(jpeg_dqt);
+    o.bytes(&.{ 0xff, 0xc0, 0, 8 + 3 * comps, 8 });
+    o.bytes(&.{ @truncate(h >> 8), @truncate(h), @truncate(w >> 8), @truncate(w), comps });
+    for (0..comps) |c| o.bytes(&.{ @intCast(c + 1), if (c == 0) @intCast(sub[0] << 4 | sub[1]) else 0x11, 0 });
+    o.bytes(&.{ 0xff, 0xda, 0, 6 + 2 * comps, comps });
+    for (0..comps) |c| o.bytes(&.{ @intCast(c + 1), 0 });
+    o.bytes(&.{ 0, 63, 0 });
+    // One component is not interleaved: its blocks, not its MCUs, count.
+    const hm: u32 = if (comps == 1) 1 else sub[0];
+    const vm: u32 = if (comps == 1) 1 else sub[1];
+    const mcus = @as(u64, (w + 8 * hm - 1) / (8 * hm)) * ((h + 8 * vm - 1) / (8 * vm));
+    const blocks = mcus * (hm * vm + comps - 1);
+    // Each block is DC category 0 ("00") and EOB ("1010"), padded with ones.
+    var bits: u64 = 0;
+    var n: u6 = 0;
+    for (0..blocks) |_| {
+        bits = bits << 6 | 0b001010;
+        n += 6;
+        while (n >= 8) {
+            n -= 8;
+            o.bytes(&.{@truncate(bits >> n)});
+        }
+    }
+    if (n > 0) o.bytes(&.{@truncate(bits << (8 - n) | (@as(u64, 0xff) >> n))});
+    o.bytes("\xff\xd9");
+}
 
 /// PackBits: literal runs, and repeats where bytes repeat.
 fn packBits(random: std.Random, src: []const u8, o: *Out) void {
@@ -314,6 +351,10 @@ fn page(random: std.Random, o: *Out) ?[2]usize {
     const comps = [_]Compression{ .none, .none, .lzw, .lzw, .deflate, .packbits, .mh, .g3, .g4 };
     var comp = comps[random.uintLessThan(usize, if (bilevel) comps.len else 6)];
     if (random.uintLessThan(u8, 64) == 0) comp = @enumFromInt(random.uintLessThan(u16, 10));
+    const jpeg_ok = bits == 8 and fmt == 1 and model != .palette and (planar or spp == 1 or spp == 3 or spp == 4);
+    if (jpeg_ok and random.uintLessThan(u8, 6) == 0) comp = .jpeg;
+    const jpeg_split = random.boolean();
+    const jpeg_comps: u8 = @intCast(if (planar) 1 else spp);
     var predictor: u16 = 1;
     if ((comp == .lzw or comp == .deflate) and random.boolean()) {
         if (fmt == 3) predictor = if (random.boolean()) 3 else 2;
@@ -362,6 +403,7 @@ fn page(random: std.Random, o: *Out) ?[2]usize {
             .packbits => packBits(random, scratch[0..n], &d),
             .lzw => lzwEncode(scratch[0..n], &d),
             .deflate => zlibStored(scratch[0..n], &d),
+            .jpeg => flatJpeg(&d, cw, rows, jpeg_comps, if (planar) .{ 1, 1 } else sub, !jpeg_split),
             else => d.bytes(scratch[0 .. n / 4]),
         }
         counts[i] = d.len - offsets[i];
@@ -457,6 +499,13 @@ fn page(random: std.Random, o: *Out) ?[2]usize {
     if (fmt != 1 or random.uintLessThan(u8, 8) == 0) {
         for (S.fmt_v[0..spp]) |*f| f.* = fmt;
         add(&entries, &ne, 339, 3, S.fmt_v[0..spp]);
+    }
+    if (comp == .jpeg and jpeg_split) {
+        const tv = struct {
+            var bytes: [jpeg_tables.len]u64 = undefined;
+        };
+        for (&tv.bytes, jpeg_tables) |*a, b| a.* = b;
+        add(&entries, &ne, 347, 7, &tv.bytes);
     }
     if (model == .ycbcr) {
         const sv = struct {

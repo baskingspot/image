@@ -1,5 +1,6 @@
 // libtiff from memory (TIFFClientOpen) to RGBA8. 8-bit RGB in strips, which
-// every input but the bilevel ones is, reads each strip with
+// every input but the bilevel ones is (JPEG's YCbCr as RGB, which libjpeg
+// converts with JPEGCOLORMODE_RGB), reads each strip with
 // TIFFReadEncodedStrip into a buffer kept between calls and expands it, as
 // a caller after speed would; anything else goes through
 // TIFFReadRGBAImageOriented.
@@ -82,6 +83,12 @@ static size_t tiff_decode(const uint8_t *in, size_t len, uint8_t *out, size_t ca
   TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
   TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
   TIFFGetField(tif, TIFFTAG_PHOTOMETRIC, &photometric);
+  uint16_t compression = COMPRESSION_NONE;
+  TIFFGetFieldDefaulted(tif, TIFFTAG_COMPRESSION, &compression);
+  if (compression == COMPRESSION_JPEG && photometric == PHOTOMETRIC_YCBCR) {
+    TIFFSetField(tif, TIFFTAG_JPEGCOLORMODE, JPEGCOLORMODE_RGB);
+    photometric = PHOTOMETRIC_RGB;
+  }
   size_t n = (size_t)w * h * 4;
   if (n == 0 || n > cap) goto done;
   if (bits == 8 && spp == 3 && photometric == PHOTOMETRIC_RGB && planar == PLANARCONFIG_CONTIG &&
@@ -124,6 +131,9 @@ static size_t tiff_deflate(const uint8_t *in, size_t len, uint8_t *out, size_t c
 static size_t tiff_packbits(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return tiff_decode(in, len, out, cap);
 }
+static size_t tiff_jpeg(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return tiff_decode(in, len, out, cap);
+}
 static size_t tiff_g4(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return tiff_decode(in, len, out, cap);
 }
@@ -132,4 +142,5 @@ BENCH_OP("tiff-decode-none", tiff_decode)
 BENCH_OP("tiff-decode-lzw", tiff_lzw)
 BENCH_OP("tiff-decode-deflate", tiff_deflate)
 BENCH_OP("tiff-decode-packbits", tiff_packbits)
+BENCH_OP("tiff-decode-jpeg", tiff_jpeg)
 BENCH_OP("tiff-decode-g4", tiff_g4)

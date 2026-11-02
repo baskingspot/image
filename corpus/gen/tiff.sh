@@ -67,6 +67,28 @@ tiffcp -c g4 "$f" "$t/gray1-g4.tif"
 tiffcp -c g4 -f lsb2msb "$f" "$t/gray1-g4-lsb.tif"
 tiffcp -c g4 -t -w 16 -l 16 "$f" "$t/gray1-g4-tiles.tif"
 
+# JPEG (new style), libjpeg-turbo's under tiffcp: YCbCr 2×2 (tiffcp's
+# default for RGB) in strips and tiles, at an odd size too; RGB; planar RGB;
+# gray; white-is-zero gray; CMYK; RGB with alpha; and 12-bit gray and YCbCr.
+im "$src/basn2c08.png" -resize '37x29!' -compress none "$base/odd.tif"
+im "$src/basn0g08.png" -define quantum:polarity=min-is-white -compress none "$base/miw.tif"
+im "$src/basn0g16.png" -depth 12 -compress none "$base/gray12.tif"
+im "$src/basn2c16.png" -depth 12 -compress none "$base/rgb12.tif"
+for n in rgb8 odd; do
+  tiffcp -c jpeg "$base/$n.tif" "$t/$n-jpeg.tif"
+  tiffcp -c jpeg:r "$base/$n.tif" "$t/$n-jpeg-rgb.tif"
+  tiffcp -c jpeg:50 -r 16 "$base/$n.tif" "$t/$n-jpeg-strips.tif"
+  tiffcp -c jpeg -t -w 16 -l 16 "$base/$n.tif" "$t/$n-jpeg-tiles.tif"
+  tiffcp -c jpeg:r -p separate "$base/$n.tif" "$t/$n-jpeg-separate.tif"
+done
+tiffcp -c jpeg "$base/gray8.tif" "$t/gray8-jpeg.tif"
+tiffcp -c jpeg -t -w 16 -l 16 "$base/gray8.tif" "$t/gray8-jpeg-tiles.tif"
+tiffcp -c jpeg "$base/miw.tif" "$t/gray8-miniswhite-jpeg.tif"
+tiffcp -c jpeg "$base/cmyk8.tif" "$t/cmyk8-jpeg.tif"
+tiffcp -c jpeg:r "$base/rgba8.tif" "$t/rgba8-jpeg-rgb.tif"
+tiffcp -c jpeg "$base/gray12.tif" "$t/gray12-jpeg.tif"
+tiffcp -c jpeg -t -w 16 -l 16 "$base/rgb12.tif" "$t/rgb12-jpeg-tiles.tif"
+
 # Pages of different sizes and kinds.
 tiffcp "$base/rgb8.tif" "$base/gray4.tif" "$base/rgba16.tif" "$t/pages.tif"
 im "$src/s01n3p01.png" "$src/s09n3p02.png" "$src/s32n3p04.png" -compress lzw "$t/pages-sizes.tif"
