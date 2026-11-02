@@ -306,8 +306,17 @@ owning the files adding-a-format.md assigns to its format plus
   12-bit, 12-bit for gray, RGB, and YCbCr only. Pixels equal libtiff's on
   every bench input; ×6.5 libtiff on icons and ×1.1–1.3 above, peak RSS
   below libtiff's in every class. The oracle decodes each JPEG strip strictly
-  with libjpeg-turbo first, since libtiff conceals corrupt data. Next
-  (decision 23): the compressed-path speedup.
+  with libjpeg-turbo first, since libtiff conceals corrupt data. Decision
+  23's follow-up landed (results/tiff-speed-20261102.md): past icons, TIFF
+  LZW runs at 0.89–1.00 of libtiff, Deflate 0.93–0.95 (the rest is
+  compress's per-stream Huffman setup on 8 KiB strips), PackBits 1.6–1.75×,
+  and Group 4 1.2–1.5×; icons run 1.3–6× libtiff. An LZW page's work memory
+  grows by 24 KiB. JPEG-in-TIFF carries DQT and DHT across strips
+  (`keptTables` and `prior`), reads each frame through `frameParams`, and
+  decodes gray-and-alpha as two components. The oracle skips only planar
+  JPEG pages whose streams define different tables, and chunky pages of
+  more than 4 samples. Group 4 and 2D Group 3 take b1 after a leading pass
+  as libtiff does.
 - **WebP decode performance pass** (landed; results/webp-perf-20261102.md):
   WebP decode beats libwebp in every size class. Lossless is 2.14×, 1.15×,
   1.11× (icons, ≤1 MP, >1 MP) and 1.10× on the 50 MP mosaic; lossy 1.77×,
