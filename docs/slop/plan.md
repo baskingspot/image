@@ -901,7 +901,19 @@ width)` for every file with several entries.
     PNG's cICP, mDCV, and cLLi (PNG third edition) and flags a JPEG HDR gain
     map (Ultra HDR, ISO 21496-1) without decoding it, on `wave6-hdr-meta`.
     Color management (applying ICC, gamut and tone mapping) stays out of
-    image, for a separate baskingspot/color library started after phase 1.
+    image, for a separate baskingspot/color library started after phase 1. Landed
+    (`wave6-hdr-meta`): `Metadata.cicp` (H.273 code points as stored),
+    `Metadata.mastering_display` (xy as `primaries`, luminances in nits),
+    `Metadata.content_light_level` (MaxCLL and MaxFALL in nits), and
+    `Metadata.gain_map`. PNG reads cICP, mDCV, and cLLI up to IDAT and
+    writes them from `png.EncodeOptions`. cICP alone sets `transfer`,
+    `gamma`, and `primaries` over iCCP, sRGB, gAMA, and cHRM, leaving them
+    null for codes they cannot name; one with a nonzero matrix or a range
+    flag past 1 is ignored; narrow range is reported, not rescaled; the ICC
+    profile is still reported. The `png_hdr` oracle compares with libpng
+    1.6.59. JPEG flags a gain map from MPF plus the hdrgm XMP namespace or
+    ISO 21496-1's APP2, checked against libultrahdr by hand.
+    png-decode-icons is unchanged (results/png-hdr-chunks-20261102.md).
 52. **GIF dead zone. Decided by the owner:** Floyd–Steinberg passes on no
     error from a pixel within 1 a channel of its palette entry (1.3% fewer
     bytes, PSNR +0.36 dB, blurred PSNR −0.09 dB), refining decision 43.
