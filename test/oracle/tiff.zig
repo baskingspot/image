@@ -35,10 +35,7 @@
 //!
 //! - photometric interpretations other than gray, palette, and RGB. Its
 //!   CMYK to RGB truncates, and `image.convert` rounds, as libjpeg-turbo
-//!   does; tiff-raw compares CMYK through `image.convert`'s rule. The oracle
-//!   protocol has no `cmyk8` or `cmyk16` (test/oracle/oracle.h), so tiff-raw
-//!   answers CMYK as `rgb8` or `rgb16`, the color the decoder's native inks
-//!   convert to.
+//!   does; tiff-raw compares CMYK natively, in `cmyk8` or `cmyk16`.
 //! - what the interface does not read: sample widths other than 1, 2, 4,
 //!   8, and 16 bits for gray and palette, and 8 bits for RGB, and signed
 //!   and float samples.
@@ -75,8 +72,9 @@ pub const fuzz = @import("fuzz").tiff;
 pub const oracles = [_][]const u8{ "tiff-rgba", "tiff-raw" };
 /// RGBA8 premultiplied for the RGBA interface, and every native format.
 pub const formats = [_]image.PixelFormat{
-    .rgba8_premul, .gray8, .gray16, .gray_alpha8, .gray_alpha16,  .gray_alpha8_premul, .gray_alpha16_premul,
-    .rgb8,         .rgb16, .rgba8,  .rgba16,      .rgba16_premul, .rgba_f32,           .rgba_f32_premul,
+    .rgba8_premul, .gray8,  .gray16, .gray_alpha8, .gray_alpha16,  .gray_alpha8_premul, .gray_alpha16_premul,
+    .rgb8,         .rgb16,  .rgba8,  .rgba16,      .rgba16_premul, .rgba_f32,           .rgba_f32_premul,
+    .cmyk8,        .cmyk16,
 };
 
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {

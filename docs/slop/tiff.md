@@ -123,10 +123,10 @@ to add formats instead; see the report):
   have none, and conversion drops alpha rather than compositing. Color
   comes from `image.convert`, libjpeg-turbo's naive ink × black / max,
   rounded, at the format's depth; libtiff's RGBA interface truncates the
-  same product, so the RGBA oracle leaves CMYK out. Pages of `cmyk8` and
-  `cmyk16`, or of inks and color, have no common native format
-  (`samples.join`): converting `cmyk8` widened to `cmyk16` gives other
-  colors than converting it directly.
+  same product, so the RGBA oracle leaves CMYK out; tiff-raw checks the
+  inks natively. Pages of `cmyk8` and `cmyk16`, or of inks and color, have
+  no common native format (`samples.join`): converting `cmyk8` widened to
+  `cmyk16` gives other colors than converting it directly.
 - **Float** stays float, unscaled and unclamped, in `rgba_f32`; gray fills
   R, G, and B. 16 and 24-bit floats widen exactly; NaNs become the quiet NaN
   of their sign; 64-bit narrows. Float MinIsWhite is unsupported.

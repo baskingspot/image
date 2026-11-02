@@ -13,9 +13,8 @@
 //   this file's own expansion of the samples to the decoder's native
 //   format, by the rules in src/tiff/samples.zig. It answers only in that
 //   format. YCbCr it compares only with the default coefficients and
-//   reference black and white. CMYK, whose native cmyk8 and cmyk16 this
-//   protocol cannot carry, it answers as the RGB image.convert makes of
-//   them at their depth.
+//   reference black and white. CMYK it answers in cmyk8 or cmyk16, inks
+//   inverted.
 //
 // Any error libtiff reports rejects the input; warnings do not, but for the
 // CCITT decoders' warnings about corrupt data, which libtiff conceals. A
@@ -215,7 +214,7 @@ static int deflate_overruns(TIFF *tif) {
 
 // Whether tiff-raw accepts the input in its native format.
 static int raw_reads(const uint8_t *in, size_t len, uint64_t max_pixels) {
-  for (int f = PF_GRAY8; f <= PF_RGBA_F32_PREMUL; f++) {
+  for (int f = PF_GRAY8; f <= PF_CMYK16; f++) {
     struct image tmp = {0};
     enum status s = tiff_raw(in, len, (enum pixel_format)f, max_pixels, &tmp);
     free(tmp.pixels);
@@ -295,6 +294,8 @@ static int color_channels(uint16_t photometric) {
 
 static enum pixel_format native(const struct page *p, int palette8) {
   int a = p->alpha;
+  if (p->photometric == PHOTOMETRIC_SEPARATED)
+    return p->bits > 8 || p->fmt == SAMPLEFORMAT_IEEEFP ? PF_CMYK16 : PF_CMYK8;
   if (p->fmt == SAMPLEFORMAT_IEEEFP) return a == 1 ? PF_RGBA_F32_PREMUL : PF_RGBA_F32;
   int wide = p->bits > 8;
   switch (p->photometric) {
@@ -515,11 +516,7 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
     for (int c = 0; c < 3; c++)
       for (int i = 0; i < 1 << p.bits; i++) palette8 &= (p.cmap[c][i] >> 8) == (p.cmap[c][i] & 255);
   }
-  // CMYK's native cmyk8 and cmyk16 are not formats this protocol has; it
-  // is compared as the RGB at the same depth that image.convert makes of
-  // them.
   enum pixel_format want = native(&p, palette8);
-  if (cc == 4) want = p.bits > 8 || p.fmt == SAMPLEFORMAT_IEEEFP ? PF_RGB16 : PF_RGB8;
   if (format != want) {
     result = STATUS_SKIPPED;
     goto done;
@@ -612,15 +609,10 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
       if (p.photometric == PHOTOMETRIC_MINISWHITE && p.alpha == 1 && p.fmt != SAMPLEFORMAT_IEEEFP)
         v[0] = v[used - 1] > v[0] ? v[used - 1] - v[0] : 0;
       if (p.fmt == SAMPLEFORMAT_IEEEFP && cc == 4) {
-        // cmyk16's inverted inks, 1 - v rounded and clamped (NaN is 0),
-        // then image.convert's naive RGB at 16 bits.
-        uint64_t inv[4];
+        // cmyk16's inverted inks, 1 - v rounded and clamped (NaN is 0).
         for (int c = 0; c < 4; c++) {
           float i = 1 - f[c];
-          inv[c] = !(i > 0) ? 0 : i >= 1 ? 65535 : (uint64_t)roundf(i * 65535);
-        }
-        for (int c = 0; c < 3; c++) {
-          uint16_t s = (uint16_t)((2 * inv[c] * inv[3] + 65535) / (2 * 65535));
+          uint16_t s = !(i > 0) ? 0 : i >= 1 ? 65535 : (uint16_t)roundf(i * 65535);
           memcpy(o, &s, 2);
           o += 2;
         }
@@ -646,11 +638,10 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
       uint64_t px[4];
       int k;
       if (cc == 4) {
-        // The inverted inks of cmyk8 or cmyk16, then image.convert's naive
-        // RGB at that depth: ink * black / max, rounded.
+        // The inverted inks of cmyk8 or cmyk16.
         uint64_t mm = wide ? 65535 : 255;
-        for (int c = 0; c < 3; c++) px[c] = (2 * (mm - v[c]) * (mm - v[3]) + mm) / (2 * mm);
-        k = 3;
+        for (int c = 0; c < 4; c++) px[c] = mm - v[c];
+        k = 4;
       } else {
         for (int c = 0; c < cc; c++) px[c] = v[c];
         k = cc;

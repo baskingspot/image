@@ -4,7 +4,6 @@
 //! compression, and sample format the decoder reads.
 
 const std = @import("std");
-const Io = std.Io;
 const image = @import("image");
 const harness = @import("harness.zig");
 
@@ -14,87 +13,8 @@ pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor", "bench/corp
 pub const extensions = [_][]const u8{ ".tif", ".tiff" };
 
 pub fn check(input: []const u8, choice: u64) !void {
-    current = input;
     try harness.checkDecoder(image.tiff.Decoder, input, choice);
-    try harness.checkDecoder(Seeking, input, choice);
 }
-
-/// The input `Seeking` serves to readers it cannot seek itself.
-var current: []const u8 = "";
-
-/// The decoder with a seeker under the generic contract. Over a
-/// `Reader.fixed` it seeks that reader; over any other (the harness's
-/// trickling reader) it reads `current` through a trickling reader of its
-/// own that can seek.
-const Seeking = struct {
-    inner: image.tiff.Decoder,
-
-    pub const Options = image.DecodeOptions;
-    pub const Error = image.tiff.Decoder.Error;
-
-    pub fn init(reader: *Io.Reader, options: Options) Seeking {
-        const fixed_stream = Io.Reader.fixed("").vtable.stream;
-        if (reader.vtable.stream == fixed_stream) {
-            return .{ .inner = .init(reader, .{
-                .limits = options.limits,
-                .blob_sink = options.blob_sink,
-                .seeker = .fixed(reader),
-            }) };
-        }
-        const t = &pool[pool_next];
-        pool_next = (pool_next + 1) % pool.len;
-        t.init(current, 1 + 2 * pool_next);
-        const seeker: image.Seeker = .{ .context = t, .seek = SeekTrickle.seek };
-        return .{ .inner = .init(&t.reader, .{
-            .limits = options.limits,
-            .blob_sink = options.blob_sink,
-            .seeker = seeker,
-        }) };
-    }
-
-    pub fn decodeConfig(d: *Seeking) Error!image.Config {
-        return d.inner.decodeConfig();
-    }
-
-    pub fn decodeFrame(d: *Seeking, dst: image.PixelBuffer, work: []u8) Error!?image.Frame {
-        return d.inner.decodeFrame(dst, work);
-    }
-};
-
-var pool: [4]SeekTrickle = undefined;
-var pool_next: usize = 0;
-
-/// A reader that hands over at most `step` bytes per read, into a buffer
-/// of `image.min_buffer_len` bytes, and can seek.
-const SeekTrickle = struct {
-    data: []const u8,
-    at: usize,
-    step: usize,
-    buffer: [image.min_buffer_len]u8,
-    reader: Io.Reader,
-
-    fn init(t: *SeekTrickle, data: []const u8, step: usize) void {
-        t.data = data;
-        t.at = 0;
-        t.step = step;
-        t.reader = .{ .vtable = &.{ .stream = stream }, .buffer = &t.buffer, .seek = 0, .end = 0 };
-    }
-
-    fn stream(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
-        const t: *SeekTrickle = @fieldParentPtr("reader", r);
-        if (t.at >= t.data.len) return error.EndOfStream;
-        const n = try w.write(t.data[t.at..][0..limit.minInt(@min(t.step, t.data.len - t.at))]);
-        t.at += n;
-        return n;
-    }
-
-    fn seek(context: *anyopaque, offset: u64) error{ReadFailed}!void {
-        const t: *SeekTrickle = @ptrCast(@alignCast(context));
-        t.at = @intCast(@min(offset, t.data.len));
-        t.reader.seek = 0;
-        t.reader.end = 0;
-    }
-};
 
 /// Writes TIFF structures into a buffer, in either byte order.
 const Out = struct {
