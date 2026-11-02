@@ -9,12 +9,17 @@
 //
 // and one response per request on stdout, after all of stdin is read:
 //
-//   u8 status (enum status), u32 width, u32 height, u32 length, pixels
+//   u8 status (enum status), u32 width, u32 height, u32 length, u64 hash
+//
+// where the hash is XXH64, seed 0, of the pixels, tightly packed in the
+// requested format: the harness only asks whether two answers are the same,
+// and gigabytes of pixels need not cross the pipe to say so.
 //
 // An encode op's input is the source's width and height, u32 each, then
-// its pixels, tightly packed in the pixel format; its response's pixels are
-// the encoded file. An unknown name, or an encode op's pixels that do not
-// fill its size, is a fatal error. test/oracle/Oracle.zig is the client.
+// its pixels, tightly packed in the pixel format; its response's length
+// and hash are the encoded file's. An unknown name, or an encode op's
+// pixels that do not fill its size, is a fatal error.
+// test/oracle/Oracle.zig is the client.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,6 +72,61 @@ static uint32_t get32(const uint8_t *b) {
 static void put32(FILE *f, uint32_t v) {
   uint8_t b[4] = {v, v >> 8, v >> 16, v >> 24};
   fwrite(b, 1, 4, f);
+}
+
+static void put64(FILE *f, uint64_t v) {
+  put32(f, (uint32_t)v);
+  put32(f, (uint32_t)(v >> 32));
+}
+
+// XXH64 (github.com/Cyan4973/xxHash, doc/xxhash_spec.md), as Zig's
+// std.hash.XxHash64 computes it.
+#define P1 0x9E3779B185EBCA87ull
+#define P2 0xC2B2AE3D27D4EB4Full
+#define P3 0x165667B19E3779F9ull
+#define P4 0x85EBCA77C2B2AE63ull
+#define P5 0x27D4EB2F165667C5ull
+
+static uint64_t rotl(uint64_t x, int r) { return x << r | x >> (64 - r); }
+
+static uint64_t read64(const uint8_t *p) {
+  uint64_t v;
+  memcpy(&v, p, 8);
+  return v;
+}
+
+static uint64_t xxh_round(uint64_t acc, uint64_t lane) { return rotl(acc + lane * P2, 31) * P1; }
+
+static uint64_t xxh_merge(uint64_t h, uint64_t v) { return (h ^ xxh_round(0, v)) * P1 + P4; }
+
+static uint64_t xxh64(const uint8_t *p, size_t len) {
+  const uint8_t *end = p + len;
+  uint64_t h;
+  if (len >= 32) {
+    uint64_t v1 = P1 + P2, v2 = P2, v3 = 0, v4 = -P1;
+    for (; end - p >= 32; p += 32) {
+      v1 = xxh_round(v1, read64(p));
+      v2 = xxh_round(v2, read64(p + 8));
+      v3 = xxh_round(v3, read64(p + 16));
+      v4 = xxh_round(v4, read64(p + 24));
+    }
+    h = rotl(v1, 1) + rotl(v2, 7) + rotl(v3, 12) + rotl(v4, 18);
+    h = xxh_merge(xxh_merge(xxh_merge(xxh_merge(h, v1), v2), v3), v4);
+  } else {
+    h = P5;
+  }
+  h += len;
+  for (; end - p >= 8; p += 8) h = rotl(h ^ xxh_round(0, read64(p)), 27) * P1 + P4;
+  if (end - p >= 4) {
+    h = rotl(h ^ (uint64_t)get32(p) * P1, 23) * P2 + P3;
+    p += 4;
+  }
+  for (; p < end; p++) h = rotl(h ^ *p * P5, 11) * P1;
+  h ^= h >> 33;
+  h *= P2;
+  h ^= h >> 29;
+  h *= P3;
+  return h ^ h >> 32;
 }
 
 int main(void) {
@@ -135,7 +195,7 @@ int main(void) {
     put32(stdout, img.width);
     put32(stdout, img.height);
     put32(stdout, img.len);
-    fwrite(img.pixels, 1, img.len, stdout);
+    put64(stdout, xxh64(img.pixels, img.len));
     free(img.pixels);
   }
   return fflush(stdout) == 0 ? 0 : 1;

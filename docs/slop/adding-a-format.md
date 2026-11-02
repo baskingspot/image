@@ -147,7 +147,9 @@ few-bytes-at-a-time writer, for a target's own checks.
   be the same bytes (test/oracle/qoi_encode.zig). Batches run on every
   core, so an oracle module, both its Zig and its C side, must be
   thread-safe: keep per-input state in locals or `threadlocal`, never in a
-  shared global or static (a cached decode or a saved canvas). `just oracle
+  shared global or static (a cached decode or a saved canvas). compare.zig
+  gives our decoder its work memory per input and frees it, so a module need
+  not manage work memory itself. `just oracle
 100000` runs every format, and `just oracle 20000 1 <fmt>` one; the gate is
   0 mismatches.
 - **MagickWand.** An oracle that reads through ImageMagick calls

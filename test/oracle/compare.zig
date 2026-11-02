@@ -5,7 +5,8 @@
 //!
 //! For every input and pixel format, this package and every oracle either
 //! accept it, with pixels, or reject it. Two answers agree when both reject,
-//! or both accept with the same size and the same pixels, and two deciders
+//! or both accept with the same size and the same pixels (the same length
+//! and XXH64, so the oracle need not send the pixels), and two deciders
 //! agree on an input when they agree in every pixel format both answered.
 //! A mismatch is an input where ours agrees with no oracle, or differs from
 //! an oracle that every other oracle agrees with. When the oracles disagree among themselves
@@ -38,10 +39,10 @@ const formats = @import("formats.zig");
 /// allocate much.
 const max_pixels = 1 << 22;
 const batch_inputs = 1000;
-/// The most pixel bytes one batch may produce, ours and every oracle's
-/// answers together, so large images make batches shorter rather than
-/// exhausting memory. Each worker holds a batch.
-const batch_bytes = 256 << 20;
+/// The most bytes one batch may hold, its inputs and an encoder's sources,
+/// so large inputs make batches shorter rather than exhausting memory. Each
+/// worker holds a batch, and its oracle a copy.
+const batch_bytes = 64 << 20;
 /// The most batches compared at once, one per core.
 const max_workers = 8;
 const saved_per_kind = 5;
@@ -83,41 +84,65 @@ const Answer = struct {
     accepted: bool,
     width: u32 = 0,
     height: u32 = 0,
-    pixels: []const u8 = &.{},
+    /// The pixels' length and XXH64, or an encoder's file's.
+    len: usize = 0,
+    hash: u64 = 0,
+
+    fn of(width: u32, height: u32, bytes: []const u8) Answer {
+        const hash = std.hash.XxHash64.hash(0, bytes);
+        return .{ .accepted = true, .width = width, .height = height, .len = bytes.len, .hash = hash };
+    }
 
     fn agrees(a: Answer, b: Answer) bool {
         if (a.accepted != b.accepted) return false;
         if (!a.accepted) return true;
-        return a.width == b.width and a.height == b.height and std.mem.eql(u8, a.pixels, b.pixels);
+        return a.width == b.width and a.height == b.height and a.len == b.len and a.hash == b.hash;
     }
 };
 
-fn ours(comptime D: type, input: []const u8, format: PixelFormat, arena: std.mem.Allocator) !Answer {
+/// The image our decoder `D` reads from `input` as `format`, tightly
+/// packed, its pixels from `pixel_gpa`; null when it rejects the input.
+/// The work memory is the decoder's worst case, mostly untouched, so it is
+/// allocated for this input alone and given back: kept in an arena, its
+/// touched pages pile up across batches.
+fn decode(comptime D: type, input: []const u8, format: PixelFormat, pixel_gpa: std.mem.Allocator) !?image.PixelBuffer {
     var r: std.Io.Reader = .fixed(input);
     var d = D.init(&r, .{ .limits = .{ .max_pixels = max_pixels } });
-    const config = d.decodeConfig() catch return .{ .accepted = false };
+    const config = d.decodeConfig() catch return null;
     const len = image.PixelBuffer.len(format, config.width, config.height).?;
-    const pixels = try arena.alloc(u8, len);
-    const work = try arena.alloc(u8, config.work_len);
+    const pixels = try pixel_gpa.alloc(u8, len);
+    errdefer pixel_gpa.free(pixels);
+    const work = try gpa.alloc(u8, config.work_len);
+    defer gpa.free(work);
     const dst = try image.PixelBuffer.init(pixels, format, config.width, config.height);
-    _ = (d.decodeFrame(dst, work) catch return .{ .accepted = false }) orelse return .{ .accepted = false };
-    return .{ .accepted = true, .width = config.width, .height = config.height, .pixels = pixels };
+    _ = (d.decodeFrame(dst, work) catch null) orelse {
+        pixel_gpa.free(pixels);
+        return null;
+    };
+    return dst;
+}
+
+/// Our decoder's answer. Its pixels are hashed and freed, so a batch holds
+/// one image at a time.
+fn ours(comptime D: type, input: []const u8, format: PixelFormat) !Answer {
+    const dst = try decode(D, input, format, gpa) orelse return .{ .accepted = false };
+    defer gpa.free(dst.pixels);
+    return .of(dst.width, dst.height, dst.pixels);
 }
 
 /// The image our decoder `D` reads from `input` as `format`, tightly
-/// packed, to hand an encoder; null when it reads none, or an empty one.
+/// packed, to hand an encoder, in `arena` for the batch; null when it reads
+/// none, or an empty one.
 fn source(comptime D: type, input: []const u8, format: PixelFormat, arena: std.mem.Allocator) !?image.PixelBuffer {
-    const answer = try ours(D, input, format, arena);
-    if (!answer.accepted or answer.width == 0 or answer.height == 0) return null;
-    const src = try image.PixelBuffer.init(@constCast(answer.pixels), format, answer.width, answer.height);
-    return src;
+    const src = try decode(D, input, format, arena) orelse return null;
+    return if (src.width == 0 or src.height == 0) null else src;
 }
 
 /// Our encoder's file for `src`: F.encode's, or a rejection when it fails.
 fn oursEncode(comptime F: type, src: image.PixelBuffer, arena: std.mem.Allocator) !Answer {
     var w: std.Io.Writer.Allocating = .init(arena);
     F.encode(&w.writer, src, arena) catch return .{ .accepted = false };
-    return .{ .accepted = true, .width = src.width, .height = src.height, .pixels = w.written() };
+    return .of(src.width, src.height, w.written());
 }
 
 /// Whether `op`'s answer for `input` in `format` counts: always, unless the
@@ -126,16 +151,16 @@ fn comparable(comptime F: type, op: []const u8, format: PixelFormat, input: []co
     return !@hasDecl(F, "comparable") or F.comparable(op, format, input);
 }
 
-/// The most pixel bytes `input` can produce in a batch: its size, from our
-/// decoder's header, times every format's pixel size, for ours and each
-/// oracle.
-fn answerBytes(comptime F: type, input: []const u8) usize {
+/// The bytes `input` holds in a batch: itself, and for an encoder the
+/// sources our decoder reads from it, their size from its header.
+fn batchBytes(comptime F: type, input: []const u8) usize {
+    if (!@hasDecl(F, "encode")) return input.len;
     var r: std.Io.Reader = .fixed(input);
     var d = F.Decoder.init(&r, .{ .limits = .{ .max_pixels = max_pixels } });
     const config = d.decodeConfig() catch return input.len;
     var per_pixel: usize = 0;
     for (F.formats) |format| per_pixel += format.bytesPerPixel();
-    return input.len + @as(usize, config.width) * config.height * per_pixel * (F.oracles.len + 1);
+    return input.len + @as(usize, config.width) * config.height * per_pixel;
 }
 
 fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
@@ -243,7 +268,7 @@ fn Run(comptime F: type) type {
                             continue;
                         };
                         m.* = try oursEncode(F, src, arena);
-                    } else m.* = try ours(F.Decoder, input, format, arena);
+                    } else m.* = try ours(F.Decoder, input, format);
                     for (row, F.oracles) |*t, op| {
                         const resp = responses[k];
                         k += 1;
@@ -252,7 +277,8 @@ fn Run(comptime F: type) type {
                                 .accepted = true,
                                 .width = resp.width,
                                 .height = resp.height,
-                                .pixels = resp.pixels,
+                                .len = resp.len,
+                                .hash = resp.hash,
                             },
                             .rejected, .too_large => .{ .accepted = false },
                             else => null,
@@ -269,7 +295,7 @@ fn Run(comptime F: type) type {
         }
 
         /// The next batch of inputs: corpus files first, then fuzzed ones,
-        /// until the batch would hold `batch_bytes` of pixels. Under the
+        /// until the batch would hold `batch_bytes`. Under the
         /// lock.
         fn take(r: *Self, arena: std.mem.Allocator) ![]const []const u8 {
             const random = r.prng.random();
@@ -280,7 +306,7 @@ fn Run(comptime F: type) type {
             for (inputs, r.done..) |*input, i| {
                 if (count > 0 and bytes >= batch_bytes) break;
                 count += 1;
-                defer bytes += answerBytes(F, input.*);
+                defer bytes += batchBytes(F, input.*);
                 if (i < r.corpus.len) {
                     input.* = r.corpus[i];
                     continue;

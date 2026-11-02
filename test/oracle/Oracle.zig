@@ -1,6 +1,6 @@
 //! The Zig client for `image-oracle` (test/oracle/oracle.c), which decodes
 //! inputs with the reference libraries: hand it a batch of requests and get
-//! each library's verdict and pixels. compare.zig holds this package's
+//! each library's verdict, and its pixels' length and hash. compare.zig holds this package's
 //! decoders against it, and `just oracle` runs that.
 //!
 //! Each `run` spawns the oracle once, so batch thousands of requests per
@@ -49,9 +49,11 @@ pub const Response = struct {
     status: Status,
     width: u32,
     height: u32,
-    /// Tightly packed in the requested format, on success. It points into
-    /// the batch's memory, which `free` releases.
-    pixels: []const u8,
+    /// The pixels' length, tightly packed in the requested format, on
+    /// success: or an encode op's file's.
+    len: u32,
+    /// XXH64, seed 0, of those pixels: `std.hash.XxHash64.hash(0, pixels)`.
+    hash: u64,
 };
 
 pub const RunError = error{ OracleFailed, BadResponse } || mem.Allocator.Error ||
@@ -103,34 +105,27 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     var buf: [64 * 1024]u8 = undefined;
     var reader = child.stdout.?.readerStreaming(oracle.io, &buf);
     const bytes = try reader.interface.allocRemaining(oracle.gpa, .unlimited);
-    errdefer oracle.gpa.free(bytes);
+    defer oracle.gpa.free(bytes);
     const term = try child.wait(oracle.io);
     if (term != .exited or term.exited != 0) return error.OracleFailed;
 
-    // The extra last element remembers the raw bytes for `free`.
-    const responses = try oracle.gpa.alloc(Response, requests.len + 1);
-    errdefer oracle.gpa.free(responses);
-    var at: usize = 0;
-    for (responses[0..requests.len]) |*resp| {
-        if (bytes.len - at < 13) return error.BadResponse;
-        const len = mem.readInt(u32, bytes[at + 9 ..][0..4], .little);
-        if (bytes.len - at - 13 < len) return error.BadResponse;
+    const size = 21;
+    if (bytes.len != requests.len * size) return error.BadResponse;
+    const responses = try oracle.gpa.alloc(Response, requests.len);
+    for (responses, 0..) |*resp, i| {
+        const b = bytes[i * size ..][0..size];
         resp.* = .{
-            .status = @enumFromInt(bytes[at]),
-            .width = mem.readInt(u32, bytes[at + 1 ..][0..4], .little),
-            .height = mem.readInt(u32, bytes[at + 5 ..][0..4], .little),
-            .pixels = bytes[at + 13 ..][0..len],
+            .status = @enumFromInt(b[0]),
+            .width = mem.readInt(u32, b[1..5], .little),
+            .height = mem.readInt(u32, b[5..9], .little),
+            .len = mem.readInt(u32, b[9..13], .little),
+            .hash = mem.readInt(u64, b[13..21], .little),
         };
-        at += 13 + len;
     }
-    if (at != bytes.len) return error.BadResponse;
-    responses[requests.len] = .{ .status = .ok, .width = 0, .height = 0, .pixels = bytes };
-    return responses[0..requests.len];
+    return responses;
 }
 
 /// Frees what `run` returned.
 pub fn free(oracle: Oracle, responses: []Response) void {
-    const all = responses.ptr[0 .. responses.len + 1];
-    oracle.gpa.free(all[responses.len].pixels);
-    oracle.gpa.free(all);
+    oracle.gpa.free(responses);
 }
