@@ -1,7 +1,8 @@
-# JPEG decode: notes and decisions
+# JPEG: notes and decisions
 
 `src/jpeg/` is a streaming JPEG decoder written from ITU T.81 (the JPEG
-process), T.871 (JFIF), and Adobe's APP14 note (the color transform).
+process), T.871 (JFIF), and Adobe's APP14 note (the color transform), and
+an encoder ("Encoding" below).
 libjpeg-turbo is the oracle and the bar, and owner decision 2 is to match its
 default output bit for bit; its source was read only to settle behavior the
 specifications leave open, never translated. This file records what the
@@ -264,3 +265,134 @@ processes.
   Stage 2 adds 12-bit frames, arithmetic-coded frames with DAC segments and
   random bytes for their data, and lossless frames of every precision and
   predictor with Huffman-coded differences.
+
+## Encoding
+
+`encode.zig`, `fdct.zig`, and `huffman_encode.zig` write baseline or
+progressive DCT files with Huffman coding and 8-bit samples: YCbCr at 4:4:4,
+4:2:2, or 4:2:0 for a color source, one component for a gray one, in JFIF,
+with EXIF (APP1) and an ICC profile (APP2, split into 65,519-byte chunks)
+written when given. `encode(w, src, options, work)` follows src/encode.zig's
+contract: any source format, converted a row at a time to `rgb8` or `gray8`
+by `image.convert` (alpha dropped, decision 7), no allocation, and `work`
+of at least `workLen(options, width, height)` bytes, which the caller can
+compute before it has pixels. Results: `results/jpeg-encode-20261102.md`.
+
+### Matching libjpeg-turbo
+
+For the same settings the file is libjpeg-turbo's byte for byte, so the
+oracle compares bytes (`jpeg-turbo-encode`), not pixels. That fixes every
+choice T.81 leaves open:
+
+- Quantization tables: K.1 and K.2 scaled by libjpeg's quality rule (5000/q
+  below 50, 200 - 2q from 50, rounded, clamped to 1-255; quality 0 counts
+  as 1, above 100 as 100), written as one DQT segment per table.
+- Color: T.871's equations in libjpeg-turbo's 16-bit fixed point, Cb and Cr
+  rounded with half less one. Downsampling averages each pair (4:2:2) or
+  2×2 square (4:2:0) with the bias alternating 0, 1 or 1, 2 across the row.
+- Edges: a row past the bottom repeats the last; a column past the right
+  edge repeats before downsampling; a chroma row past the last made from
+  image rows repeats that one. A dummy block that completes an MCU has no
+  AC coefficients and the DC of the block to its left, or, below the image,
+  of its MCU's last block in the row above.
+- Forward DCT: the islow LLM DCT, with its 13-bit constants and its two
+  rounding points, then division by 8q rounding half away from zero.
+  `fdct.zig` computes it with 16-bit multiply-adds on two blocks at once
+  and divides with two high multiplies (a reciprocal and a power-of-two
+  correction), exact for every input the DCT can produce; its tests check
+  the regrouped butterflies against the plain 32-bit ones and the division
+  exhaustively.
+- Optimized tables: K.2's procedure with a reserved symbol of count 1, ties
+  merged larger symbol first, and K.3's length adjustment; symbols listed
+  by their length before adjustment, then value.
+- Progressive: libjpeg's default script (`jpeg_simple_progression`: ten
+  scans for color with Cr's before Cb's, six for gray), optimized tables
+  for every scan (libjpeg-turbo forces them), an EOB run ended at 0x7fff or
+  before its held correction bits could pass 937 (its 1,000-bit buffer less
+  a block's 63), and 0 for the table selector a scan does not use.
+- Markers: SOI, JFIF 1.01 (aspect 1:1, no thumbnail), APP1 Exif, APP2
+  ICC_PROFILE, DQT, SOF0 or SOF2, DHT and SOS per scan, EOI.
+
+`EncodeOptions` defaults to quality 75, 4:2:0, standard tables, and
+baseline, as `cjpeg` and TurboJPEG do.
+
+### Memory
+
+A baseline file with the standard tables streams: the work memory holds
+one converted source row, each component's samples for one MCU row (at
+full resolution, and downsampled), and the quantized blocks of that MCU
+row, 128 bytes a block: tens of kilobytes for a megapixel image. Optimized tables and progressive
+scans read every coefficient at least twice (count, then write), so they
+keep the whole image's quantized blocks, two bytes a sample of each
+component padded to whole MCUs, as libjpeg-turbo's full-image coefficient
+buffer does: 3 bytes a pixel at 4:2:0 and 6 at 4:4:4. `workLen` assumes a
+color source, the larger case.
+
+### Speed
+
+Measured against libjpeg-turbo with its SIMD on, on one core
+(`results/jpeg-encode-20261102.md`):
+
+- Color conversion: eight pixels a step, loaded as 32 bytes and permuted so
+  each 128-bit half holds four pixels (`vpermd`), two in-half byte
+  shuffles to (R,G) and (B,G) pairs, and `pmaddwd` with the weights over
+  2^15 split in two or applied by a shift. The permute is inline assembly
+  on x86: as a portable shuffle LLVM merged it with the byte shuffles into
+  four `vpermt2b`, three µops each, and a 48-byte shuffle was built a byte
+  at a time with `vpinsrb`. This took the sample stage from 2.0 to 1.0
+  cycles a pixel.
+- Downsampling: each pair of samples is one u16 lane, and its two bytes'
+  sum is the pair's sum whatever the byte order.
+- Entropy coding: a 64-bit bit accumulator in registers for a whole block,
+  stored eight bytes at a time when no byte is 0xff; the nonzero
+  coefficients come from a vector compare, its mask moved to zigzag order
+  by eight byte tables, and the loop visits only set bits, clearing the
+  lowest each time (`mask & (mask - 1)`: the loop's dependency through
+  the mask is one instruction instead of three, 11% less Huffman time). The
+  progressive AC first and refinement scans use the same mask loop over
+  the magnitudes after the point transform, which made progressive files
+  1.9× faster.
+- Optimal tables are built only for the tables a scan uses, searching
+  only the symbols seen and listing them by counting sort: per-call cost
+  that dominated small images (a 16×16 progressive file went from 0.07× to
+  1.7× libjpeg-turbo).
+
+Tried and dropped: splitting a block's coding into a pass that makes
+(code, length) words and a pass that writes them, to free registers (the
+same speed); 32-bit DCT lanes with array transposes (slower than the
+16-bit pair DCT).
+
+### Testing the encoder
+
+- Unit tests: the vector color conversion against T.871's equations and
+  the scalar fixed point, downsampling's alternating bias in both vector
+  widths, the pair DCT against the 32-bit butterflies and the float DCT,
+  the division exhaustively, the standard tables' codes, optimal tables
+  (prefix-free, at most 16 bits, never all ones, Kraft), and the bit
+  writer's stuffing and padding across its staging buffer.
+- The oracle (`test/oracle/jpeg_encode.zig`, `jpeg_turbo_encode` in
+  `jpeg.c`): the JPEG corpus and fuzzed JPEG streams decoded by our decoder
+  into `rgb8`, `rgba8`, and `gray8` sources, each encoded by both with the
+  settings its size picks (quality 1 to 100, every subsampling, baseline,
+  optimized, progressive, EXIF and a two-segment ICC profile sometimes),
+  compared byte for byte: 0 mismatches on 100,409 comparisons.
+- The benchmark's checksums: libjpeg-turbo with its SIMD on writes the same
+  bytes as this package on all 220 rows of the five encode operations.
+- The fuzz target (`test/fuzz/jpeg_encode.zig`): every source format and
+  setting, the exact `workLen` (one byte fewer fails), a writer that drains
+  a few bytes at a time, our decoder reading the file back, and at quality
+  100 with 4:4:4 a bound on each sample's error and the mean's.
+
+### Decision 3: trellis quantization
+
+Not built; the measurement for the owner is in the results file. On 15
+photographs, screenshots, and textures from the benchmark corpus at
+quality 75, 85, and 95, 4:2:0, with mozjpeg 4.1.5 built out of tree:
+mozjpeg's trellis on the standard tables makes files 7.5-11.6% smaller
+than our optimized baseline at the same quality setting, but they lose
+0.4-1.0 dB of PSNR; at equal RGB PSNR they are no smaller (+0.6 to +1.9%),
+and at equal SSIM 6.6% smaller (10 images, q85). mozjpeg's full default
+(progressive with scan optimization, trellis, and its own tables) is
+2.2-6.1% smaller than our progressive at equal PSNR and 12.2% at equal
+SSIM. Trellis runs at 1/14 of our optimized baseline's speed, and the full
+profile at 1/8 of our progressive's.

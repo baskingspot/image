@@ -4,6 +4,7 @@
 // libjxl, MagickWand) or -l flags (-lgif), and `-` for none.
 FORMAT(png) // link: libpng spng
 FORMAT(jpeg) // link: libjpeg
+FORMAT(jpeg_encode) // link: libjpeg
 FORMAT(qoi) // link: -
 FORMAT(qoi_encode) // link: -
 FORMAT(bmp) // link: MagickWand

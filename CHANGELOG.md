@@ -41,6 +41,7 @@ All notable changes to image are recorded here. The format follows
 - The package depends on `compress` at commit 6319823 (after 0.2.0, for its faster inflate, its lazy deflate levels, and its writer's block scratch in the caller's buffer), which brings `fastmem`.
 - `image.wbmp`: WBMP type 0, a streaming `wbmp.Decoder` that writes any pixel format, and `wbmp.encode`, which stores gray of at least 128 as white.
 - `image.qoi.encode`, `qoi.workLen`, and `qoi.EncodeOptions`: a QOI encoder that writes the same bytes as the reference encoder (qoi.h) and needs no work memory.
+- `image.jpeg.encode`, `jpeg.workLen`, `jpeg.EncodeOptions`, and `jpeg.Subsampling`: a JPEG encoder that writes libjpeg-turbo's bytes for the same settings: baseline or progressive, 4:4:4, 4:2:2, or 4:2:0 (one component for gray sources), standard or optimized Huffman tables, libjpeg's quality scaling, JFIF with EXIF and ICC written when given (`error.MetadataTooLarge` past what the segments hold), from any pixel format with alpha dropped; a baseline file with standard tables streams an MCU row at a time.
 
 ### Changed
 

@@ -215,6 +215,109 @@ static enum status jpeg_wuffs(const uint8_t *in, size_t len, enum pixel_format f
                       max_pixels, out);
 }
 
+// The encoder's settings for a `width` by `height` source, drawn from its
+// size so that both sides choose them alike (test/oracle/jpeg_encode.zig's
+// `settingsFor` is the same): quality 1 to 100, subsampling, progressive or
+// baseline, optimized or standard tables, and sometimes an EXIF block, an
+// ICC profile, or both, the profile then long enough to take two segments.
+struct settings {
+  int quality, subsampling, progressive, optimize;
+  uint32_t key, exif_len, icc_len;
+};
+
+static struct settings settings_for(uint32_t width, uint32_t height) {
+  uint32_t k = width * 0x9E3779B1u ^ height * 0x85EBCA77u;
+  k ^= k >> 15;
+  k *= 0x2C1B3C6Du;
+  k ^= k >> 12;
+  struct settings s = {
+      .quality = 1 + (int)(k % 100),
+      .subsampling = (int)((k >> 8) % 3),
+      .progressive = (int)((k >> 10) & 1),
+      .optimize = (int)((k >> 11) & 1),
+      .key = k,
+  };
+  uint32_t meta = (k >> 12) & 7;
+  if (meta == 5 || meta == 7) s.exif_len = 1 + (k >> 16) % 2000;
+  if (meta == 6) s.icc_len = 1 + (k >> 16) % 3000;
+  if (meta == 7) s.icc_len = 65520 + (k >> 16) % 70000;
+  return s;
+}
+
+// libjpeg-turbo's encoder, for this package's (test/oracle/jpeg_encode.zig):
+// RGB, RGBA with its alpha ignored, or gray, at the settings above, with
+// the islow DCT and libjpeg's defaults otherwise (JFIF, no restarts), and
+// tables limited to baseline's 8 bits (TurboJPEG's choice).
+static enum status jpeg_turbo_encode(const uint8_t *pixels, enum pixel_format format,
+                                     uint32_t width, uint32_t height, struct image *out) {
+  int ch;
+  J_COLOR_SPACE space;
+  switch (format) {
+  case PF_RGB8: ch = 3; space = JCS_RGB; break;
+  case PF_RGBA8: ch = 4; space = JCS_EXT_RGBA; break;
+  case PF_GRAY8: ch = 1; space = JCS_GRAYSCALE; break;
+  default: return STATUS_SKIPPED;
+  }
+  struct settings s = settings_for(width, height);
+  uint8_t *volatile meta = NULL;
+  unsigned char *buf = NULL;
+  unsigned long len = 0;
+  struct jpeg_compress_struct cinfo;
+  struct strict err;
+  cinfo.err = jpeg_std_error(&err.pub);
+  err.pub.error_exit = strict_exit;
+  if (setjmp(err.jump)) {
+    jpeg_destroy_compress(&cinfo);
+    free(buf);
+    free(meta);
+    return STATUS_REJECTED;
+  }
+  jpeg_create_compress(&cinfo);
+  jpeg_mem_dest(&cinfo, &buf, &len);
+  cinfo.image_width = width;
+  cinfo.image_height = height;
+  cinfo.input_components = ch;
+  cinfo.in_color_space = space;
+  jpeg_set_defaults(&cinfo);
+  jpeg_set_quality(&cinfo, s.quality, TRUE);
+  if (ch != 1) {
+    cinfo.comp_info[0].h_samp_factor = s.subsampling == 0 ? 1 : 2;
+    cinfo.comp_info[0].v_samp_factor = s.subsampling == 2 ? 2 : 1;
+  }
+  cinfo.optimize_coding = s.optimize;
+  if (s.progressive) jpeg_simple_progression(&cinfo);
+  jpeg_start_compress(&cinfo, TRUE);
+  uint32_t most = s.exif_len > s.icc_len ? s.exif_len : s.icc_len;
+  if (most) {
+    meta = malloc(6 + most);
+    if (!meta) longjmp(err.jump, 1);
+  }
+  if (s.exif_len) {
+    memcpy(meta, "Exif\0\0", 6);
+    for (uint32_t i = 0; i < s.exif_len; i++) meta[6 + i] = (uint8_t)(i * 131 + s.key);
+    jpeg_write_marker(&cinfo, JPEG_APP0 + 1, meta, 6 + s.exif_len);
+  }
+  if (s.icc_len) {
+    for (uint32_t i = 0; i < s.icc_len; i++) meta[i] = (uint8_t)(i * 71 + (s.key >> 8));
+    jpeg_write_icc_profile(&cinfo, meta, s.icc_len);
+  }
+  while (cinfo.next_scanline < height) {
+    JSAMPROW row = (JSAMPROW)(pixels + (size_t)cinfo.next_scanline * width * ch);
+    jpeg_write_scanlines(&cinfo, &row, 1);
+  }
+  jpeg_finish_compress(&cinfo);
+  jpeg_destroy_compress(&cinfo);
+  free(meta);
+  out->pixels = buf;
+  out->len = len;
+  return STATUS_OK;
+}
+
+const struct op jpeg_encode_ops[] = {
+    {"jpeg-turbo-encode", .encode = jpeg_turbo_encode},
+    {0},
+};
+
 const struct op jpeg_ops[] = {
     {"jpeg-turbo", jpeg_turbo},
     {"jpeg-wuffs", jpeg_wuffs},
