@@ -1,0 +1,1100 @@
+//! The JPEG XL lossless encoder (ISO/IEC 18181-1): one Modular frame in a
+//! bare codestream. src/encode.zig has the contract; nothing is
+//! allocated, and the work memory holds one group's channels and tokens,
+//! the samples a tree is learned from, and the compressed sections, which
+//! must all be known before the table of contents that precedes them.
+//!
+//! - The file decodes to the source converted by `image.convert` to the
+//!   stored format: the source's channels (CMYK becomes RGB), straight or
+//!   premultiplied as the source is, at 8 bits for 8-bit sources and 16
+//!   otherwise. Alpha is an extra channel, `alpha_associated` when the
+//!   source is premultiplied. Color is sRGB.
+//! - The image is split into groups of 256 by 256. One tree, learned from
+//!   pixels sampled across the groups, and one set of histograms code
+//!   every group. A palette replaces the colors when there are few, and
+//!   otherwise a reversible color transform, chosen by a cost estimate on
+//!   sampled rows, decorrelates RGB.
+//! - Effort trades speed for size: the predictors a leaf may choose, the
+//!   weighted predictor, the samples, and the tree's size.
+
+const std = @import("std");
+const testing = std.testing;
+const Io = std.Io;
+
+const shared = @import("../encode.zig");
+const PixelFormat = @import("../pixel.zig").PixelFormat;
+const PixelBuffer = @import("../pixel.zig").PixelBuffer;
+const Converter = @import("../convert.zig").Converter;
+const BitWriter = @import("encode_bits.zig").BitWriter;
+const Bump = @import("encode_mem.zig").Bump;
+const ent = @import("encode_entropy.zig");
+const mod = @import("encode_modular.zig");
+const Plane = mod.Plane;
+const Token = ent.Token;
+
+/// How hard the encoder works to make the file small.
+pub const Effort = enum {
+    /// The gradient predictor, a small tree, few samples.
+    fast,
+    /// A choice of four predictors with the weighted predictor and its
+    /// property.
+    default,
+    /// Every predictor, more samples and thresholds, a larger tree.
+    best,
+};
+
+pub const EncodeOptions = struct {
+    effort: Effort = .default,
+};
+
+pub const EncodeError = shared.Error || error{
+    /// JPEG XL cannot store an image without rows or columns.
+    EmptyImage,
+};
+
+const group_dim = 256;
+const group_shift = 1; // 128 << 1
+/// The largest side the size header holds.
+const max_side = 1 << 30;
+/// The most sections a frame may have (the decoder's limit).
+const max_toc_entries = 65536;
+const num_quant_tables = 17;
+
+const Params = struct {
+    predictors: []const mod.Predictor,
+    wp_prop: bool,
+    samples: usize,
+    thresholds: u32,
+    max_leaves: u32,
+    split_cost: f32,
+    palette_max: u32,
+    /// Pixels the color transform search looks at.
+    rct_pixels: usize,
+    /// Earlier channels whose values are properties.
+    refs: u32,
+    /// Samples a split is judged on, at most.
+    split_samples: u32,
+    /// Splits are judged with this many of a node's cheapest predictors;
+    /// 0 for all.
+    search_predictors: u32,
+};
+
+fn params(effort: Effort) Params {
+    return switch (effort) {
+        .fast => .{
+            .predictors = &.{.gradient},
+            .wp_prop = false,
+            .samples = 1 << 15,
+            .thresholds = 16,
+            .max_leaves = 64,
+            .split_cost = 64,
+            .palette_max = 256,
+            .rct_pixels = 1 << 10,
+            .refs = 0,
+            .split_samples = 4096,
+            .search_predictors = 0,
+        },
+        .default => .{
+            .predictors = &.{ .gradient, .weighted, .left, .top },
+            .wp_prop = true,
+            .samples = 1 << 18,
+            .thresholds = 32,
+            .max_leaves = 512,
+            .split_cost = 48,
+            .palette_max = 1024,
+            .rct_pixels = 1 << 15,
+            .refs = 2,
+            .split_samples = 16384,
+            .search_predictors = 2,
+        },
+        .best => .{
+            .predictors = &.{
+                .gradient,  .weighted, .left,      .top,      .zero,     .average0, .select,
+                .top_right, .top_left, .left_left, .average1, .average2, .average3, .average4,
+            },
+            .wp_prop = true,
+            .samples = 1 << 19,
+            .thresholds = 64,
+            .max_leaves = 2048,
+            .split_cost = 40,
+            .palette_max = 1024,
+            .rct_pixels = 1 << 16,
+            .refs = 3,
+            .split_samples = 16384,
+            .search_predictors = 0,
+        },
+    };
+}
+
+/// What the file stores.
+const Layout = struct {
+    stored: PixelFormat,
+    /// Color channels: 1 or 3.
+    nc: u32,
+    alpha: bool,
+    premul: bool,
+    bits: u32,
+    w: u32,
+    h: u32,
+    xg: u32,
+    yg: u32,
+    num_groups: u32,
+    num_lf_groups: u32,
+
+    fn init(format: PixelFormat, w: u32, h: u32) Layout {
+        const stored: PixelFormat = switch (format) {
+            .bgr8, .cmyk8 => .rgb8,
+            .bgra8 => .rgba8,
+            .bgra8_premul => .rgba8_premul,
+            .bgr16, .cmyk16 => .rgb16,
+            .bgra16, .rgba_f32 => .rgba16,
+            .bgra16_premul, .rgba_f32_premul => .rgba16_premul,
+            .rgb_f32 => .rgb16,
+            .gray_f32 => .gray16,
+            .gray8, .gray_alpha8, .gray_alpha8_premul, .rgb8, .rgba8, .rgba8_premul => format,
+            .gray16, .gray_alpha16, .gray_alpha16_premul, .rgb16, .rgba16, .rgba16_premul => format,
+        };
+        const xg = (w + group_dim - 1) / group_dim;
+        const yg = (h + group_dim - 1) / group_dim;
+        const lf = group_dim * 8;
+        const xlg = (w + lf - 1) / lf;
+        const ylg = (h + lf - 1) / lf;
+        return .{
+            .stored = stored,
+            .nc = if (stored.isGray()) 1 else 3,
+            .alpha = stored.hasAlpha(),
+            .premul = stored.isPremultiplied(),
+            .bits = if (stored.sample() == .u8) 8 else 16,
+            .w = w,
+            .h = h,
+            .xg = xg,
+            .yg = yg,
+            .num_groups = xg * yg,
+            .num_lf_groups = xlg * ylg,
+        };
+    }
+
+    fn channels(l: *const Layout) u32 {
+        return l.nc + @intFromBool(l.alpha);
+    }
+
+    fn single(l: *const Layout) bool {
+        return l.num_groups == 1;
+    }
+
+    fn tocEntries(l: *const Layout) u64 {
+        if (l.single()) return 1;
+        return 2 + @as(u64, l.num_lf_groups) + l.num_groups;
+    }
+
+    /// The largest tree the decoder accepts (modular.readTree's limit for
+    /// a global tree).
+    fn treeLimit(l: *const Layout) u64 {
+        const px = @as(u64, l.w) * l.h;
+        return @min(1 << 22, 1024 + px * l.channels() / 16);
+    }
+};
+
+/// The widest stored pixel: 16-bit RGBA.
+const max_channels = 4;
+const max_bpp = 8;
+
+/// The work memory's parts, sized for the worst source format.
+const Sizes = struct {
+    out: usize,
+    toc: usize,
+    planes: usize,
+    rows: usize,
+    tokens: usize,
+    hash: usize,
+    samples: usize,
+    learn: usize,
+    nodes: usize,
+    histograms: usize,
+    code: usize,
+    write: usize,
+    wp: usize,
+    store: usize,
+    streams: usize,
+
+    fn init(p: Params, w: u32, h: u32) ?Sizes {
+        if (w == 0 or h == 0 or w > max_side or h > max_side) return null;
+        const lay: Layout = .init(.rgba16, w, h);
+        if (lay.tocEntries() > max_toc_entries) return null;
+        const gw: usize = @min(w, group_dim);
+        const gh: usize = @min(h, group_dim);
+        const pal: usize = p.palette_max;
+        // A stream's samples; also room for two rows of the color
+        // transform search.
+        const stream_samples = @max(max_channels * gw * gh + pal * max_channels, 2 * max_channels * group_dim);
+        const pixels = @as(u64, w) * h;
+        const all_samples = std.math.mul(u64, pixels, max_channels) catch return null;
+        const leaves: usize = p.max_leaves;
+        // Sections: six bytes a sample at most (see `encodeImpl`), the tree
+        // and histograms, and each stream's header and padding.
+        const sample_bytes = std.math.mul(u64, all_samples + pal * max_channels, 6) catch return null;
+        const fixed = 64 * (@as(u64, lay.num_groups) + 2) + leaves * 2 * 5 * 8 + 7 * 256 * 4 +
+            leaves * (256 * 3 + 4) + 4096;
+        const out = std.math.add(u64, sample_bytes, fixed) catch return null;
+        if (out > std.math.maxInt(usize)) return null;
+        return .{
+            .out = @intCast(out),
+            .toc = @intCast(lay.tocEntries() * 4 + 4096),
+            .planes = stream_samples * 4,
+            .rows = @max(gw, pal) * max_bpp,
+            .tokens = stream_samples * @sizeOf(Token) + @max(stream_samples, (2 * leaves + 1) * 5) * 4,
+            .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
+            .samples = mod.Samples.memory(sampleCap(p, w, h), p.predictors.len, p.refs),
+            .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, p.max_leaves)),
+            .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
+            .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
+            .code = ent.buildMemory(leaves) + ent.buildMemory(6),
+            .write = ent.writeMemory(leaves),
+            .wp = mod.Wp.memory(@max(gw, pal)),
+            .store = @as(usize, @intCast(@min(all_samples + pal * max_channels, store_tokens))) * 4,
+            .streams = (lay.num_groups + 1) * 4,
+        };
+    }
+
+    fn total(s: Sizes) ?usize {
+        var t: usize = 0;
+        inline for (@typeInfo(Sizes).@"struct".fields) |f| {
+            t = std.math.add(usize, t, @field(s, f.name) + 64) catch return null;
+        }
+        return t;
+    }
+};
+
+/// The samples a tree is learned from: the effort's, or every sample of a
+/// smaller image.
+fn sampleCap(p: Params, w: u32, h: u32) usize {
+    return @intCast(@min(p.samples, @as(u64, w) * h * max_channels + p.palette_max * max_channels));
+}
+
+fn learnOptions(p: Params, leaves: u32) mod.LearnOptions {
+    return .{
+        .predictors = p.predictors,
+        .wp_prop = p.wp_prop,
+        .max_thresholds = p.thresholds,
+        .max_leaves = leaves,
+        .split_cost = p.split_cost,
+        .refs = p.refs,
+        .split_samples = p.split_samples,
+        .search_predictors = p.search_predictors,
+    };
+}
+
+/// The work memory `encode` needs for a `width` by `height` image, or
+/// null when JPEG XL (or this encoder) cannot store it.
+pub fn workLen(options: EncodeOptions, width: u32, height: u32) ?usize {
+    const s = Sizes.init(params(options.effort), width, height) orelse return null;
+    return s.total();
+}
+
+const hash_size = 4096;
+/// The most tokens kept between counting and writing (16 MiB).
+const store_tokens = 1 << 22;
+
+/// The image's distinct colors, when there are at most `max`.
+const Palette = struct {
+    /// Per slot, the color's index plus one, or 0 when empty.
+    slots: []u16,
+    keys: []u64,
+    /// Colors in insertion order, channel by channel within a color.
+    colors: []u16,
+    /// The index each color gets after sorting.
+    order: []u16,
+    len: usize = 0,
+    nch: usize,
+    max: usize,
+
+    fn hash(k: u64) usize {
+        return @intCast((k *% 0x9E3779B97F4A7C15) >> (64 - 12));
+    }
+
+    /// Adds `key`; false when the palette is full.
+    inline fn add(p: *Palette, key: u64, color: []const u16) bool {
+        var i = hash(key);
+        while (true) : (i = (i + 1) & (hash_size - 1)) {
+            const s = p.slots[i];
+            if (s == 0) break;
+            if (p.keys[s - 1] == key) return true;
+        }
+        if (p.len == p.max) return false;
+        p.keys[p.len] = key;
+        @memcpy(p.colors[p.len * p.nch ..][0..p.nch], color);
+        p.len += 1;
+        p.slots[i] = @intCast(p.len);
+        return true;
+    }
+
+    inline fn index(p: *const Palette, key: u64) i32 {
+        var i = hash(key);
+        while (true) : (i = (i + 1) & (hash_size - 1)) {
+            const s = p.slots[i];
+            if (p.keys[s - 1] == key) return p.order[s - 1];
+        }
+    }
+};
+
+/// The pixels of a row, deinterleaved into `nch` channels of u16.
+const RowReader = struct {
+    src: PixelBuffer,
+    conv: Converter,
+    lay: *const Layout,
+    buf: []u8,
+
+    fn read(r: *const RowReader, x0: u32, y: u32, w: u32, out: *[max_channels][]i32) void {
+        const bpp = r.src.format.bytesPerPixel();
+        const in = r.src.row(y)[@as(usize, x0) * bpp ..][0 .. @as(usize, w) * bpp];
+        r.conv.run(r.buf, in, w);
+        const nch = r.lay.channels();
+        if (r.lay.bits == 8) {
+            for (0..w) |x| {
+                for (0..nch) |c| out[c][x] = r.buf[x * nch + c];
+            }
+        } else {
+            const s: []align(1) const u16 = @ptrCast(r.buf[0 .. @as(usize, w) * nch * 2]);
+            for (0..w) |x| {
+                for (0..nch) |c| out[c][x] = s[x * nch + c];
+            }
+        }
+    }
+};
+
+inline fn colorKey(v: *const [max_channels]i32, nch: usize) u64 {
+    var k: u64 = 0;
+    for (0..nch) |c| k |= @as(u64, @as(u16, @intCast(v[c]))) << @intCast(16 * c);
+    return k;
+}
+
+// Reversible color transforms.
+
+/// The channels in the order a transform of type `t` takes them.
+inline fn permute(t: u32, v: [3]i32) [3]i32 {
+    const perm = t / 7;
+    return .{ v[perm % 3], v[(perm + 1 + perm / 3) % 3], v[(perm + 2 - perm / 3) % 3] };
+}
+
+/// The forward transform of type `t` (the inverse of modular.invRct).
+inline fn rct(t: u32, v_in: [3]i32) [3]i32 {
+    const v = permute(t, v_in);
+    const custom = t % 7;
+    if (custom == 0) return v;
+    if (custom == 6) {
+        const co = v[0] - v[2];
+        const tmp = v[2] + (co >> 1);
+        const cg = v[1] - tmp;
+        return .{ tmp + (cg >> 1), co, cg };
+    }
+    const a = v[0];
+    var s = v[1];
+    var c = v[2];
+    const second = custom >> 1;
+    if (second == 1) s -= a else if (second == 2) s -= (a + c) >> 1;
+    if (custom & 1 == 1) c -= a;
+    return .{ a, s, c };
+}
+
+/// The transform whose sampled gradient residuals cost least, over about
+/// `pixels` pixels: row segments as many as they are wide, spread over
+/// the image.
+fn chooseRct(lay: *const Layout, rr: *const RowReader, rows: *[2][max_channels][]i32, pixels: usize) u32 {
+    const w = lay.w;
+    if (lay.h < 2 or w < 2) return 6;
+    const n_rows: u32 = @intCast(@max(1, @min(lay.h - 1, std.math.sqrt(pixels))));
+    const seg: u32 = @intCast(@max(2, @min(w, group_dim, pixels / n_rows)));
+    const step = (lay.h - 1) / n_rows;
+    var counts: [42][3][64]u32 = @splat(@splat(@splat(0)));
+    const cfg: ent.Config = .{};
+    var k: u32 = 0;
+    while (k < n_rows) : (k += 1) {
+        const y = 1 + k * step;
+        const x0: u32 = @intCast((@as(u64, k) * 2654435761) % (w - seg + 1));
+        const n = seg;
+        rr.read(x0, y - 1, n, &rows[0]);
+        rr.read(x0, y, n, &rows[1]);
+        // Each transform, specialized, over the two rows at once.
+        inline for (0..42) |t| {
+            var tr: [2][3][group_dim]i32 = undefined;
+            for (0..2) |r| {
+                for (0..n) |x| {
+                    const v = rct(t, .{ rows[r][0][x], rows[r][1][x], rows[r][2][x] });
+                    for (0..3) |c| tr[r][c][x] = v[c];
+                }
+            }
+            for (0..3) |c| {
+                const up = tr[0][c][0..n];
+                const cur = tr[1][c][0..n];
+                const hist = &counts[t][c];
+                for (1..n) |x| {
+                    const g = mod.clampedGradient(up[x], cur[x - 1], up[x - 1]);
+                    const tok = cfg.split(ent.packSigned(@truncate(cur[x] - g))).token;
+                    hist[@min(tok, 63)] += 1;
+                }
+            }
+        }
+    }
+    var best: u32 = 6;
+    var best_cost: f64 = std.math.inf(f64);
+    for (0..42) |t| {
+        var bits: f64 = 0;
+        for (0..3) |c| bits += histCost(&counts[t][c], cfg);
+        // Prefer YCoCg on ties.
+        if (bits < best_cost or (bits == best_cost and t == 6)) {
+            best_cost = bits;
+            best = @intCast(t);
+        }
+    }
+    return best;
+}
+
+fn histCost(c: *const [64]u32, cfg: ent.Config) f64 {
+    var total: u64 = 0;
+    for (c) |k| total += k;
+    if (total == 0) return 0;
+    const lt = std.math.log2(@as(f64, @floatFromInt(total)));
+    var bits: f64 = 0;
+    for (c, 0..) |k, t| {
+        if (k == 0) continue;
+        const kf: f64 = @floatFromInt(k);
+        const split = @as(u32, 1) << cfg.split_exp;
+        const above: u32 = if (t < split) 0 else (@as(u32, @intCast(t)) - split) >> (cfg.msb + cfg.lsb);
+        const extra: f64 = if (t < split) 0 else @floatFromInt(@as(u32, cfg.split_exp) - cfg.msb - cfg.lsb + above);
+        bits += kf * (lt - std.math.log2(kf) + extra);
+    }
+    return bits;
+}
+
+// Streams.
+
+/// What the global stream declares, which every stream's channels follow.
+const Transforms = struct {
+    palette: ?*const Palette = null,
+    rct: u32 = 0,
+};
+
+const Ctx = struct {
+    lay: Layout,
+    tr: Transforms,
+    rr: RowReader,
+    /// Channel buffers for one stream.
+    planes: []i32,
+    rows: [max_channels][]i32,
+    pal_plane: []i32,
+};
+
+/// A stream: the global one (with the palette, and with the image's
+/// channels when there is one group) or a group's.
+const Stream = struct {
+    id: u32,
+    x0: u32,
+    y0: u32,
+    w: u32,
+    h: u32,
+    /// Whether the palette's meta channel comes first.
+    meta: bool,
+};
+
+fn streamAt(lay: *const Layout, k: u32, has_palette: bool) Stream {
+    if (k == 0) {
+        if (lay.single()) return .{ .id = 0, .x0 = 0, .y0 = 0, .w = lay.w, .h = lay.h, .meta = has_palette };
+        return .{ .id = 0, .x0 = 0, .y0 = 0, .w = 0, .h = 0, .meta = has_palette };
+    }
+    const g = k - 1;
+    const gx = g % lay.xg;
+    const gy = g / lay.xg;
+    const x0 = gx * group_dim;
+    const y0 = gy * group_dim;
+    return .{
+        .id = 1 + 3 * lay.num_lf_groups + num_quant_tables + g,
+        .x0 = x0,
+        .y0 = y0,
+        .w = @min(group_dim, lay.w - x0),
+        .h = @min(group_dim, lay.h - y0),
+        .meta = false,
+    };
+}
+
+fn numStreams(lay: *const Layout) u32 {
+    return if (lay.single()) 1 else 1 + lay.num_groups;
+}
+
+/// Fills `out` with stream `s`'s channels, in the decoder's order, and
+/// returns how many.
+fn buildPlanes(c: *Ctx, s: Stream, out: *[max_channels + 1]Plane) usize {
+    var n: usize = 0;
+    if (s.meta) {
+        const p = c.tr.palette.?;
+        const nch = c.lay.channels();
+        for (0..p.len) |i| {
+            const ord = p.order[i];
+            for (0..nch) |ch| c.pal_plane[ch * p.len + ord] = p.colors[i * nch + ch];
+        }
+        out[0] = .{ .w = @intCast(p.len), .h = nch, .data = c.pal_plane[0 .. p.len * nch] };
+        n = 1;
+    }
+    if (s.w == 0 or s.h == 0) return n;
+    const area = @as(usize, s.w) * s.h;
+    const nch = c.lay.channels();
+    const n_img: usize = if (c.tr.palette != null) 1 else nch;
+    for (0..n_img) |k| out[n + k] = .{ .w = s.w, .h = s.h, .data = c.planes[k * area ..][0..area] };
+    var px: [max_channels]i32 = undefined;
+    for (0..s.h) |y| {
+        c.rr.read(s.x0, s.y0 + @as(u32, @intCast(y)), s.w, &c.rows);
+        const row = y * s.w;
+        if (c.tr.palette) |p| {
+            const d = out[n].data[row..][0..s.w];
+            var last_key: u64 = undefined;
+            var last: i32 = -1;
+            for (0..s.w) |x| {
+                for (0..nch) |ch| px[ch] = c.rows[ch][x];
+                const key = colorKey(&px, nch);
+                if (last < 0 or key != last_key) {
+                    last = p.index(key);
+                    last_key = key;
+                }
+                d[x] = last;
+            }
+            continue;
+        }
+        for (0..nch) |ch| @memcpy(out[n + ch].data[row..][0..s.w], c.rows[ch][0..s.w]);
+        if (c.tr.rct != 0) {
+            const a = out[n].data[row..][0..s.w];
+            const b = out[n + 1].data[row..][0..s.w];
+            const cc = out[n + 2].data[row..][0..s.w];
+            for (a, b, cc) |*x0, *x1, *x2| {
+                const v = rct(c.tr.rct, .{ x0.*, x1.*, x2.* });
+                x0.* = v[0];
+                x1.* = v[1];
+                x2.* = v[2];
+            }
+        }
+    }
+    return n + n_img;
+}
+
+// Headers.
+
+fn writeSize(bw: *BitWriter, w: u32, h: u32) void {
+    const d: [4]BitWriter.Dist = .{ .bo(9, 1), .bo(13, 1), .bo(18, 1), .bo(30, 1) };
+    const ratios = [7][2]u64{ .{ 1, 1 }, .{ 12, 10 }, .{ 4, 3 }, .{ 3, 2 }, .{ 16, 9 }, .{ 5, 4 }, .{ 2, 1 } };
+    var ratio: u32 = 0;
+    for (ratios, 1..) |r, i| {
+        if (@as(u64, h) * r[0] % r[1] == 0 and @as(u64, h) * r[0] / r[1] == w) {
+            ratio = @intCast(i);
+            break;
+        }
+    }
+    const small_h = h % 8 == 0 and h <= 256;
+    const small_w = w % 8 == 0 and w <= 256;
+    const small = small_h and (small_w or ratio != 0);
+    bw.boolean(small);
+    if (small) bw.bits(h / 8 - 1, 5) else bw.u32Dist(h, d);
+    bw.bits(ratio, 3);
+    if (ratio == 0) {
+        if (small) bw.bits(w / 8 - 1, 5) else bw.u32Dist(w, d);
+    }
+}
+
+fn writeBitDepth(bw: *BitWriter, bits: u32) void {
+    bw.boolean(false);
+    bw.u32Dist(bits, .{ .v(8), .v(10), .v(12), .bo(6, 1) });
+}
+
+fn writeImageHeader(bw: *BitWriter, lay: *const Layout) void {
+    bw.bits(0x0aff, 16);
+    writeSize(bw, lay.w, lay.h);
+    // ImageMetadata, not all default, without the extra fields.
+    bw.boolean(false);
+    bw.boolean(false);
+    writeBitDepth(bw, lay.bits);
+    bw.boolean(lay.bits <= 12);
+    bw.u32Dist(@intFromBool(lay.alpha), .{ .v(0), .v(1), .bo(4, 2), .bo(12, 1) });
+    if (lay.alpha) {
+        if (lay.bits == 8 and !lay.premul) {
+            bw.boolean(true);
+        } else {
+            bw.boolean(false);
+            bw.enumField(0);
+            writeBitDepth(bw, lay.bits);
+            bw.u32Dist(0, .{ .v(0), .v(3), .v(4), .bo(3, 1) });
+            bw.u32Dist(0, .{ .v(0), .b(4), .bo(5, 16), .bo(10, 48) });
+            bw.boolean(lay.premul);
+        }
+    }
+    // Not XYB.
+    bw.boolean(false);
+    if (lay.nc == 3) {
+        bw.boolean(true);
+    } else {
+        bw.boolean(false);
+        bw.boolean(false); // want_icc
+        bw.enumField(1); // grey
+        bw.enumField(1); // D65
+        bw.boolean(false); // have_gamma
+        bw.enumField(13); // sRGB transfer
+        bw.enumField(1); // relative intent
+    }
+    bw.u64Field(0);
+    // CustomTransformData, all default.
+    bw.boolean(true);
+    bw.padToByte();
+}
+
+fn writeFrameHeader(bw: *BitWriter, lay: *const Layout) void {
+    bw.boolean(false);
+    bw.bits(0, 2); // regular frame
+    bw.boolean(true); // modular
+    bw.u64Field(0); // flags
+    bw.boolean(false); // ycbcr
+    const sel0: [4]BitWriter.Dist = .{ .v(1), .v(2), .v(4), .v(8) };
+    bw.u32Dist(1, sel0); // upsampling
+    if (lay.alpha) bw.u32Dist(1, sel0);
+    bw.bits(group_shift, 2);
+    bw.u32Dist(1, .{ .v(1), .v(2), .v(3), .bo(3, 4) }); // one pass
+    bw.boolean(false); // no crop
+    const blend: [4]BitWriter.Dist = .{ .v(0), .v(1), .v(2), .bo(2, 3) };
+    bw.u32Dist(0, blend);
+    if (lay.alpha) bw.u32Dist(0, blend);
+    bw.boolean(true); // is_last
+    bw.u32Dist(0, .{ .v(0), .b(4), .bo(5, 16), .bo(10, 48) }); // no name
+    // Restoration filter: no Gaborish, no edge-preserving filter.
+    bw.boolean(false);
+    bw.boolean(false);
+    bw.bits(0, 2);
+    bw.u64Field(0);
+    bw.u64Field(0);
+}
+
+/// The stream header every stream has: the global tree, the default
+/// weighted predictor, and the transforms (only in the global stream).
+fn writeStreamHeader(bw: *BitWriter, tr: ?*const Transforms, nch: u32) void {
+    bw.boolean(true);
+    bw.boolean(true);
+    const t = tr orelse {
+        bw.u32Dist(0, .{ .v(0), .v(1), .bo(4, 2), .bo(8, 18) });
+        return;
+    };
+    const n: u32 = @intFromBool(t.palette != null or t.rct != 0);
+    bw.u32Dist(n, .{ .v(0), .v(1), .bo(4, 2), .bo(8, 18) });
+    const begin: [4]BitWriter.Dist = .{ .b(3), .bo(6, 8), .bo(10, 72), .bo(13, 1096) };
+    if (t.palette) |p| {
+        bw.bits(1, 2);
+        bw.u32Dist(0, begin);
+        bw.u32Dist(nch, .{ .v(1), .v(3), .v(4), .bo(13, 1) });
+        bw.u32Dist(@intCast(p.len), .{ .bo(8, 0), .bo(10, 256), .bo(12, 1280), .bo(16, 5376) });
+        bw.u32Dist(0, .{ .v(0), .bo(8, 1), .bo(10, 257), .bo(16, 1281) });
+        bw.bits(0, 4);
+    } else if (t.rct != 0) {
+        bw.bits(0, 2);
+        bw.u32Dist(0, begin);
+        bw.u32Dist(t.rct, .{ .v(6), .b(2), .bo(4, 2), .bo(6, 10) });
+    }
+}
+
+// Encoding.
+
+pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u8) EncodeError!void {
+    if (src.width == 0 or src.height == 0) return error.EmptyImage;
+    try src.check();
+    const p = params(options.effort);
+    const sizes = Sizes.init(p, src.width, src.height) orelse return error.ImageTooLarge;
+    if (work.len < sizes.total().?) return error.WorkTooSmall;
+    var mem: Bump = .init(work);
+    encodeImpl(w, src, p, sizes, &mem) catch |e| return switch (e) {
+        error.WriteFailed => error.WriteFailed,
+        // `workLen` covers every allocation, so this would be a bug in it;
+        // an error is safer than trusting that.
+        error.WorkTooSmall => error.WorkTooSmall,
+    };
+}
+
+fn encodeImpl(
+    w: *Io.Writer,
+    src: PixelBuffer,
+    p: Params,
+    sizes: Sizes,
+    mem: *Bump,
+) error{ WriteFailed, WorkTooSmall }!void {
+    const lay: Layout = .init(src.format, src.width, src.height);
+    const nch = lay.channels();
+    const out_buf = try mem.alloc(u8, sizes.out);
+    const toc_buf = try mem.alloc(u8, sizes.toc);
+    var c: Ctx = .{
+        .lay = lay,
+        .tr = .{},
+        .rr = .{
+            .src = src,
+            .conv = .init(lay.stored, src.format),
+            .lay = undefined,
+            .buf = try mem.alloc(u8, sizes.rows),
+        },
+        .planes = try mem.alloc(i32, sizes.planes / 4),
+        .rows = undefined,
+        .pal_plane = try mem.alloc(i32, p.palette_max * max_channels),
+    };
+    c.rr.lay = &c.lay;
+    const row_w = @max(@min(lay.w, group_dim), p.palette_max);
+    for (&c.rows) |*r| r.* = try mem.alloc(i32, row_w);
+
+    // A palette when the image has few colors.
+    var pal: Palette = .{
+        .slots = try mem.alloc(u16, hash_size),
+        .keys = try mem.alloc(u64, p.palette_max),
+        .colors = try mem.alloc(u16, p.palette_max * max_channels),
+        .order = try mem.alloc(u16, p.palette_max),
+        .nch = nch,
+        .max = p.palette_max,
+    };
+    @memset(pal.slots, 0);
+    const pixels = @as(u64, lay.w) * lay.h;
+    if (findPalette(&c, &pal) and usePalette(&lay, pal.len, pixels)) {
+        sortPalette(&pal);
+        c.tr.palette = &pal;
+    } else if (lay.nc == 3) {
+        // Two rows of channels in the stream planes, as scratch.
+        var rows2: [2][max_channels][]i32 = undefined;
+        for (0..2) |r| {
+            for (0..max_channels) |ch| rows2[r][ch] = c.planes[(r * max_channels + ch) * group_dim ..][0..group_dim];
+        }
+        c.tr.rct = chooseRct(&lay, &c.rr, &rows2, p.rct_pixels);
+    }
+
+    const ns = numStreams(&lay);
+    const has_pal = c.tr.palette != null;
+    const stream_samples = sizes.planes / 4;
+    const tokens = try mem.alloc(Token, stream_samples);
+    const scratch = try mem.alloc(u32, @max(stream_samples, (2 * @as(usize, p.max_leaves) + 1) * 5));
+    var plane_list: [max_channels + 1]Plane = undefined;
+
+    // Learn the tree from samples.
+    const leaves: u32 = @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2));
+    const nodes = try mem.alloc(mod.Node, 2 * @as(usize, p.max_leaves) + 1);
+    var tree: mod.Tree = undefined;
+    {
+        const m = mem.mark();
+        defer mem.release(m);
+        const lo = learnOptions(p, leaves);
+        const cap = sampleCap(p, lay.w, lay.h);
+        var smp: mod.Samples = try .init(mem, cap, p.predictors.len, p.refs);
+        // Sample a band of rows from every stream, as tall as the share
+        // of the image the samples can cover, at an offset that moves
+        // from group to group.
+        const total_px = pixels * (if (has_pal) 1 else nch);
+        const budget: u64 = @as(u64, cap) * 4;
+        const share: f64 = @min(1.0, @as(f64, @floatFromInt(budget)) / @as(f64, @floatFromInt(total_px)));
+        smp.stride = @intCast(@max(1, @min(total_px, budget) / cap));
+        var k: u32 = 0;
+        while (k < ns) : (k += 1) {
+            const s = streamAt(&lay, k, has_pal);
+            const n = buildPlanes(&c, s, &plane_list);
+            for (plane_list[0..n], 0..) |pl, ci| {
+                // The palette is sampled whole.
+                const meta = s.meta and ci == 0;
+                const want: u32 = @intFromFloat(@ceil(share * @as(f64, @floatFromInt(pl.h))));
+                const rows: u32 = if (meta) pl.h else @max(1, want);
+                const y0: u32 = if (rows >= pl.h) 0 else @intCast((@as(u64, k) * 2654435761) % (pl.h - rows + 1));
+                var rb: [mod.max_refs]Plane = undefined;
+                const refs = refsOf(plane_list[0..n], ci, s.meta, p.refs, &rb);
+                try mod.sample(mem, &smp, pl, @intCast(ci), s.id, &lo, refs, y0, y0 + rows);
+            }
+        }
+        // Samples stand for the whole image.
+        smp.seen = total_px;
+        tree = try mod.learn(mem, &smp, lo, nodes);
+    }
+
+    const flat = mod.Flat.build(&tree, try mem.alloc(mod.Flat, tree.nodes.len));
+    // Count tokens, then build the histograms. When every stream's
+    // tokens fit the store, packed, they are kept for writing; otherwise
+    // they are made again.
+    var hist: ent.Histograms = try .init(mem, tree.num_leaves);
+    const store = try mem.alloc(u32, sizes.store / 4);
+    var stored: usize = 0;
+    var keep = true;
+    const stream_len = try mem.alloc(u32, ns);
+    {
+        var k: u32 = 0;
+        while (k < ns) : (k += 1) {
+            const s = streamAt(&lay, k, has_pal);
+            const n = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
+            hist.addTokens(tokens[0..n], .{});
+            stream_len[k] = @intCast(n);
+            if (!keep) continue;
+            if (n > store.len - stored) {
+                keep = false;
+                continue;
+            }
+            for (tokens[0..n], store[stored..][0..n]) |t, *o| {
+                if (t.value >= 1 << 21 or t.ctx >= 1 << 11) keep = false;
+                o.* = t.ctx | t.value << 11;
+            }
+            stored += n;
+        }
+    }
+    const code = try ent.Code.build(mem, &hist, .{});
+
+    // The sections.
+    var bw: BitWriter = .init(out_buf);
+    const sec_sizes = try mem.alloc(u32, @intCast(lay.tocEntries()));
+    @memset(sec_sizes, 0);
+    // LfGlobal: default LF dequantization, the global tree, its code,
+    // and the global stream.
+    bw.boolean(true);
+    bw.boolean(true);
+    {
+        const m = mem.mark();
+        defer mem.release(m);
+        const tt = tree.tokens(try mem.alloc(Token, tree.nodes.len * 5));
+        var th: ent.Histograms = try .init(mem, 6);
+        th.addTokens(tt, .{});
+        const tcode = try ent.Code.build(mem, &th, .{});
+        try tcode.write(&bw, mem);
+        tcode.encode(&bw, tt, scratch);
+    }
+    try code.write(&bw, mem);
+    var start: usize = 0;
+    var start_token: usize = 0;
+    var k: u32 = 0;
+    while (k < ns) : (k += 1) {
+        const s = streamAt(&lay, k, has_pal);
+        writeStreamHeader(&bw, if (k == 0) &c.tr else null, nch);
+        const n = stream_len[k];
+        if (keep) {
+            for (tokens[0..n], store[start_token..][0..n]) |*t, v| t.* = .{ .ctx = v & 0x7ff, .value = v >> 11 };
+            start_token += n;
+        } else {
+            _ = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
+        }
+        // Even a stream without tokens (the global one, when every
+        // channel is coded in groups) carries its ANS state: decoders
+        // differ on whether they read it, and jxl-oxide does.
+        code.encode(&bw, tokens[0..n], scratch);
+        bw.padToByte();
+        const end = bw.len;
+        // Sections in TOC order: LfGlobal, the LF groups and HfGlobal
+        // (empty), then the pass groups.
+        const slot: usize = if (k == 0) 0 else 1 + lay.num_lf_groups + k;
+        sec_sizes[slot] = @intCast(end - start);
+        start = end;
+    }
+    // A sample costs at most 45 bits: a symbol at most 15 (a prefix
+    // code's longest; an ANS symbol's frequency is at least 1/4096, so
+    // 12), and a residual, which wraps to 32 bits, at most 30 extra bits.
+    // `Sizes.out` allows six bytes a sample, so the buffer cannot fill.
+    std.debug.assert(!bw.overflow);
+
+    // The headers and the table of contents, then the sections.
+    var hw: BitWriter = .init(toc_buf);
+    writeImageHeader(&hw, &lay);
+    writeFrameHeader(&hw, &lay);
+    hw.boolean(false); // no permutation
+    hw.padToByte();
+    for (sec_sizes) |sz| hw.u32Dist(sz, .{ .b(10), .bo(14, 1024), .bo(22, 17408), .bo(30, 4211712) });
+    hw.padToByte();
+    std.debug.assert(!hw.overflow);
+    try w.writeAll(hw.bytes());
+    try w.writeAll(bw.bytes());
+}
+
+/// Stream `s`'s tokens into `tokens`; returns how many.
+fn streamTokens(
+    mem: *Bump,
+    c: *Ctx,
+    s: Stream,
+    tree: *const mod.Tree,
+    flat: []const mod.Flat,
+    tokens: []Token,
+    plane_list: *[max_channels + 1]Plane,
+) !usize {
+    const n = buildPlanes(c, s, plane_list);
+    // The reference channels the tree tests.
+    var nref: usize = 0;
+    for (tree.nodes) |nd| {
+        if (nd.property >= mod.num_props) nref = @max(nref, @as(usize, @intCast(nd.property - mod.num_props)) / 4 + 1);
+    }
+    var len: usize = 0;
+    for (plane_list[0..n], 0..) |pl, ci| {
+        var rb: [mod.max_refs]Plane = undefined;
+        const refs = refsOf(plane_list[0..n], ci, s.meta, nref, &rb);
+        len += try mod.tokenize(mem, pl, @intCast(ci), s.id, tree, flat, refs, tokens[len..]);
+    }
+    return len;
+}
+
+/// Channel `ci`'s reference channels: up to `max` earlier channels of its
+/// shape, nearest first, as the decoder finds them. A palette's meta
+/// channel has a shape of its own.
+fn refsOf(planes: []const Plane, ci: usize, meta: bool, max: usize, buf: *[mod.max_refs]Plane) []Plane {
+    if (meta and ci == 0) return buf[0..0];
+    var n: usize = 0;
+    var j = ci;
+    const first: usize = @intFromBool(meta);
+    while (j > first and n < max) {
+        j -= 1;
+        if (planes[j].w != planes[ci].w or planes[j].h != planes[ci].h) continue;
+        buf[n] = planes[j];
+        n += 1;
+    }
+    return buf[0..n];
+}
+
+/// Collects the image's colors into `pal`; false if there are more than
+/// it holds.
+fn findPalette(c: *Ctx, pal: *Palette) bool {
+    const lay = &c.lay;
+    const nch = lay.channels();
+    var px: [max_channels]i32 = undefined;
+    var color: [max_channels]u16 = undefined;
+    var y: u32 = 0;
+    while (y < lay.h) : (y += 1) {
+        var x0: u32 = 0;
+        while (x0 < lay.w) : (x0 += group_dim) {
+            const n = @min(group_dim, lay.w - x0);
+            c.rr.read(x0, y, n, &c.rows);
+            var last: u64 = undefined;
+            for (0..n) |x| {
+                for (0..nch) |ch| px[ch] = c.rows[ch][x];
+                const key = colorKey(&px, nch);
+                if (x > 0 and key == last) continue;
+                last = key;
+                for (0..nch) |ch| color[ch] = @intCast(px[ch]);
+                if (!pal.add(key, color[0..nch])) return false;
+            }
+        }
+    }
+    return true;
+}
+
+fn usePalette(lay: *const Layout, n: usize, pixels: u64) bool {
+    const nch = lay.channels();
+    // The palette's own samples must be few next to the image's.
+    if (@as(u64, n) * nch * 8 > pixels * nch) return false;
+    if (nch == 1) return n * 4 <= (@as(usize, 1) << @intCast(lay.bits));
+    return true;
+}
+
+/// Orders the colors by alpha, then by luma, so that nearby indices are
+/// similar colors.
+fn sortPalette(pal: *Palette) void {
+    const nch = pal.nch;
+    const Order = struct {
+        pal: *const Palette,
+        const Self = @This();
+        fn key(ctx: Self, i: u16) u64 {
+            const p = ctx.pal;
+            const col = p.colors[@as(usize, i) * p.nch ..][0..p.nch];
+            const a: u64 = if (p.nch == 2 or p.nch == 4) col[p.nch - 1] else 0;
+            const y: u64 = if (p.nch >= 3)
+                @as(u64, col[0]) * 299 + @as(u64, col[1]) * 587 + @as(u64, col[2]) * 114
+            else
+                @as(u64, col[0]) * 1000;
+            return (a << 40) | y;
+        }
+        fn less(ctx: Self, a: u16, b: u16) bool {
+            const ka = ctx.key(a);
+            const kb = ctx.key(b);
+            return ka < kb or (ka == kb and a < b);
+        }
+    };
+    _ = nch;
+    var idx: [4096]u16 = undefined;
+    for (idx[0..pal.len], 0..) |*v, i| v.* = @intCast(i);
+    std.sort.pdq(u16, idx[0..pal.len], Order{ .pal = pal }, Order.less);
+    for (idx[0..pal.len], 0..) |orig, rank| pal.order[orig] = @intCast(rank);
+}
+
+// Tests: images round trip through our decoder.
+
+const Decoder = @import("Decoder.zig");
+
+fn roundTrip(format: PixelFormat, width: u32, height: u32, pixels: []const u8, effort: Effort) !void {
+    const gpa = testing.allocator;
+    const src = try PixelBuffer.init(@constCast(pixels), format, width, height);
+    const len = workLen(.{ .effort = effort }, width, height).?;
+    const work = try gpa.alloc(u8, len);
+    defer gpa.free(work);
+    var aw: Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    try encode(&aw.writer, src, .{ .effort = effort }, work);
+    const file = aw.written();
+
+    var r: Io.Reader = .fixed(file);
+    var d = Decoder.init(&r, .{});
+    const config = try d.decodeConfig();
+    try testing.expectEqual(width, config.width);
+    try testing.expectEqual(height, config.height);
+    const n = PixelBuffer.len(config.native, width, height).?;
+    const got = try gpa.alloc(u8, n);
+    defer gpa.free(got);
+    const want = try gpa.alloc(u8, n);
+    defer gpa.free(want);
+    const dwork = try gpa.alloc(u8, config.work_len);
+    defer gpa.free(dwork);
+    const dst = try PixelBuffer.init(got, config.native, width, height);
+    _ = try d.decodeFrame(dst, dwork);
+    const conv: Converter = .init(config.native, format);
+    for (0..height) |y| conv.run(want[y * n / height ..], src.row(@intCast(y)), width);
+    try testing.expectEqualSlices(u8, want, got);
+}
+
+fn testImage(gpa: std.mem.Allocator, format: PixelFormat, w: u32, h: u32, kind: u8) ![]u8 {
+    const len = PixelBuffer.len(format, w, h).?;
+    const buf = try gpa.alloc(u8, len);
+    var prng: std.Random.DefaultPrng = .init(kind);
+    const random = prng.random();
+    const bpp = format.bytesPerPixel();
+    for (0..h) |y| {
+        for (0..w) |x| {
+            const px = buf[(y * w + x) * bpp ..][0..bpp];
+            for (px, 0..) |*b, i| {
+                b.* = switch (kind) {
+                    0 => @truncate(x * 3 + y * 5 + i * 40),
+                    1 => random.int(u8),
+                    2 => @truncate(((x / 7 + y / 5) % 4) * 60 + i),
+                    else => @truncate((x ^ y) + i),
+                };
+            }
+        }
+    }
+    if (format.sample() == .f32) {
+        const f: []align(1) f32 = @ptrCast(buf);
+        for (f, 0..) |*v, i| v.* = @as(f32, @floatFromInt(buf[i * 4] % 200)) / 199;
+    }
+    return buf;
+}
+
+test "images round trip through our decoder" {
+    const gpa = testing.allocator;
+    const formats = [_]PixelFormat{
+        .rgb8,   .rgba8, .gray8,        .gray_alpha8,   .rgb16, .rgba16,   .rgb_f32,
+        .gray16, .bgra8, .rgba8_premul, .rgba16_premul, .cmyk8, .rgba_f32, .gray_f32,
+    };
+    const sizes = [_][2]u32{ .{ 1, 1 }, .{ 17, 9 }, .{ 100, 12 } };
+    for (formats) |f| {
+        for (sizes) |s| {
+            for ([_]u8{ 0, 1, 2 }) |kind| {
+                const px = try testImage(gpa, f, s[0], s[1], kind);
+                defer gpa.free(px);
+                const efforts: []const Effort = if (kind == 2) &.{ .fast, .default } else &.{.default};
+                for (efforts) |e| {
+                    roundTrip(f, s[0], s[1], px, e) catch |err| {
+                        std.debug.print("{t} {d}x{d} kind {d} effort {t}\n", .{ f, s[0], s[1], kind, e });
+                        return err;
+                    };
+                }
+            }
+        }
+    }
+}
+
+test "several groups" {
+    const gpa = testing.allocator;
+    const px = try testImage(gpa, .rgba8, 520, 270, 0);
+    defer gpa.free(px);
+    try roundTrip(.rgba8, 520, 270, px, .default);
+    const px2 = try testImage(gpa, .rgb8, 300, 260, 2);
+    defer gpa.free(px2);
+    try roundTrip(.rgb8, 300, 260, px2, .best);
+}

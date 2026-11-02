@@ -2,6 +2,11 @@
 
 pub const Decoder = @import("Decoder.zig");
 pub const JpegReconstructor = @import("JpegReconstructor.zig");
+pub const encode = @import("encode.zig").encode;
+pub const workLen = @import("encode.zig").workLen;
+pub const EncodeOptions = @import("encode.zig").EncodeOptions;
+pub const EncodeError = @import("encode.zig").EncodeError;
+pub const Effort = @import("encode.zig").Effort;
 
 test {
     _ = Decoder;
@@ -24,4 +29,8 @@ test {
     _ = @import("patches.zig");
     _ = @import("splines.zig");
     _ = @import("jbrd.zig");
+    _ = @import("encode_bits.zig");
+    _ = @import("encode_entropy.zig");
+    _ = @import("encode_modular.zig");
+    _ = @import("encode.zig");
 }
