@@ -1,8 +1,10 @@
-# GIF decode: notes and decisions
+# GIF: notes and decisions
 
 `src/gif/` is a streaming GIF decoder written from the GIF87a (CompuServe, 1987) and GIF89a (1990) specifications, with the NETSCAPE2.0 application
-extension's loop count. This file records what it does where the
-specifications leave room, and why. Results: `results/gif-20261101.md`.
+extension's loop count, and a GIF89a encoder (`encode.zig`, "Encoder"
+below). This file records what they do where the specifications leave
+room, and why. Results: `results/gif-20261101.md` (decode) and
+`results/gif-encode-20261102.md` (encode).
 
 ## Shape
 
@@ -151,3 +153,125 @@ loads) and was dropped. Icons are bound by the LZW loop, not setup: a 1×1
 GIF costs 110 ns here and 263 ns in Wuffs. Left on the table: a
 branchless transparent path for RGBA8 (the bounce animation, 0.88× Wuffs)
 and a gather for the palette lookup.
+
+## Encoder
+
+`encode.zig` writes GIF89a from the specification: `encode` for a still,
+`encodeAnimation` for frames shaped like PNG's (`AnimationFrame` with
+pixels, position, duration in flicks, and disposal), allocation-free with
+`workLen` up front, from any `PixelFormat`.
+
+### Shape
+
+- `lzw_encode.zig`: the LZW encoder. The dictionary is a hash table of
+  `u32` slots, `key << 12 | code` with 0 for empty (a stored code is past
+  the end code, so never 0), sized to
+  the image (`tableLen`, 64 to 8192 slots). The stream starts with a clear
+  code and clears again when the table is full. The code width follows the
+  decoder, which learns each entry a code late: the encoder tracks the
+  decoder's next code, not its own, so the width changes exactly where a
+  decoder widens.
+- `quantize.zig`: a histogram of the opaque pixels at 5 bits a channel
+  (33³ cumulative moments, Wu's layout), the three quantizers, k-means
+  `refine` over the nonempty cells, a lookup from a pixel's 6-bit cell to
+  its nearest palette entry (filled lazily, the search 16 entries at a
+  time), and the ditherer. Only the touched-cell bitset is cleared per
+  frame, not the 1.4 MB table: `add` writes a cell's first pixel, and
+  readers mask cells it never wrote.
+- Work memory: two RGBA8 rows, a row of indices, two rows of dither
+  errors, the LZW table, and the exact color set, about 6 KiB for a small
+  image; an image of more than 256 pixels adds the quantizer (about 2.4 MiB
+  in all). Interlacing a dithered image adds a byte a pixel, since error
+  diffusion runs top to bottom and the file wants the passes.
+
+### Decisions
+
+- **At most 256 colors is exact.** Alpha below 128 is transparent and
+  counts as one color; other pixels are opaque with their RGB kept. A
+  frame whose colors fit is stored with them in the order they first
+  appear, never quantized. Otherwise the frame is quantized to 256 colors,
+  or 255 and a transparent entry. The transparent entry and the table's
+  padding to a power of two repeat a real color, so every table entry is
+  one of the frame's colors (a decoder that ignores transparency shows a
+  plausible color).
+- **Tables.** Frame 0's palette is the global table; a later frame with a
+  different palette has a local one. A graphic control extension is
+  written for every animation frame and for a still with transparency.
+  NETSCAPE2.0 is written unless `loop_count` is 1, with `loop_count - 1`
+  repeats (0 is forever), clamped to 65535. Delays are flicks rounded to
+  hundredths, clamped to 65535.
+- **No blend field.** GIF composites one way: a frame's transparent pixels
+  show what is beneath. PNG's `AnimationFrame` has `blend` (`.src` by
+  default); GIF cannot store `.src` over an opaque canvas, so its frame has
+  no such field, and a caller whose next frame turns opaque pixels
+  transparent disposes the frame to background (the oracle and the bench do
+  exactly that: `clears` in test/oracle/gif_encode.zig and
+  bench/zig/gif.zig). An alternative is for the encoder to set that
+  disposal itself; that would override the caller's disposal, so it is left
+  to the owner (the report asks).
+- **Cropping** (`crop`, on by default). A frame keeps only the bounding box
+  of pixels that are opaque and, when the previous frame has the same
+  region and disposal none, differ from it; inside the box, unchanged
+  pixels become transparent, which compresses better, and only the changed
+  pixels are histogrammed, so a frame that changes a few colors is often
+  stored exactly. Unchanged pixels show as the canvas shows them, which
+  after a quantized frame is its approximation: so a frame with at most 256
+  colors after a quantized one is stored whole, to stay exact, and
+  `prev_exact` tracks whether the canvas shows the previous frame exactly.
+  A frame disposed to background is not trimmed, since that would clear
+  less than the frame. Before this was settled, unchanged pixels were
+  skipped only after an exact frame, and a truecolor screen recording was
+  stored as whole frames (2.88 MB for screen-1280x720 against
+  ImageMagick's 260 KB and gifski's 765 KB; 309 KB after).
+- **Quantizer and dither (decision 6).** Wu's quantizer with no k-means
+  passes and Floyd-Steinberg dithering are the defaults, as measured in
+  `results/gif-encode-20261102.md`: Wu beats median cut and octree on every
+  metric at the same speed, `refine` adds at most 0.15 dB, and dithering
+  trades about 2 dB of PSNR for smooth gradients (blurred PSNR +4 dB, the
+  eye's low-pass), as ImageMagick, Go, and gifski all dither by default.
+  `.none` is for screen content and smaller files (about 17% smaller).
+  The owner decides.
+- **Bounded error diffusion.** Floyd-Steinberg passes on at most 16 a
+  channel per pixel. Unbounded, error that builds up where the palette is
+  sparse reaches a far palette entry and leaves stray dots (blue specks in
+  a gray sky, yellow in a red parrot); bounded, they go, and mean PSNR rose
+  from 38.15 to 39.01 dB, blurred PSNR from 50.96 to 51.17, and SSIM from
+  0.9666 to 0.9715 (limits 8 to 64 measured; 16 has the best blurred PSNR).
+  The lookup maps from the 6-bit cell's center, so a pixel's color is off
+  by at most 1.5 a channel before its nearest entry is found.
+
+### Checks
+
+- **Oracle** (test/oracle/gif_encode.zig, `just oracle N 1 gif_encode`):
+  every GIF input the gif oracle has (corpus and fuzzed) is decoded by our
+  decoder, its composited canvases re-encoded by our encoder (a still, or
+  whole-canvas frames with their delays, which the encoder crops), and the
+  file decoded by Wuffs, giflib, and ours; all three must agree on the
+  final canvas. When every canvas has at most 256 colors, ours must also
+  read back each canvas and disposal exactly. A planted code-width bug at
+  the power-of-two boundary gave mismatches within 2,000 inputs.
+- **Fuzz** (test/fuzz/gif_encode.zig): stills through
+  `harness.checkEncoderWith` in several option sets, with an `expect` hook
+  that accepts the exact image when it has at most 256 colors and
+  otherwise bounds the error: same transparency, colors within the
+  source's range, the mean within 8 a channel, and each pixel no farther
+  from its source than the nearest table entry plus the lookup's and the
+  dither bound's slack. Animations of 2 to 4 frames with regions and
+  disposals compare composited canvases, exactly when every frame is
+  exact. The hook reads the decoded pixels through a capturing decoder
+  wrapper, since it is not handed them.
+- **Unit tests** in encode.zig, quantize.zig, and lzw_encode.zig, including
+  the crop after a quantized frame and the dither bound, each failing
+  without its change.
+
+### Speed
+
+`results/gif-encode-20261102.md` has the numbers against giflib, gifski,
+ImageMagick, and Go, with output sizes and peak RSS, and decision 6's
+measurements: 1.75–89× faster than gifski, ImageMagick, and Go on every
+quantized row; against giflib, faster on animations that change little
+(1.43–1.75×, cropping) and on exact icons (1.14×), slower on truecolor
+stills (0.39–0.68×, where giflib does not dither) and on exact stills past
+icons (0.73–0.81×: our exact path reads the pixels twice, and giflib's LZW
+loop is faster). Peak RSS is the lowest or tied in every class but
+quantized icons (4.0 MiB against giflib's 3.3).

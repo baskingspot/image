@@ -1,0 +1,11 @@
+gif-encode-anim/1mp            2 3.651
+gif-encode-anim/icon           1 1.217
+gif-encode-anim/large          1 6.186
+gif-encode-few/1mp             4 1.004
+gif-encode-few/icon            4 0.998
+gif-encode-few/large           3 0.993
+gif-encode/1mp                 5 1.243
+gif-encode/icon                2 1.120
+gif-encode/large               4 1.315
+all                           26 1.309
+exit 0
