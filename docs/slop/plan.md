@@ -314,6 +314,19 @@ owning the files adding-a-format.md assigns to its format plus
 - **Gates on 8 GB orbs** (branch `wave2-harness4`, the harness orb): the
   all-format `just oracle 100000` and, on some orbs, `just ci` run out of
   memory on an 8 GB orb; make them fit.
+- **Shared types for JPEG XL** (branch `wave2-types`, the QOI/WBMP orb):
+  decision 29's metadata fields in `src/decode.zig` and the `rgb_f32` and
+  `gray_f32` formats in `src/pixel.zig` and `src/convert.zig`, with the
+  oracle protocol's pixel formats.
+- **JPEG reconstruction** (branch `wave4-jxl-jbrd`, the Netpbm orb):
+  `src/jxl/jbrd.zig`, `src/jxl/JpegReconstructor.zig`, and their fuzz and
+  oracle files, on the coefficient callback the JPEG XL orb adds to
+  vardct.zig (`wave4-jxl-coeffs`). The rest of `src/jxl/` stays with the
+  JPEG XL orb (render by group row, then speed).
+- **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
+  `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
+  fuzz and oracle files, and the jxl-encode bench rows; only its export
+  lines in `src/jxl/root.zig`.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
@@ -613,6 +626,29 @@ orb asks for a change to them, or for text in this file, in its report.
     `rgba_f32`, float CMYK to `cmyk16`, and CMYK alpha is dropped. The
     compressed paths (about 0.5× libtiff at 1 MP and up) speed up in a
     follow-up after stage 2.
+
+24. **JPEG XL lossy precision. Decided by the owner:** native stays 16-bit,
+    but an `rgba_f32` destination is written straight from the decoder's f32
+    planes, with no 16-bit step, which meets the conformance bounds.
+25. **JPEG XL `decodeFrameConfig`. Decided by the owner:** the gap is
+    accepted: `Unsupported` for JPEG XL animations, stills answered from
+    `Config`, until a caller needs more.
+26. **JPEG XL oracle exclusions. Decided by the owner:** lossy frames are
+    left out until the oracle takes a per-format tolerance (the harness orb's
+    next item), and files with header-bundle extensions (a libjxl quirk).
+27. **JPEG XL `TooComplex` bounds. Decided by the owner:** frames up to twice
+    the canvas, 1 MiB of tables per entropy code, patch and spline budgets,
+    and a header-derived work bound, as jxl.md documents.
+28. **JPEG reconstruction. Decided by the owner:** a separate
+    `image.jxl.JpegReconstructor` (`init(reader, options)`, `workLen()`,
+    `run(writer, work)`) streams the original JPEG from the `jbrd` box and
+    the quantized coefficients, with no pixels; `Config.metadata` flags a
+    `jbrd` box.
+29. **Shared types for JPEG XL. Decided by the owner:** add HDR metadata
+    (`Metadata.transfer` gains PQ, HLG, BT.709, DCI, and gamma;
+    `Metadata.primaries`; `Metadata.intensity_target`) and the `rgb_f32` and
+    `gray_f32` pixel formats now. The extra-channel output API, f16, and
+    non-coalesced blend modes wait for a caller.
 
 ## Harness requests
 
