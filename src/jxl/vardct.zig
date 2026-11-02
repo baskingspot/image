@@ -659,8 +659,10 @@ pub fn readHfGlobal(
 ) Error!void {
     var enc: [quant.num_tables]quant.Encoding = undefined;
     try quant.read(br, arena, .{ .tree = tree, .first_stream = @intCast(1 + 3 * num_lf_groups) }, &enc);
+    // A JPEG's tables are stored with the denominator 1/(8·255) (f16
+    // 0x1004); with any other the table is not a JPEG's.
     s.raw_dct8 = switch (enc[0]) {
-        .raw => |r| r.table[0 .. 3 * 64],
+        .raw => |r| if (@abs(r.den - 1.0 / (8.0 * 255.0)) <= 1e-8) r.table[0 .. 3 * 64] else null,
         else => null,
     };
     for (0..Strategy.count) |k| {
@@ -1207,4 +1209,12 @@ test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
         try testing.expectEqualSlices(u16, &tables[@min(c, 1)], &j.quant[c]);
         try testing.expectEqualSlices(i16, &want[c][0] ++ want[c][1], j.coefs[c]);
     }
+    // The same with its raw table's denominator a step from 1/(8·255) (f16
+    // 0x1005 for 0x1004, in byte 634): not a JPEG's table, as libjxl says.
+    var odd = file[0..file.len].*;
+    odd[634] ^= 1;
+    var r2: std.Io.Reader = .fixed(&odd);
+    var d2: Decoder = .init(&r2, .{});
+    _ = try d2.decodeConfig();
+    try testing.expectError(error.NotJpeg, d2.decodeJpeg(&coefs, work));
 }
