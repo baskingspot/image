@@ -22,6 +22,13 @@
 //! - Gray from color is `(19595 R + 38470 G + 7471 B + 32768) >> 16` on
 //!   16-bit samples (Rec. 601 luma), and `0.299 R + 0.587 G + 0.114 B` with
 //!   those weights in float. Color from gray repeats the gray sample.
+//! - Color from CMYK, whose samples are inverted inks, is libjpeg-turbo's
+//!   naive conversion at the source's depth: `ink * black / max`, rounded,
+//!   with `max` 255 or 65535 (`ink * black` in float). CMYK from color is
+//!   its naive inverse on 16-bit samples: black is `m`, the largest of R,
+//!   G, and B, and each ink `c * 65535 / m`, rounded (`c / m` in float),
+//!   0 where `m` is 0, so black is all-zero bytes both ways. Alpha is dropped as for any format without it.
+//!   Inks to inks pass through, not by way of color.
 //!
 //! The pairs decoders meet most, the byte swizzles, adding and dropping
 //! alpha, premultiplying, gray to color, and 8 to 16 bits and back, have
@@ -107,6 +114,19 @@ const Stages = union(enum) {
     },
 
     fn init(dst: PixelFormat, src: PixelFormat) Stages {
+        if (dst.isCmyk() and src.isCmyk()) return .{
+            .int = .{
+                // Inks to inks, through 16 bits without going through color.
+                .unpack = switch (src) {
+                    inline .cmyk8, .cmyk16 => |f| Inks(f).unpack,
+                    else => unreachable,
+                },
+                .pack = switch (dst) {
+                    inline .cmyk8, .cmyk16 => |f| Inks(f).pack,
+                    else => unreachable,
+                },
+            },
+        };
         const premul = dst.isPremultiplied();
         if (dst.sample() == .f32 or src.sample() == .f32) {
             return switch (premul) {
@@ -175,6 +195,24 @@ fn Stage(comptime f: PixelFormat, comptime premul: bool) type {
     };
 }
 
+fn Inks(comptime f: PixelFormat) type {
+    return struct {
+        fn unpack(in: []const u8, pivot: *[chunk][4]u16, m: usize) void {
+            for (pivot[0..m], 0..) |*p, j| {
+                for (p, 0..) |*s, ch| {
+                    const v = load(f, in, j, @intCast(ch));
+                    s.* = @intCast(if (comptime f.sample() == .u8) v * 257 else v);
+                }
+            }
+        }
+        fn pack(out: []u8, pivot: *const [chunk][4]u16, m: usize) void {
+            for (pivot[0..m], 0..) |p, j| {
+                for (p, 0..) |s, ch| store(f, out, j, @intCast(ch), s);
+            }
+        }
+    };
+}
+
 inline fn load(comptime f: PixelFormat, bytes: []const u8, pixel: usize, channel: u2) u32 {
     const at = (pixel * f.channelCount() + channel) * f.bytesPerSample();
     return switch (comptime f.sample()) {
@@ -223,7 +261,23 @@ inline fn quantize(v: f32, comptime max: f32) u32 {
     return @intFromFloat(@round(v * max));
 }
 
+/// Libjpeg-turbo's naive CMYK to RGB at the source's depth, widened to 16
+/// bits, opaque.
+inline fn cmykToRgb16(comptime f: PixelFormat, bytes: []const u8, pixel: usize) [4]u16 {
+    const max: u64 = if (comptime f.sample() == .u8) 255 else 65535;
+    const black: u64 = load(f, bytes, pixel, 3);
+    var v: [4]u16 = undefined;
+    for (0..3) |ch| {
+        const x = load(f, bytes, pixel, @intCast(ch)) * black;
+        const c: u16 = @intCast((2 * x + max) / (2 * max));
+        v[ch] = if (max == 255) c * 257 else c;
+    }
+    v[3] = 65535;
+    return v;
+}
+
 inline fn unpack16Pixel(comptime f: PixelFormat, comptime premul: bool, bytes: []const u8, pixel: usize) [4]u16 {
+    if (comptime f.isCmyk()) return cmykToRgb16(f, bytes, pixel);
     const c = comptime f.channels();
     const wide = comptime f.sample() == .u8;
     var v: [4]u32 = undefined;
@@ -254,6 +308,15 @@ inline fn unpack16Pixel(comptime f: PixelFormat, comptime premul: bool, bytes: [
 }
 
 inline fn pack16Pixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: [4]u16) void {
+    if (comptime f.isCmyk()) {
+        const m: u32 = @max(p[0], p[1], p[2]);
+        for (0..3) |ch| {
+            const ink: u32 = if (m == 0) 0 else (@as(u32, p[ch]) * 65535 + m / 2) / m;
+            store(f, bytes, pixel, @intCast(ch), @intCast(ink));
+        }
+        store(f, bytes, pixel, 3, @intCast(m));
+        return;
+    }
     const c = comptime f.channels();
     if (c.y) |y| {
         // Luma of premultiplied samples is the premultiplied luma.
@@ -268,6 +331,13 @@ inline fn pack16Pixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: [4]
 }
 
 inline fn unpackFloatPixel(comptime f: PixelFormat, comptime premul: bool, bytes: []const u8, pixel: usize) [4]f32 {
+    if (comptime f.isCmyk()) {
+        const black = loadFloat(f, bytes, pixel, 3);
+        var v: [4]f32 = undefined;
+        for (0..3) |ch| v[ch] = loadFloat(f, bytes, pixel, @intCast(ch)) * black;
+        v[3] = 1;
+        return v;
+    }
     const c = comptime f.channels();
     var v: [4]f32 = undefined;
     if (c.y) |y| {
@@ -294,6 +364,14 @@ inline fn unpackFloatPixel(comptime f: PixelFormat, comptime premul: bool, bytes
 }
 
 inline fn packFloatPixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: [4]f32) void {
+    if (comptime f.isCmyk()) {
+        const m = @max(p[0], p[1], p[2]);
+        // NaN and nothing above 0 are black.
+        const lit = m > 0;
+        for (0..3) |ch| storeFloat(f, bytes, pixel, @intCast(ch), if (lit) p[ch] / m else 0);
+        storeFloat(f, bytes, pixel, 3, if (lit) m else 0);
+        return;
+    }
     const c = comptime f.channels();
     if (c.y) |y| {
         storeFloat(f, bytes, pixel, y, 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]);
@@ -311,6 +389,20 @@ inline fn packFloatPixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: 
 
 fn fast(dst: PixelFormat, src: PixelFormat) ?Converter.Kernel {
     if (dst == src) return copy;
+    if (dst.isCmyk() or src.isCmyk()) {
+        // The channel maps do not describe CMYK, so it takes none of the
+        // paths below but these.
+        if (src == .cmyk8) return switch (dst) {
+            .rgb8 => CmykTo(.rgb8).run,
+            .bgr8 => CmykTo(.bgr8).run,
+            .rgba8 => CmykTo(.rgba8).run,
+            .bgra8 => CmykTo(.bgra8).run,
+            .cmyk16 => widenAll,
+            else => null,
+        };
+        if (src == .cmyk16 and dst == .cmyk8) return narrowAll;
+        return null;
+    }
     const d = dst.channels();
     const s = src.channels();
     const same_sample = dst.sample() == src.sample();
@@ -649,6 +741,51 @@ fn GrayTo(comptime count: usize) type {
     };
 }
 
+/// 8-bit CMYK to RGB, BGR, RGBA, or BGRA, opaque: the general path's
+/// naive conversion, `(2x + 255) / 510` for `x` the product of the ink and
+/// black samples, which is `(t + (t >> 8)) >> 8` for `t = x + 128` on
+/// every product of two bytes (the test checks all of them).
+fn CmykTo(comptime dst: PixelFormat) type {
+    return struct {
+        const wide = 16;
+        const narrow = 16;
+        const count = dst.channelCount();
+        fn run(out: []u8, in: []const u8, n: usize) void {
+            blocks(@This(), dst, .cmyk8, out, in, n);
+        }
+        fn block(comptime l: usize, o: *[l * count]u8, i: *const [l * 4]u8) void {
+            // A pixel to a 32-bit lane, C in the low byte: lane-wise
+            // arithmetic, no shuffle but the one dropping alpha.
+            const V = @Vector(l, u32);
+            const little = comptime builtin.cpu.arch.endian() == .little;
+            const raw: V = @bitCast(i.*);
+            const px = if (little) raw else @byteSwap(raw);
+            const full: V = @splat(255);
+            const black = px >> @splat(24);
+            const c = comptime dst.channels();
+            var rgba: V = if (count == 4) @splat(0xff00_0000) else @splat(0);
+            inline for (.{ c.r.?, c.g.?, c.b.? }, 0..) |at, ch| {
+                const ink = (px >> @splat(8 * ch)) & full;
+                const t = ink * black + @as(V, @splat(128));
+                rgba |= ((t + (t >> @splat(8))) >> @splat(8)) << @splat(8 * @as(u5, at));
+            }
+            const bytes: @Vector(l * 4, u8) = @bitCast(if (little) rgba else @byteSwap(rgba));
+            if (count == 4) {
+                o.* = bytes;
+            } else {
+                const mask = comptime m: {
+                    var m: [l * 3]i32 = undefined;
+                    for (0..l) |p| {
+                        for (0..3) |ch| m[p * 3 + ch] = p * 4 + ch;
+                    }
+                    break :m m;
+                };
+                o.* = @shuffle(u8, bytes, undefined, mask);
+            }
+        }
+    };
+}
+
 /// 16-bit samples to 8, same layout.
 fn narrowAll(dst: []u8, src: []const u8, n: usize) void {
     _ = n;
@@ -820,6 +957,68 @@ test "gray and color" {
     try testing.expectEqualSlices(u8, &.{ 9, 9, 9, 200 }, out[0..4]);
     convert(&out, .bgr8, &[4]u8{ 1, 2, 3, 0 }, .rgba8, 1);
     try testing.expectEqualSlices(u8, &.{ 3, 2, 1 }, out[0..3]);
+}
+
+test "CMYK" {
+    // Every (ink, black) pair to every 8-bit color layout, through the
+    // SIMD paths and the general one, against libjpeg-turbo's naive
+    // conversion of inverted inks, `(2 c k + 255) / 510`.
+    var inks: [256 * 256][4]u8 = undefined;
+    for (&inks, 0..) |*p, i| p.* = .{ @truncate(i), @truncate(~i), @truncate(i *% 91 +% 17), @intCast(i >> 8) };
+    const bytes = std.mem.sliceAsBytes(&inks);
+    var out: [256 * 256 * 4]u8 = undefined;
+    var out16: [256 * 256][3]u16 = undefined;
+    for ([_]PixelFormat{ .rgb8, .bgr8, .rgba8, .bgra8 }) |d| {
+        for ([_]bool{ true, false }) |simd| {
+            const len = inks.len * d.bytesPerPixel();
+            if (simd) {
+                convert(out[0..len], d, bytes, .cmyk8, inks.len);
+            } else {
+                Stages.init(d, .cmyk8).run(out[0..len], bytes, inks.len);
+            }
+            const c = d.channels();
+            for (inks, 0..) |p, i| {
+                const px = out[i * d.bytesPerPixel() ..][0..d.bytesPerPixel()];
+                const k: u32 = p[3];
+                inline for (.{ c.r.?, c.g.?, c.b.? }, 0..) |at, ch| {
+                    try testing.expectEqual((2 * @as(u32, p[ch]) * k + 255) / 510, px[at]);
+                }
+                if (d.channelCount() == 4) try testing.expectEqual(255, px[3]);
+            }
+        }
+    }
+    // A 16-bit destination widens the 8-bit result.
+    convert(std.mem.sliceAsBytes(&out16), .rgb16, bytes, .cmyk8, inks.len);
+    for (inks, out16) |p, w| {
+        try testing.expectEqual((2 * @as(u32, p[0]) * p[3] + 255) / 510 * 257, w[0]);
+    }
+    // 16-bit inks convert at 16 bits.
+    var rgb16: [3]u16 = undefined;
+    const ink16 = [4]u16{ 0, 65535, 32768, 32768 };
+    convert(std.mem.asBytes(&rgb16), .rgb16, std.mem.asBytes(&ink16), .cmyk16, 1);
+    try testing.expectEqualSlices(u16, &.{ 0, 32768, 16384 }, &rgb16);
+    // Color to inks: black from the brightest channel, then each ink, and
+    // back.
+    var cmyk: [4]u8 = undefined;
+    convert(&cmyk, .cmyk8, &[3]u8{ 255, 0, 0 }, .rgb8, 1);
+    try testing.expectEqualSlices(u8, &.{ 255, 0, 0, 255 }, &cmyk);
+    convert(&cmyk, .cmyk8, &[4]u8{ 0, 0, 0, 9 }, .rgba8, 1);
+    try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, &cmyk);
+    convert(&cmyk, .cmyk8, &[3]u8{ 128, 64, 0 }, .rgb8, 1);
+    try testing.expectEqualSlices(u8, &.{ 255, 128, 0, 128 }, &cmyk);
+    var rgb: [3]u8 = undefined;
+    convert(&rgb, .rgb8, &cmyk, .cmyk8, 1);
+    try testing.expectEqualSlices(u8, &.{ 128, 64, 0 }, &rgb);
+    // Inks to inks keep the inks; float multiplies.
+    var wide: [4]u16 = undefined;
+    convert(std.mem.asBytes(&wide), .cmyk16, &[4]u8{ 1, 2, 3, 4 }, .cmyk8, 1);
+    try testing.expectEqualSlices(u16, &.{ 257, 514, 771, 1028 }, &wide);
+    var f: [4]f32 = undefined;
+    convert(std.mem.asBytes(&f), .rgba_f32, &[4]u8{ 255, 204, 0, 204 }, .cmyk8, 1);
+    try testing.expectApproxEqAbs(@as(f32, 0.8), f[0], 1e-6);
+    try testing.expectApproxEqAbs(@as(f32, 0.64), f[1], 1e-6);
+    try testing.expectEqual(@as(f32, 0), f[2]);
+    try testing.expectEqual(@as(f32, 1), f[3]);
 }
 
 test "float samples" {

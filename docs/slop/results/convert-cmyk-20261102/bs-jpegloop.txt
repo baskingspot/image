@@ -1,0 +1,11 @@
+                    │ jpegloop.txt │             kernel.txt              │
+                    │    sec/op    │   sec/op     vs base                │
+Convert/rgba8/w16     1943.5µ ± 1%   747.4µ ± 2%  -61.54% (p=0.000 n=10)
+Convert/rgba8/w166    1939.5µ ± 1%   667.9µ ± 4%  -65.56% (p=0.000 n=10)
+Convert/rgba8/w1200   1920.7µ ± 1%   669.2µ ± 4%  -65.16% (p=0.000 n=10)
+Convert/rgba8/w8192   1923.5µ ± 1%   665.3µ ± 5%  -65.41% (p=0.000 n=10)
+Convert/rgb8/w16                     724.2µ ± 5%
+Convert/rgb8/w166                    614.7µ ± 9%
+Convert/rgb8/w1200                   582.1µ ± 8%
+Convert/rgb8/w8192                   571.1µ ± 8%
+geomean                1.932m        652.6µ       -64.46%

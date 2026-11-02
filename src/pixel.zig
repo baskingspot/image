@@ -33,12 +33,21 @@ pub const PixelFormat = enum(u8) {
     /// 32-bit float samples, nominally 0 to 1, for float and HDR sources.
     rgba_f32,
     rgba_f32_premul,
+    /// Cyan, magenta, yellow, and black, each inverted (the maximum is no
+    /// ink) as Adobe's CMYK JPEGs store them and libjpeg-turbo returns
+    /// them, so that all-zero bytes are black here as in every other
+    /// format; TIFF's and PDF's ink amounts are the maximum minus these.
+    /// To color they convert naively, as libjpeg-turbo does: each of R, G,
+    /// and B is `ink * black / max`, rounded.
+    cmyk8,
+    cmyk16,
 
     /// The type of one sample.
     pub const Sample = enum { u8, u16, f32 };
 
     /// Where each channel sits in a pixel, in samples. `null` for a channel
-    /// the format lacks; gray formats have only `y` (and `a`).
+    /// the format lacks; gray formats have only `y` (and `a`), and CMYK
+    /// formats none: their inks are C, M, Y, K in that order.
     pub const Channels = struct {
         r: ?u2 = null,
         g: ?u2 = null,
@@ -50,7 +59,7 @@ pub const PixelFormat = enum(u8) {
     pub fn sample(f: PixelFormat) Sample {
         return switch (f) {
             .gray8, .gray_alpha8, .gray_alpha8_premul, .rgb8, .bgr8 => .u8,
-            .rgba8, .rgba8_premul, .bgra8, .bgra8_premul => .u8,
+            .rgba8, .rgba8_premul, .bgra8, .bgra8_premul, .cmyk8 => .u8,
             .rgba_f32, .rgba_f32_premul => .f32,
             else => .u16,
         };
@@ -94,6 +103,10 @@ pub const PixelFormat = enum(u8) {
         return f.channels().y != null;
     }
 
+    pub fn isCmyk(f: PixelFormat) bool {
+        return f == .cmyk8 or f == .cmyk16;
+    }
+
     pub fn channels(f: PixelFormat) Channels {
         return switch (f) {
             .gray8, .gray16 => .{ .y = 0 },
@@ -103,6 +116,7 @@ pub const PixelFormat = enum(u8) {
             .rgba8, .rgba8_premul, .rgba16, .rgba16_premul => .{ .r = 0, .g = 1, .b = 2, .a = 3 },
             .rgba_f32, .rgba_f32_premul => .{ .r = 0, .g = 1, .b = 2, .a = 3 },
             .bgra8, .bgra8_premul, .bgra16, .bgra16_premul => .{ .b = 0, .g = 1, .r = 2, .a = 3 },
+            .cmyk8, .cmyk16 => .{},
         };
     }
 
@@ -212,6 +226,10 @@ test "pixel format layout" {
                 try testing.expect(seen & (@as(u4, 1) << i) == 0);
                 seen |= @as(u4, 1) << i;
             }
+        }
+        if (f.isCmyk()) {
+            try testing.expectEqual(0, seen);
+            continue;
         }
         try testing.expectEqual(f.channelCount(), @popCount(seen));
         try testing.expectEqual(f.isGray(), c.r == null);

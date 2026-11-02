@@ -9,6 +9,7 @@ All notable changes to image are recorded here. The format follows
 
 - `image.PixelFormat`, twenty interleaved formats from `gray8` to `rgba_f32_premul`, and `image.PixelBuffer`, the caller's pixel memory with a stride.
 - `image.convert`: conversion and swizzle between any two pixel formats, with SIMD for the common pairs; `convert.Converter` picks the kernel once for many rows.
+- `image.PixelFormat.cmyk8` and `cmyk16`: CMYK stored inverted, as Adobe's JPEGs store it (the maximum is no ink); `image.convert` turns them into color by libjpeg-turbo's naive conversion (SIMD from `cmyk8`) and color into them by its inverse.
 - `image.Config`, `image.Frame`, `image.Limits`, `image.DecodeOptions`, `image.Metadata`, and `image.DecodeError`, shared by every decoder; `image.exif.orientation` reads EXIF orientation.
 - `image.detect` names a file's `image.Format` from its first `image.detect_prefix_len` bytes, for every phase-1 format.
 - `image.Decoder` decodes any supported format behind one interface; `Decoder.initDetect` picks the format from the input.
