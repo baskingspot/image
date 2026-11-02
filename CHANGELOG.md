@@ -60,6 +60,7 @@ All notable changes to image are recorded here. The format follows
 - `image.gif.encode` quantizes small images faster with `Quantizer.wu`: 1.16× on 32×32 and 64×64 icons and icon animations, with the same palettes.
 - `image.gif.Dither.floyd_steinberg` passes on no error from a pixel within 1 a channel of its palette entry: 1.3% smaller files on photos and screenshots (up to 14% on graphics), with PSNR +0.36 dB and SSIM +0.003.
 - `image.gif.encode` stores an image of at most 256 colors 1.14–1.25× faster, reading its pixels once instead of twice up to about 2.4 megapixels, with the same bytes and work memory.
+- `image.webp.encode` is faster, up to 1.19× on icons and 1.15× to 1 MP, with the same output except at efforts 1 and 2, which stop searching for matches at 64 pixels (0.1% larger, up to 5% on flat images); `webp.workLen` asks for 0.17–0.31 MB on a 16×16 icon, from 0.52–4.1 MB.
 - `image.jpeg.encode` is faster: baseline color over 1 MP from 0.93× to 1.18× libjpeg-turbo's speed (4:4:4 from 0.98× to 1.26×), and 2.16× over all encode benchmark rows, with the same bytes.
 - `image.convert` runs a row's last pixels through its SIMD kernels instead of the per-pixel path, and RGB↔BGR stores whole cache lines: narrow rows convert up to twice as fast, so 24- and 32-bit BMP and TGA decodes of narrow images gain up to 25%; `convert.Converter.run` may convert in place between formats of one pixel size.
 - `image.png.Decoder` computes the chunks' CRC-32 with carry-less multiplication on x86-64 CPUs that have PCLMULQDQ, about 4% of a decode.
