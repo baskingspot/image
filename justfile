@@ -108,13 +108,16 @@ oracle-build:
         objects+=("$o")
         if [ ! -f "$o" ]; then
             # shellcheck disable=SC2086
-            (cc $cflags -c -o "$o.tmp" "$c" $flags && mv "$o.tmp" "$o") &
+            (cc $cflags -c -o "$o.$$.tmp" "$c" $flags && mv -f "$o.$$.tmp" "$o") &
             pids+=($!)
         fi
     done
     for pid in "${pids[@]}"; do wait "$pid"; done
+    # Linked beside it and renamed over it, so a running oracle keeps its
+    # file and a concurrent build never sees half of one.
     # shellcheck disable=SC2086
-    cc -o zig-out/bin/image-oracle "${objects[@]}" $flags -lm
+    cc -o "zig-out/bin/image-oracle.$$.tmp" "${objects[@]}" $flags -lm
+    mv -f "zig-out/bin/image-oracle.$$.tmp" zig-out/bin/image-oracle
     # The objects of earlier sources.
     find "$obj" -name '*.o' $(printf -- "-not -path %s " "${objects[@]}") -delete
 
