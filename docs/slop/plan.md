@@ -527,6 +527,36 @@ orb asks for a change to them, or for text in this file, in its report.
     Adding `PixelFormat` values reseeds TGA's oracle inputs (its generator
     draws the encoder's source format from every format), so TGA's counts
     move once without a decoder change.
+16. **PNG encode. Decided by the owner:** the default effort is compress
+    level 7 with filtering (1.3% smaller than libpng and libspng at 2.2–3.5×
+    libpng's speed). A palette is used only when it saves more than twice its
+    own bytes. Colors under fully transparent pixels are kept. APNG frame 0
+    covers the canvas, with no hidden default image. pHYs is written; interlace,
+    text, and bKGD are not. compress's writer takes its per-block scratch
+    (about 320 KiB) from the writer's memory, not the stack.
+17. **ICO encode. Decided by the owner:** the default payload is `.auto`: PNG
+    for 256×256 entries, BMP otherwise.
+18. **CMYK storage. Decided by the owner:** inverted, as decision 15 landed
+    it (the maximum is no ink).
+19. **JPEG. Decided by the owner:** lossless JPEG marked YCbCr or YCCK is
+    `Unsupported`, as libjpeg-turbo does not convert it.
+20. **GIF. Decided by the owner:** an XMP extension shorter than its 258-byte
+    end marker gives no blob.
+21. **WebP. Decided by the owner:** at most 2600 prefix-code groups
+    (libwebp's encoder maximum); the lossless work memory is stated as a worst
+    case for now; lossless data past its chunk is `Truncated`, as in Wuffs;
+    of several ALPH chunks the last wins; an animation's `frame_count` is
+    null; a frame whose alpha size differs from its image matches libwebp;
+    the ANIM background is reported, never applied; data past the container
+    is `Truncated`.
+22. **QOI. Decided by the owner:** keep the one-loop decoder; rotating icons
+    are the honest icon numbers, and a repeated 16–32 px file at 0.66–0.97×
+    is accepted.
+23. **TIFF. Decided by the owner:** integers wider than 16 bits scale to 16,
+    signed samples are offset by half their range, floats decode to
+    `rgba_f32`, float CMYK to `cmyk16`, and CMYK alpha is dropped. The
+    compressed paths (about 0.5× libtiff at 1 MP and up) speed up in a
+    follow-up after stage 2.
 
 ## Harness requests
 
