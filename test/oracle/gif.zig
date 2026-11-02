@@ -40,6 +40,10 @@
 //!   change. (Two fuzzed inputs, mutation copies after such an extension,
 //!   had Wuffs and giflib both reject them for different reasons while
 //!   this package read the copy's first byte as the end of the image.)
+//!   Only an extension that starts where a block starts is renamed: the
+//!   same bytes inside another block's data can hold a sub-block's length,
+//!   and renaming them would change the file Wuffs reads (a fuzzed input
+//!   had them inside an ICC profile).
 //! - giflib applies no palette, so for a frame with no color table, or an
 //!   index past its table, gif.c leaves the answer to Wuffs (opaque black,
 //!   as this package writes).
@@ -61,20 +65,54 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
 
 /// Hands Wuffs every NETSCAPE2.0 or ANIMEXTS1.0 extension without
 /// sub-blocks with its identifier renamed, so Wuffs skips it as an unknown
-/// application extension (see above). The pattern is matched anywhere, LZW
-/// data included, where a false match can only change Wuffs's answer.
+/// application extension (see above). It walks the blocks as the
+/// specification lays them out, so only an extension where a block starts
+/// is renamed, and stops at the first byte that starts no block or at the
+/// end of the input.
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
-    if (!std.mem.eql(u8, op, "gif-wuffs")) return input;
+    if (!std.mem.eql(u8, op, "gif-wuffs") or input.len < 13) return input;
     var out: ?[]u8 = null;
-    for ([_][]const u8{ "\x21\xff\x0bNETSCAPE2.0\x00", "\x21\xff\x0bANIMEXTS1.0\x00" }) |empty| {
-        var at: usize = 0;
-        while (std.mem.findPos(u8, out orelse input, at, empty)) |i| {
-            if (out == null) out = try arena.dupe(u8, input);
-            @memset(out.?[i + 3 ..][0..11], '_');
-            at = i + empty.len;
+    var at: usize = 13 + colorTableLen(input[10]);
+    while (at < input.len) {
+        switch (input[at]) {
+            0x21 => {
+                const rest = input[at..];
+                if (std.mem.startsWith(u8, rest, "\x21\xff\x0bNETSCAPE2.0\x00") or
+                    std.mem.startsWith(u8, rest, "\x21\xff\x0bANIMEXTS1.0\x00"))
+                {
+                    if (out == null) out = try arena.dupe(u8, input);
+                    @memset(out.?[at + 3 ..][0..11], '_');
+                    at += 15;
+                    continue;
+                }
+                at = skipSubBlocks(input, at + 2);
+            },
+            0x2c => {
+                if (at + 10 > input.len) break;
+                at = skipSubBlocks(input, at + 10 + colorTableLen(input[at + 9]) + 1);
+            },
+            else => break,
         }
     }
     return out orelse input;
+}
+
+/// The bytes of the color table that a screen or image descriptor's
+/// packed field `flags` announces.
+fn colorTableLen(flags: u8) usize {
+    return if (flags & 0x80 != 0) @as(usize, 3) << @intCast((flags & 7) + 1) else 0;
+}
+
+/// Where the block after the sub-blocks starting at `at` starts, or past
+/// the input's end when they run off it.
+fn skipSubBlocks(input: []const u8, start: usize) usize {
+    var at = start;
+    while (at < input.len) {
+        const n = input[at];
+        at += 1 + @as(usize, n);
+        if (n == 0) break;
+    }
+    return at;
 }
 
 /// The canvas before a frame whose disposal is `previous`; compare.zig's

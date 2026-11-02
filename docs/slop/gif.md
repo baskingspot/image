@@ -101,7 +101,9 @@ specifications leave room, and why. Results: `results/gif-20261101.md`.
   0 right after an application extension's identifier is its terminator,
   as the specification says, even for NETSCAPE2.0, where Wuffs reads it as
   the loop count's sub-block size and reads on past it (the oracle hands
-  Wuffs such an extension renamed; test/oracle/gif.zig). The
+  Wuffs such an extension renamed, only where a block starts, since the
+  same bytes inside other data can hold a sub-block length;
+  test/oracle/gif.zig). The
   loop count is read from NETSCAPE2.0 or ANIMEXTS1.0 before the first
   frame: `Config.loop_count` is the count plus one plays (0 forever), or
   1 when there is none, as browsers play such a file once (decision 12;
