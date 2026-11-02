@@ -946,7 +946,11 @@ width)` for every file with several entries.
     VarDCT encoding (decision 5).
 59. **APNG default-image fcTL. Decided by the owner:** an fcTL smaller than
     the canvas is accepted and decoded as Wuffs, libpng, and libspng decode
-    it.
+    it. Landed (`wave6-hdr-meta2`): the references split; all
+    three read the IDAT at the canvas size. libpng and libspng show the
+    whole image, and so do we (frame 0 at the canvas's size with the fcTL's
+    duration, disposal, and blend); Wuffs draws only the fcTL's region, an
+    expected split. A region outside the canvas stays BadChunk.
 60. **cICP and ICC. Decided by the owner:** the ICC profile is still
     reported beside cICP; cICP's precedence is documented.
 61. **HDR chunks after PLTE. Decided by the owner:** read, as gAMA, cHRM,
@@ -954,9 +958,16 @@ width)` for every file with several entries.
 62. **Draft HDR chunk names. Decided by the owner:** mDCv and cLLi are not
     read.
 63. **Duplicate HDR chunks. Decided by the owner:** the first chunk decides,
-    valid or not, as libpng.
+    valid or not, as libpng. Landed: one of the
+    wrong length doesn't count; png_hdr leaves out files whose first cICP
+    has a range flag past 1, which libpng keeps and we drop.
 64. **Gain-map oracle. Decided by the owner:** libultrahdr joins the flake
-    and the jpeg oracle checks `Metadata.gain_map`.
+    and the jpeg oracle checks `Metadata.gain_map`. Landed: libultrahdr 1.4
+    ignores the base image's MPF and XMP and parses the second image, so on
+    mutations the two split as often as not; `jpeg_gain_map` compares whole
+    files only (`mutates = false` in compare.zig): the corpus, and generated
+    files whose base image declares a gain map exactly when the second image
+    carries one.
 65. **WebP lossy alpha effort. Decided by the owner:** the lossy encoder's
     alpha plane uses lossless effort 1 for `fast` and `default` and 8 for
     `best` (was 0, 1, 5).
