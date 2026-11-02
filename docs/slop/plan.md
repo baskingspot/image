@@ -231,9 +231,10 @@ orb asks for a change to them, or for text in this file, in its report.
   Wuffs does), and frame 0 clears
   outside its region to transparent black. Palette indices past the palette
   decode as opaque black. Metadata is reported, never applied; iCCP and eXIf
-  go to the blob sink. Inflate is compress's, pinned to commit fd03d72 for
-  its fast path (0.38× Wuffs on compress 0.2.0, 0.79× with it); the owner
-  chose a pinned commit over a compress release.
+  go to the blob sink. Inflate is compress's, pinned to commit 1cdd3d8
+  (0.38× Wuffs on compress 0.2.0, 0.79× on fd03d72's fast path, 1.19× on
+  1cdd3d8 with the performance pass); the owner chose a pinned commit over a
+  compress release.
 - **BMP, ICO and CUR, decode and encode** (landed; bmp.md and ico.md).
   `src/bmp/dib.zig` is shared by both. ICO reads entries forward in directory
   order; an entry behind the reader needs an `image.Seeker` (`DecodeOptions.seeker`; `fixed` over a

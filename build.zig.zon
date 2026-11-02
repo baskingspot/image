@@ -42,8 +42,8 @@
         // Pinned to a commit after 0.2.0 for its inflate fast path, which
         // PNG decode needs; move to the next release when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#fd03d72bf76e827558d46e59d06a052fa08738f7",
-            .hash = "compress-0.2.0-VxR1Wg9QOwCrO4mDAFV-6Pu-pBUc6Y5hU_AAmGgRG-Ga",
+            .url = "git+https://github.com/baskingspot/compress#1cdd3d89cb29b33b806d1bde48017ffc363fcd28",
+            .hash = "compress-0.2.0-VxR1WjxwOwA9vvUPrvPLmzfg7UfDWVI8a3cu8i4tgCl6",
         },
     },
     // Specifies the set of files and directories that are included in this package.
