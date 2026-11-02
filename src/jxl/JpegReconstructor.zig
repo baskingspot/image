@@ -68,7 +68,8 @@ const Plan = struct {
     scratch: Span = .{},
     /// The coefficients, and before them the compressed `brob` contents.
     coefs: Span = .{},
-    /// The codestream decoder's work memory for the coefficient pass.
+    /// The codestream decoder's work memory for the coefficient pass, and
+    /// before it the Brotli decoder's (`jbrd.BrotliBuffer`).
     decoder: Span = .{},
     total: usize = 0,
 };
@@ -170,7 +171,8 @@ fn makePlan(r: *JpegReconstructor) Error!Plan {
         coef_bytes = @max(coef_bytes, box.len);
     };
     p.coefs = try take(&total, coef_bytes);
-    p.decoder = try take(&total, decoder_len);
+    const brotli_len = @sizeOf(jbrd.BrotliBuffer) + @alignOf(jbrd.BrotliBuffer) - 1;
+    p.decoder = try take(&total, @max(decoder_len, brotli_len));
     p.total = total;
     try r.options.limits.checkWork(total);
     return p;
@@ -307,14 +309,20 @@ fn runPlan(r: *JpegReconstructor, writer: *Io.Writer, work: []u8) Error!void {
     var mem: jbrd.Mem = .{ .buf = p.parsed.of(work) };
     var j = try jbrd.read(&bits, &mem);
     const rest: usize = @intCast(bits.remaining());
-    try jbrd.split(&j, raw[raw.len - rest ..], p.payload.of(work));
+    // The Brotli streams are all read before the coefficient pass, so the
+    // Brotli decoder's state shares the codestream decoder's memory.
+    const dm = p.decoder.of(work);
+    const at = std.mem.alignPointerOffset(dm.ptr, @alignOf(jbrd.BrotliBuffer)).?;
+    const brotli: *jbrd.BrotliBuffer = @ptrCast(@alignCast(dm[at..]));
+    try jbrd.split(&j, raw[raw.len - rest ..], p.payload.of(work), brotli);
 
     // The metadata boxes the APP markers copy. A `brob` box's compressed
     // bytes pass through the coefficients' memory, so these come first.
     var exif: ?[]const u8 = null;
     var xmp: ?[]const u8 = null;
-    if (p.exif_len != null) exif = try r.readBox(p.exif.?, p.exif_buf.of(work), p.coefs.of(work));
-    if (p.xmp_len != null) xmp = try r.readBox(p.xmp.?, p.xmp_buf.of(work), p.coefs.of(work));
+    const temp = p.coefs.of(work);
+    if (p.exif_len != null) exif = try r.readBox(p.exif.?, p.exif_buf.of(work), temp, brotli);
+    if (p.xmp_len != null) xmp = try r.readBox(p.xmp.?, p.xmp_buf.of(work), temp, brotli);
 
     // The coefficients and quantization tables, and the ICC profile.
     try seeker.seek(seeker.context, 0);
@@ -385,7 +393,13 @@ const IccSink = struct {
 /// Reads a metadata box's contents into `out`, which must be exactly as
 /// long, through Brotli for a `brob` box, whose compressed bytes go to
 /// `temp` first.
-fn readBox(r: *JpegReconstructor, box: Box, out: []u8, temp: []u8) Error![]const u8 {
+fn readBox(
+    r: *JpegReconstructor,
+    box: Box,
+    out: []u8,
+    temp: []u8,
+    brotli: *jbrd.BrotliBuffer,
+) Error![]const u8 {
     const seeker = r.options.seeker.?;
     try seeker.seek(seeker.context, box.at);
     if (!box.brotli) {
@@ -395,7 +409,7 @@ fn readBox(r: *JpegReconstructor, box: Box, out: []u8, temp: []u8) Error![]const
     }
     const compressed = temp[0..@intCast(box.len)];
     r.reader.readSliceAll(compressed) catch |e| return mapRead(e);
-    try jbrd.decompressExact(compressed, out);
+    try jbrd.decompressExact(compressed, out, brotli);
     return out;
 }
 

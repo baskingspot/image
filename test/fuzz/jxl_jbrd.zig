@@ -38,6 +38,7 @@ var work_buffer: [harness.limits.max_work]u8 = undefined;
 var outs: [2][8 << 20]u8 = undefined;
 var parse_buffer: [16 << 20]u8 = undefined;
 var payload_buffer: [1 << 20]u8 = undefined;
+var brotli_buffer: jbrd.BrotliBuffer = undefined;
 var scratch: [jbrd.max_correction_bytes]u8 = undefined;
 var coefs: [3][max_blocks * 64]i16 = undefined;
 var metadata: [1 << 16]u8 = undefined;
@@ -157,7 +158,7 @@ fn checkBox(box: []const u8, choice: u64) !void {
     };
     if (j.payload_len != c.payload_len) return error.CountDiffers;
     const rest: usize = @intCast(bits.remaining());
-    jbrd.split(&j, box[box.len - rest ..], payload_buffer[0..@intCast(j.payload_len)]) catch return;
+    jbrd.split(&j, box[box.len - rest ..], payload_buffer[0..@intCast(j.payload_len)], &brotli_buffer) catch return;
 
     // An image of `choice`'s size and sampling, with sparse coefficients.
     var prng: std.Random.DefaultPrng = .init(choice);
@@ -532,7 +533,7 @@ test "generated boxes parse and write" {
         var j = jbrd.read(&bits, &mem) catch continue;
         parsed += 1;
         const rest: usize = @intCast(bits.remaining());
-        try jbrd.split(&j, box[box.len - rest ..], payload_buffer[0..@intCast(j.payload_len)]);
+        try jbrd.split(&j, box[box.len - rest ..], payload_buffer[0..@intCast(j.payload_len)], &brotli_buffer);
         var img: jbrd.Image = .{
             .width = 16,
             .height = 16,

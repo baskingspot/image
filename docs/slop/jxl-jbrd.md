@@ -88,16 +88,18 @@ reconstruction, which the oracle found by mutating transcodes:
   a scan refines AC coefficients), the coefficients (`Jpeg.maxCoefs` i16
   plus a byte, so they align at any base address), whose bytes take the
   compressed `brob` contents first, and the codestream decoder's
-  `jpegWorkLen`. The box's components must lie on the codestream's blocks
-  (`BadJbrd` otherwise), and an ICC profile the box's markers carry must be
-  exactly the codestream's.
+  `jpegWorkLen`, whose bytes hold the Brotli decoder's state
+  (`brotli.decode.Buffer`, 2.7 MB, mostly never touched) first: every
+  Brotli stream is read before the coefficient pass. The box's components
+  must lie on the codestream's blocks (`BadJbrd` otherwise), and an ICC
+  profile the box's markers carry must be exactly the codestream's.
 - **Brotli in one shot.** `compress`'s streaming Reader needs a 4 to 16 MiB
   window; the one-shot decode into the exactly sized payload needs none.
-  `decompressCounted` (compress 2e5eb6b) reports the stream's length, so
+  `decompressCounted` (compress 6953f33) reports the stream's length, so
   bytes after the stream, which libjxl rejects, are refused in the same
-  pass. compress has a 64-tree cap per meta-block category (the format
-  allows 256), which brotli 1.2.0 at q5 exceeds on 1 MiB inputs; a `brob`
-  box that large would fail `BadJbrd`.
+  pass. It holds the format's 256 trees per category (brotli 1.2.0 writes
+  more than 64 at q4 to q9 on 1 MiB inputs), with its state in the work
+  memory rather than on the stack.
 - **Errors.** `BadJbrd` for any broken constraint, `Unsupported` for more
   than one Exif or XMP marker or a second `jbrd` box (as libjxl), `NoJbrd`
   for a file with no box, and the codestream decoder's errors for its

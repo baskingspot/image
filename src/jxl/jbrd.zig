@@ -21,6 +21,9 @@ const Io = std.Io;
 
 const brotli = @import("compress").brotli;
 
+/// The Brotli one-shot decoder's state, 2.7 MB, in the caller's memory.
+pub const BrotliBuffer = brotli.decode.Buffer;
+
 pub const Error = error{
     ReadFailed,
     /// The box ends inside the bundle.
@@ -527,9 +530,9 @@ fn checkTables(j: *const Jbrd) Error!void {
 /// bundle) into `out`, exactly `j.payload_len` bytes, and points the APP
 /// markers of no known type, the COM markers, the inter-marker data, and
 /// the tail at their bytes. The stream must end at the box's last byte.
-pub fn split(j: *Jbrd, compressed: []const u8, out: []u8) Error!void {
+pub fn split(j: *Jbrd, compressed: []const u8, out: []u8, buffer: *BrotliBuffer) Error!void {
     std.debug.assert(out.len == j.payload_len);
-    try decompressExact(compressed, out);
+    try decompressExact(compressed, out, buffer);
     var at: usize = 0;
     for (j.apps) |*a| if (a.type == .unknown) {
         a.data = out[at..][0..a.size];
@@ -551,8 +554,8 @@ pub fn split(j: *Jbrd, compressed: []const u8, out: []u8) Error!void {
 /// Decompresses the Brotli stream `compressed` into exactly `out.len`
 /// bytes. The stream must end at its last byte: libjxl rejects bytes after
 /// it.
-pub fn decompressExact(compressed: []const u8, out: []u8) Error!void {
-    const got = brotli.decode.decompressCounted(compressed, out) catch return error.BadJbrd;
+pub fn decompressExact(compressed: []const u8, out: []u8, buffer: *BrotliBuffer) Error!void {
+    const got = brotli.decode.decompressCounted(compressed, out, buffer) catch return error.BadJbrd;
     if (got.target_len != out.len or got.source_len != compressed.len) return error.BadJbrd;
 }
 
@@ -1217,16 +1220,19 @@ const State = struct {
     }
 };
 
+var test_brotli: BrotliBuffer = undefined;
+
 test "a Brotli stream must fill the box and the payload exactly" {
     // An uncompressed meta-block of "ab", then the empty last one.
     const stream = "\x10\x00\x10ab\x03";
+    const b = &test_brotli;
     var out: [2]u8 = undefined;
-    try decompressExact(stream, &out);
+    try decompressExact(stream, &out, b);
     try testing.expectEqualStrings("ab", &out);
-    try testing.expectError(error.BadJbrd, decompressExact(stream ++ "\x00", &out));
-    try testing.expectError(error.BadJbrd, decompressExact(stream, out[0..1]));
+    try testing.expectError(error.BadJbrd, decompressExact(stream ++ "\x00", &out, b));
+    try testing.expectError(error.BadJbrd, decompressExact(stream, out[0..1], b));
     var more: [3]u8 = undefined;
-    try testing.expectError(error.BadJbrd, decompressExact(stream, &more));
+    try testing.expectError(error.BadJbrd, decompressExact(stream, &more, b));
 }
 
 test "bits and fields" {
