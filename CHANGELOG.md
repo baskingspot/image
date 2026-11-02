@@ -45,6 +45,7 @@ All notable changes to image are recorded here. The format follows
 - `image.png.Decoder` unfilters consecutive Average or Paeth rows two at a time, with no more work memory: up to 1.28× faster on Paeth-filtered images such as the 50-megapixel test photo.
 - `image.png.Decoder` expands 8-bit palette images up to 1.23× faster.
 - `image.qoi.encode` encodes packed `rgba8` and `rgb8` sources as one span instead of row by row, and checks one bound per pixel instead of two: about 1.16× faster on icons and images up to 1 MP, up to 1.7× on screenshots of runs and INDEX chunks.
+- `image.qoi.Decoder` checks one count per chunk instead of two bounds: about 1.03× faster, up to 1.16× on run- and INDEX-heavy images.
 - `image.qoi.Decoder` decodes images of every size with one loop and takes RGBA chunks on their own branch: a stream of distinct icons decodes 1.07–1.75× faster and other images up to 1.28×, while one 16×16 or 32×32 icon decoded again and again is up to 1.5× slower.
 - `image.qoi.Decoder` decodes about 1.2× faster, up to 2.2× on screenshots made mostly of INDEX chunks and runs.
 - `image.netpbm.Decoder` reads plain (ASCII) PBM, PGM, and PPM samples about 1.75× faster, and headers about 1.4× faster, which shows on 16×16 files.

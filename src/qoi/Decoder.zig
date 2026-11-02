@@ -298,13 +298,17 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out) Error!void {
     while (i < carried) : (i += 1) put(out, i, px, o);
     s.run -= @intCast(carried);
     while (i < n) {
-        // Every chunk is at most 5 bytes, so with 5 buffered the inner loop
-        // reads without checking for more. The end marker follows the last
-        // chunk, so a valid stream always has 5 bytes here.
+        // Every chunk is at most 5 bytes and gives at least one pixel, so
+        // `c` chunks surely fit in what is buffered and in `out`, and the
+        // inner loop checks only that count; a run, which gives more
+        // pixels, cuts it to the pixels left. The end marker follows the
+        // last chunk, so a valid stream always has 5 bytes here.
         r.fill(5) catch |e| return mapRead(e);
         const buf = r.buffered();
         var p: usize = 0;
-        while (i < n and buf.len - p >= 5) {
+        var c = @min(buf.len / 5, n - i);
+        while (c != 0) {
+            c -= 1;
             const b = buf[p];
             if (b < 64) {
                 // INDEX: the entry already sits at its own hash, so the
@@ -323,6 +327,7 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out) Error!void {
                 const m = @min(count, n - i);
                 fill(out, n, i, m, px, o);
                 i += m;
+                c = @min(c, n - i);
                 s.run = @intCast(count - m);
                 p += 1;
                 continue;
