@@ -26,6 +26,8 @@ pub const Error = blk: {
 };
 
 impl: Union,
+/// Whether `decodeFrame` has returned null.
+done: bool = false,
 
 /// One field per format; a format without a decoder in this build holds
 /// `Missing` and is never active.
@@ -108,8 +110,33 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
 /// See the format's `decodeFrame`.
 pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     switch (d.impl) {
-        inline else => |*impl| return impl.decodeFrame(dst, work),
+        inline else => |*impl| {
+            const frame = try impl.decodeFrame(dst, work);
+            if (frame == null) d.done = true;
+            return frame;
+        },
     }
+}
+
+/// The config `decodeConfig` returned, updated with what the format found
+/// after its frames, such as TGA's footer or a PNG's chunks after its image
+/// data: null until `decodeFrame` has returned null. A format reports those
+/// with an optional `applyTrailer(*const Self, *Config) void`, which sets
+/// the fields it found late and leaves the rest; without one this is the
+/// config as `decodeConfig` returned it.
+pub fn finalConfig(d: *Decoder) ?decode.Config {
+    if (!d.done) return null;
+    switch (d.impl) {
+        inline else => |*impl| return withTrailer(impl),
+    }
+}
+
+/// `impl`'s config, with its `applyTrailer` applied if it has one.
+fn withTrailer(impl: anytype) ?decode.Config {
+    // The decode ended without an error, so this repeats the first answer.
+    var config = impl.decodeConfig() catch return null;
+    if (@hasDecl(@TypeOf(impl.*), "applyTrailer")) impl.applyTrailer(&config);
+    return config;
 }
 
 test "detect and decode" {
@@ -165,4 +192,43 @@ test "a seeker reaches the format's decoder" {
             try testing.expectError(error.EntryBehind, d.decodeFrame(dst, &.{}));
         }
     }
+}
+
+test "the final config, with what followed the frames" {
+    // QOI has nothing after its pixels: its config, once the frames end.
+    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    var r: Io.Reader = .fixed(file);
+    var d: Decoder = try .initDetect(&r, .{});
+    const config = try d.decodeConfig();
+    try testing.expectEqual(null, d.finalConfig());
+    var out: [3]u8 = undefined;
+    const dst = try PixelBuffer.init(&out, .rgb8, 1, 1);
+    _ = (try d.decodeFrame(dst, &.{})).?;
+    try testing.expectEqual(null, d.finalConfig());
+    try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+    try testing.expectEqual(config, d.finalConfig().?);
+    // A decode that fails has none.
+    r = .fixed(file[0 .. file.len - 1]);
+    d = try .initDetect(&r, .{});
+    _ = try d.decodeConfig();
+    try testing.expectError(error.Truncated, d.decodeFrame(dst, &.{}));
+    try testing.expectError(error.Truncated, d.decodeFrame(dst, &.{}));
+    try testing.expectEqual(null, d.finalConfig());
+
+    // A format with a trailer sets what it found late and keeps the rest.
+    const Late = struct {
+        const Self = @This();
+        fn decodeConfig(_: *Self) error{}!decode.Config {
+            return .{ .width = 2, .height = 3, .native = .rgba8, .metadata = .{ .gamma = 45455 } };
+        }
+        fn applyTrailer(_: *const Self, c: *decode.Config) void {
+            c.background = .{ 1, 2, 3, 255 };
+            c.metadata.orientation = .right_top;
+        }
+    };
+    var late: Late = .{};
+    const final = withTrailer(&late).?;
+    try testing.expectEqual(.{ 2, 3, 45455 }, .{ final.width, final.height, final.metadata.gamma.? });
+    try testing.expectEqual(.{ 1, 2, 3, 255 }, final.background.?);
+    try testing.expectEqual(.right_top, final.metadata.orientation);
 }

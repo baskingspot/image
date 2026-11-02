@@ -85,7 +85,12 @@ Rules every decoder keeps (AGENTS.md has the reasons):
   fuzz target checks that a seeker changes nothing but what was behind.
 - Metadata is reported in `Config.metadata` and `Frame`, and ICC, EXIF, and
   XMP bytes go to `options.blob_sink` as the decoder passes them. Frame
-  durations are in flicks (`image.flicks_per_second`).
+  durations are in flicks (`image.flicks_per_second`). Metadata that follows
+  the frames (TGA's footer, a PNG's chunks after IDAT) is read by the
+  `decodeFrame` call that returns null, and a format that has some declares
+  `pub fn applyTrailer(d: *const Decoder, config: *image.Config) void`,
+  which sets only the `Config` fields it found there; `image.Decoder`'s
+  `finalConfig` calls it on the config `decodeConfig` returns.
 - Strict by default, as Wuffs is: a truncated stream is `Truncated`, a bad
   checksum or a structure the specification forbids is an error. When the
   references are lax about something, say so in `test/oracle/<fmt>.zig`.

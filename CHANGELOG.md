@@ -12,6 +12,7 @@ All notable changes to image are recorded here. The format follows
 - `image.Config`, `image.Frame`, `image.Limits`, `image.DecodeOptions`, `image.Metadata`, and `image.DecodeError`, shared by every decoder; `image.exif.orientation` reads EXIF orientation.
 - `image.detect` names a file's `image.Format` from its first `image.detect_prefix_len` bytes, for every phase-1 format.
 - `image.Decoder` decodes any supported format behind one interface; `Decoder.initDetect` picks the format from the input.
+- `image.Decoder.finalConfig` returns the `Config` updated with metadata a format finds after its frames, once `decodeFrame` has returned null.
 - `image.qoi.Decoder`, a streaming QOI decoder that writes any pixel format and needs no work memory.
 - `image.bmp` and `image.ico`: BMP decode (every header, 1- to 32-bit, RLE, bitfields; embedded JPEG and PNG reported as `error.EmbeddedJpeg` and `error.EmbeddedPng`) and encode (24-bit, 32-bit with alpha, 8-bit indexed); ICO and CUR decode of every entry with hotspots, out-of-order entries through `DecodeOptions.seeker`, and encode of BMP entries.
 - `image.tga`: `Decoder` reads every TGA image type (color-mapped, true-color, and gray, run-length encoded or not, any origin) and reports the TGA 2.0 footer and extension area through `Decoder.trailer`; `encode`, `workLen`, and `EncodeOptions` write uncompressed or run-length encoded files.

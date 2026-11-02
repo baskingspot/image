@@ -161,7 +161,8 @@ pub const Config = struct {
     is_opaque: bool = false,
     /// The background color the file names, straight RGBA, if any.
     background: ?[4]u8 = null,
-    /// What the decoder found before the first frame.
+    /// What the decoder found before the first frame. What follows the
+    /// frames updates this and `background` in `image.Decoder.finalConfig`.
     metadata: Metadata = .{},
 };
 
