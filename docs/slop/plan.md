@@ -200,15 +200,27 @@ owning the files adding-a-format.md assigns to its format plus
   libjpeg-turbo, and at or above it by size-class geomean on every row
   (results/jpeg-stage2-20261102.md). TIFF detects its interface
   with `@hasField(image.jpeg.Decoder.Options, "tables")`.
-- **WebP decode** (branch `wave3-webp`): `src/webp/`. Stage 1 landed at
-  `446a5da` (webp.md, results/webp-20261102.md): lossless (VP8L) from RFC
-  9649, simple and extended, with ICCP, EXIF, and XMP to the blob sink and
-  `Config.metadata`. `decodeConfig` states the work memory from the
-  dimensions alone, with prefix tables for at most `Options.max_prefix_groups`
-  groups (default 2600, libwebp's encoder maximum) at 10,024 bytes each;
-  only the used groups are touched. 1.03× libwebp overall, 1.46× on icons,
-  at about half its peak RSS. Stages 2 (VP8 and ALPH) and 3 (ANIM/ANMF)
-  follow on the same branch.
+- **WebP decode** (landed at `a7f586e`; webp.md, results/webp-20261102.md):
+  lossless (VP8L) from RFC 9649, lossy (VP8) from RFC 6386 with ALPH (raw or
+  lossless, every filter), and animation (ANIM/ANMF) under the Frame
+  contract with `decodeFrameConfig`; ICCP, EXIF, and XMP go to the blob sink
+  and `Config.metadata`, with late chunks through `applyTrailer`.
+  `decodeConfig` states the work memory before any pixel data. VP8L:
+  entropy-coded pixels, two transform rows, transform and entropy images,
+  the color cache, and prefix tables for at most `Options.max_prefix_groups`
+  groups (default 2600, libwebp's encoder maximum). VP8: 6W of output and
+  chroma rows, about 680 bytes per macroblock column, and the kept
+  partitions, bounded by the payload. ALPH: a W×H plane. Animation: two RGBA
+  canvas rows plus a canvas-sized frame of either kind. Lossy pixels match
+  libwebp's defaults bit for bit (fancy upsampling, 14-bit BT.601),
+  including its x86 build's 16-bit wrapping in the full inverse DCT and
+  32-bit AC3. A still image's partitions read past the VP8 chunk, as libwebp
+  and Wuffs do. Animation composites as `WebPAnimDecoder` does (key-frame
+  rule, integer blend, disposal to transparent black); the ANIM background
+  is reported, never applied, and `frame_count` is null. Lossless 1.03×
+  libwebp, lossy 1.02× (1.36× icons, 0.86× over 1 MP), animation 1.16×,
+  peak RSS at or below libwebp in every class. Splits are in
+  test/oracle/webp.zig.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
   Stage 1 landed at `e96a20e` (tiff.md, results/tiff-20261102.md): classic
   TIFF and BigTIFF; strips and tiles; chunky and planar; none, PackBits,
