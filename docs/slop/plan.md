@@ -1019,6 +1019,12 @@ width)` for every file with several entries.
 71. **JPEG XL default leaves. Decided by the owner:** `default` grows its
     tree to 1024 leaves, not 2048 (−0.78% against stage 1 for +13% time,
     instead of −0.93% for +20%).
+72. **WebP lossy trellis at `default`. Decided by the owner:** kept; icons
+    run at 0.96× libwebp -m 4 for about 2% at equal PSNR on every size.
+    Icon speed is the orb's next item.
+73. **WebP lossy trellis at `best`. Decided by the owner:** kept in every
+    mode choice, at 0.6× libwebp -m 6; trellis speed is the orb's next
+    item.
 
 ## Harness requests
 
