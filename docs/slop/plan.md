@@ -318,10 +318,22 @@ owning the files adding-a-format.md assigns to its format plus
   ran `zig build check -Dtarget=arm-linux` out of memory. Work memory is
   850,439 bytes plus 72 per pixel of width. Output never depends on prior
   work-memory contents (ICO measures an entry with a discarding pass).
-- **GIF encode** (branch `wave5-gif-encode`, the GIF orb): `src/gif/encode.zig`
-  and any new `src/gif/` files it adds (quantizer, dither), the gif_encode
-  fuzz and oracle files, and the gif-encode bench rows; decision 6
-  (quantizer and dither) is measured here.
+- **GIF encode** (landed; gif.md "Encoder"; results/gif-encode-20261102.md):
+  `gif.encode` and `gif.encodeAnimation` write GIF89a from any pixel format,
+  allocation-free (`workLen`: 6 KiB up to 256 pixels, about 2.4 MiB above,
+  plus a byte a pixel to interlace a dithered image). A frame with at most
+  256 colors is stored exactly; one with more is quantized (`Quantizer.wu`,
+  `.median_cut`, `.octree`, `refine` k-means passes) and dithered
+  (`Dither.floyd_steinberg`, error bounded at 16 a channel, or `.none`).
+  `AnimationFrame` is PNG's without `blend`; `crop` keeps only what changes.
+  The oracle re-encodes every GIF input and holds the file against Wuffs and
+  giflib. Bench rows `gif-encode`, `gif-encode-few`, and `gif-encode-anim`
+  against giflib, gifski (a C arm through libgifski), ImageMagick, and Go:
+  0.73× giflib over all rows (giflib takes our indices, so the quantized
+  rows time our quantize-and-dither against its LZW writer alone), 0.73–0.81×
+  on the exact path, which reads the pixels twice; 7–30× the other arms;
+  peak RSS at or below giflib's past icons. Follow-ups: one pass on the
+  exact path, selective dithering, quantizer setup on icons.
 - **JPEG encode** (landed; results/jpeg-encode-20261102.md): baseline and
   progressive, 4:4:4/4:2:2/4:2:0, optimized tables, byte-identical to
   libjpeg-turbo; 1.87× its speed over all rows, 0.93× on baseline 4:2:0 over
@@ -608,6 +620,13 @@ orb asks for a change to them, or for text in this file, in its report.
    from a JPEG (lossless JPEG recompression).
 6. **GIF quantization.** Which quantizer (median cut, octree, k-means) and
    dither, measured on quality and speed against gifski and ImageMagick.
+   Measured (results/gif-encode-20261102.md, 16 images): Wu beats median
+   cut by 0.6 dB and octree by 3.3 dB at the same speed; `refine` adds at
+   most 0.17 dB; bounded Floyd–Steinberg has the best blurred PSNR of every
+   encoder measured (51.17 dB; ImageMagick's Floyd–Steinberg 50.93, gifski
+   q100 46.92) at 2.1 dB less PSNR than no dither and 20% more bytes.
+   Recommended defaults `.wu`, `refine = 0`, `.floyd_steinberg`; the owner
+   decides.
 7. **Dropping alpha. Decided by the owner: drop it, never composite.**
    Converting to a format without alpha keeps the stored colors, as qoi.h,
    stb_image, ImageMagick's RGB export, libpng's `strip_alpha`, Pillow, and
@@ -763,6 +782,9 @@ orb asks for a change to them, or for text in this file, in its report.
     non-interleaved JPEG-in-TIFF stays `error.Unsupported`.
 41. **TIFF 12-bit JPEG. Decided by the owner:** 12-bit stays limited to gray,
     RGB, and YCbCr pages; the samples path stays `Unsupported`.
+42. **WebP lossless effort. Decided by the owner:** `image.webp.encode`
+    defaults to effort 5: 1.2% smaller than cwebp's lossless default
+    (`-z 6`) at 1.1–2.9× libwebp's speed.
 
 ## Harness requests
 
