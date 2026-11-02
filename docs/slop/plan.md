@@ -257,6 +257,12 @@ owning the files adding-a-format.md assigns to its format plus
   icons, about ×0.5 on the compressed paths at 1 MP and above; peak RSS at
   or below libtiff's in every class. Stage 2 is JPEG compression through
   `image.jpeg`'s `Options.tables`, `.color`, `.crop`, and `Decoder.workLen`.
+- **WebP performance pass** (branch `wave3-webp-perf`, the WebP orb):
+  `src/webp/` and its bench rows. Target: at least 1.0× libwebp in every
+  size class, decode, lossless and lossy, with peak RSS no worse. The
+  starting gaps (results/webp-20261102.md) are lossless palette images with
+  flat areas (0.54–0.80×) and lossy's per-pixel loop filter and token reader
+  (0.82–0.92× above icons).
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
   orb until `wave1-png-strict` lands.
