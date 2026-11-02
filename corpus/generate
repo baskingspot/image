@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Regenerates corpus/vendor/generated/ from PngSuite with the dev shell's
-# ImageMagick and qoiconv: the formats whose public suites leave cases
-# uncovered (Netpbm's every type, TGA's every image type, ICO and CUR with
-# BMP and PNG entries, WBMP, and small QOI files). Each format's cases are a
+# ImageMagick, qoiconv, and libjpeg-turbo's cjpeg: the formats whose public
+# suites leave cases uncovered (Netpbm's every type, TGA's every image type,
+# ICO and CUR with BMP and PNG entries, WBMP, small QOI files, and JPEG's
+# arithmetic, 12-bit, and lossless processes). Each format's cases are a
 # script, corpus/gen/<format>.sh; FORMATS picks them (default all). The
 # output is committed with its checksums, so a newer ImageMagick does not
 # change the corpus; rerun this only to add cases, then `just corpus-sums`.

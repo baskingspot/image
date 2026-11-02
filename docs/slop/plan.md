@@ -179,9 +179,14 @@ Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
 `docs/slop/<fmt>.md`, with one line per registry:
 
-- **JPEG decode** (branch `wave2-jpeg`): `src/jpeg/`. Stage 1, baseline and
-  progressive Huffman 8-bit, landed at `a12ff24`; stage 2 (arithmetic,
-  12-bit, lossless) follows on the same branch. TIFF detects its interface
+- **JPEG decode** (landed; jpeg.md): `src/jpeg/`. Stage 1, baseline and
+  progressive Huffman 8-bit, landed at `a12ff24`. Stage 2 landed at
+  `a748af5`: arithmetic coding (SOF9, SOF10, DAC), 12-bit DCT (SOF1/2/9/10,
+  native rgb16/gray16), and lossless process 14 (SOF3, P 2–16, all
+  predictors, point transform, restarts). SOF11 and the hierarchical
+  processes return Unsupported, as in libjpeg-turbo. Bit-exact with
+  libjpeg-turbo, and at or above it by size-class geomean on every row
+  (results/jpeg-stage2-20261102.md). TIFF detects its interface
   with `@hasField(image.jpeg.Decoder.Options, "tables")`.
 - **WebP decode** (branch `wave3-webp`): `src/webp/`.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
