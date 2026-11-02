@@ -86,7 +86,7 @@ fn params(effort: Effort) Params {
             .wp_prop = false,
             .samples = 1 << 15,
             .thresholds = 16,
-            .max_leaves = 64,
+            .max_leaves = 256,
             .split_cost = 64,
             .palette_max = 256,
             .rct_pixels = 1 << 10,
@@ -99,7 +99,7 @@ fn params(effort: Effort) Params {
             .wp_prop = true,
             .samples = 1 << 18,
             .thresholds = 32,
-            .max_leaves = 512,
+            .max_leaves = 2048,
             .split_cost = 48,
             .palette_max = 1024,
             .rct_pixels = 1 << 15,
@@ -229,7 +229,9 @@ const Sizes = struct {
         const stream_samples = @max(max_channels * gw * gh + pal * max_channels, 2 * max_channels * group_dim);
         const pixels = @as(u64, w) * h;
         const all_samples = std.math.mul(u64, pixels, max_channels) catch return null;
-        const leaves: usize = p.max_leaves;
+        // The tree the decoder allows a small image is smaller than the
+        // effort's.
+        const leaves: usize = @min(p.max_leaves, (lay.treeLimit() + 1) / 2);
         // Sections: six bytes a sample at most (see `encodeImpl`), the tree
         // and histograms, and each stream's header and padding.
         const sample_bytes = std.math.mul(u64, all_samples + pal * max_channels, 6) catch return null;
@@ -245,7 +247,7 @@ const Sizes = struct {
             .tokens = stream_samples * @sizeOf(Token) + @max(stream_samples, (2 * leaves + 1) * 5) * 4,
             .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
             .samples = samplesMemory(p, w, h),
-            .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, p.max_leaves)),
+            .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, @intCast(leaves))),
             .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
             .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
             .code = ent.buildMemory(leaves) + ent.buildMemory(6),
@@ -844,12 +846,12 @@ fn encodeImpl(
     const has_pal = c.tr.palette != null;
     const stream_samples = sizes.planes / 4;
     const tokens = try mem.alloc(Token, stream_samples);
-    const scratch = try mem.alloc(u32, @max(stream_samples, (2 * @as(usize, p.max_leaves) + 1) * 5));
+    const leaves: u32 = @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2));
+    const scratch = try mem.alloc(u32, @max(stream_samples, (2 * @as(usize, leaves) + 1) * 5));
     var plane_list: [max_channels + 1]Plane = undefined;
 
     // Learn the tree from samples.
-    const leaves: u32 = @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2));
-    const nodes = try mem.alloc(mod.Node, 2 * @as(usize, p.max_leaves) + 1);
+    const nodes = try mem.alloc(mod.Node, 2 * @as(usize, leaves) + 1);
     var tree: mod.Tree = undefined;
     {
         const m = mem.mark();
