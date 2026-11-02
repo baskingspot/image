@@ -323,7 +323,11 @@ owning the files adding-a-format.md assigns to its format plus
 - **JPEG encode** (landed; results/jpeg-encode-20261102.md): baseline and
   progressive, 4:4:4/4:2:2/4:2:0, optimized tables, byte-identical to
   libjpeg-turbo; 1.87× its speed over all rows, 0.93× on baseline 4:2:0 over
-  1 MP; peak RSS at or below it.
+  1 MP; peak RSS at or below it. The performance pass
+  (results/jpeg-encode-perf-20261102.md) puts every class at or above
+  libjpeg-turbo, with the same bytes: baseline over 1 MP 1.18× (4:2:0) and
+  1.26× (4:4:4), 2.16× over all rows. No zmm in the encoder; the source is
+  prefetched 4 rows ahead.
 - **WebP lossless encode** (branch `wave5-webp-encode`, the performance
   orb): `src/webp/encode.zig` and any new `src/webp/encode_*.zig` files, the
   webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
@@ -333,7 +337,7 @@ owning the files adding-a-format.md assigns to its format plus
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
   only its export lines to `src/tiff/root.zig`; the rest of `src/tiff/`
-  stays with the TIFF orb (stage 2, branch `wave3-tiff`).
+  stays with the TIFF orb (the compressed-path speedup).
 - **Harness pass 4** (landed; results/oracle-memory-20261102.md): the oracle
   streams each batch behind its length, sends a decoder's requests op by op
   (adapting each input once per op), and reads corpus files from disk as
