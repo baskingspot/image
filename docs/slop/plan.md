@@ -953,6 +953,12 @@ width)` for every file with several entries.
     valid or not, as libpng.
 64. **Gain-map oracle. Decided by the owner:** libultrahdr joins the flake
     and the jpeg oracle checks `Metadata.gain_map`.
+65. **WebP lossy alpha effort. Decided by the owner:** the lossy encoder's
+    alpha plane uses lossless effort 1 for `fast` and `default` and 8 for
+    `best` (was 0, 1, 5).
+66. **WebP lossless effort 1 on RGB. Decided by the owner:** keeps its hash
+    chain; the cheap path for flat, few-color images is the fix for their
+    speed.
 
 ## Harness requests
 
