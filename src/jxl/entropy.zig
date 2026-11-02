@@ -19,8 +19,8 @@ pub const Error = BitReader.Error || Arena.Error || error{
     BadEntropy,
 };
 
-const log_tab_size = 12;
-const tab_size = 1 << log_tab_size;
+pub const log_tab_size = 12;
+pub const tab_size = 1 << log_tab_size;
 const prefix_max_bits = 15;
 const root_bits = 8;
 pub const max_clusters = 256;
@@ -79,7 +79,7 @@ const Lz77 = struct {
 };
 
 /// One bucket of an alias table.
-const Alias = struct {
+pub const Alias = struct {
     cutoff: u16,
     right: u16,
     /// The offset of the right part, minus the cutoff.
@@ -325,7 +325,7 @@ fn readHistogram(br: *BitReader, counts: *[tab_size + 512]u16) Error!usize {
 
 /// Builds the alias table of `counts` (summing to 4096) for an alphabet
 /// of 2^`log_alpha` symbols.
-fn initAlias(counts_in: []const u16, log_alpha: u5, table: []Alias) void {
+pub fn initAlias(counts_in: []const u16, log_alpha: u5, table: []Alias) void {
     var counts = counts_in;
     while (counts.len > 0 and counts[counts.len - 1] == 0) counts = counts[0 .. counts.len - 1];
     const one = [1]u16{tab_size};

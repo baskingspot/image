@@ -1,4 +1,4 @@
-//! JPEG XL (ISO/IEC 18181-1 and -2): decode. Encoding comes later.
+//! JPEG XL (ISO/IEC 18181-1 and -2): decode, and lossless encode.
 
 pub const Decoder = @import("Decoder.zig");
 pub const JpegReconstructor = @import("JpegReconstructor.zig");

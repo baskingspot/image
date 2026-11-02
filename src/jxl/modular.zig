@@ -120,7 +120,7 @@ pub const Transform = struct {
 
 const num_predictors = 14;
 
-const Predictor = enum(u8) {
+pub const Predictor = enum(u8) {
     zero,
     left,
     top,
@@ -830,7 +830,7 @@ const num_static = 2;
 const num_nonref = 16;
 const wp_prop = 15;
 
-const Neighbours = struct {
+pub const Neighbours = struct {
     left: i64,
     top: i64,
     topleft: i64,
@@ -840,7 +840,7 @@ const Neighbours = struct {
     toprightright: i64,
 };
 
-inline fn neighbours(ch: *const Channel, x: usize, y: usize) Neighbours {
+pub inline fn neighbours(ch: *const Channel, x: usize, y: usize) Neighbours {
     const w = ch.w;
     const d = ch.data;
     const i = y * w + x;
@@ -855,7 +855,7 @@ inline fn neighbours(ch: *const Channel, x: usize, y: usize) Neighbours {
     return n;
 }
 
-inline fn clampedGradient(n: i64, w: i64, l: i64) i64 {
+pub inline fn clampedGradient(n: i64, w: i64, l: i64) i64 {
     const mn = @min(n, w);
     const mx = @max(n, w);
     const grad: i64 = @as(i32, @truncate(n +% w -% l));
@@ -864,7 +864,7 @@ inline fn clampedGradient(n: i64, w: i64, l: i64) i64 {
     return grad;
 }
 
-inline fn predictOne(p: Predictor, n: Neighbours, wp_pred: i64) i64 {
+pub inline fn predictOne(p: Predictor, n: Neighbours, wp_pred: i64) i64 {
     return switch (p) {
         .zero => 0,
         .left => n.left,
@@ -892,7 +892,7 @@ inline fn predictOne(p: Predictor, n: Neighbours, wp_pred: i64) i64 {
 }
 
 /// The weighted predictor's state for one channel.
-const Wp = struct {
+pub const Wp = struct {
     hdr: WpHeader,
     w: usize,
     pred_err: [4][]u32,
@@ -906,7 +906,7 @@ const Wp = struct {
         break :blk t;
     };
 
-    fn init(arena: *Arena, hdr: WpHeader, w: usize) Error!Wp {
+    pub fn init(arena: *Arena, hdr: WpHeader, w: usize) Error!Wp {
         var s: Wp = .{ .hdr = hdr, .w = w, .pred_err = undefined, .err = try arena.alloc(i32, (w + 2) * 2) };
         @memset(s.err, 0);
         for (&s.pred_err) |*p| {
@@ -932,7 +932,7 @@ const Wp = struct {
 
     /// The prediction at (x, y) from the neighbours, and the largest
     /// error around it (property 15) in `max_err`.
-    inline fn predict(
+    pub inline fn predict(
         s: *Wp,
         x: usize,
         y: usize,
@@ -995,7 +995,7 @@ const Wp = struct {
         return (s.pred +% 3) >> 3;
     }
 
-    inline fn update(s: *Wp, val_in: i32, x: usize, y: usize) void {
+    pub inline fn update(s: *Wp, val_in: i32, x: usize, y: usize) void {
         const xs = s.w;
         const cur: usize = if (y & 1 == 1) 0 else xs + 2;
         const prev: usize = if (y & 1 == 1) xs + 2 else 0;
@@ -1149,7 +1149,7 @@ fn decodeChannel(
 /// The reference properties of row `y`: for each earlier channel shaped
 /// like channel `ci`, nearest first, |v|, v, |v - g|, v - g at each x,
 /// where g is that channel's clamped gradient prediction.
-fn precomputeRefs(img: *const Image, ci: usize, y: usize, refs: []i32, nref: usize) void {
+pub fn precomputeRefs(img: *const Image, ci: usize, y: usize, refs: []i32, nref: usize) void {
     @memset(refs, 0);
     const ch = &img.buf[ci];
     var offset: usize = 0;
