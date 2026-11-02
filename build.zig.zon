@@ -40,10 +40,11 @@
             .lazy = true,
         },
         // Pinned to a commit after 0.2.0 for its inflate fast path, which
-        // PNG decode needs; move to the next release when there is one.
+        // PNG decode needs, and its lazy deflate levels, which PNG encode
+        // uses; move to the next release when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#1cdd3d89cb29b33b806d1bde48017ffc363fcd28",
-            .hash = "compress-0.2.0-VxR1WjxwOwA9vvUPrvPLmzfg7UfDWVI8a3cu8i4tgCl6",
+            .url = "git+https://github.com/baskingspot/compress#631982325f3d1c968ab2004e54da6f73d90e4925",
+            .hash = "compress-0.2.0-VxR1WhDlOwCFN2gb5dNKLZGgdE3ZwUyPxtoStui6e0iF",
         },
     },
     // Specifies the set of files and directories that are included in this package.
