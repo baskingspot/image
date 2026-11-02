@@ -2,6 +2,7 @@
 //! now; animation comes next, and encoding later.
 
 pub const Decoder = @import("Decoder.zig");
+pub const lossy = @import("vp8_encode.zig");
 
 const encoder = @import("encode.zig");
 pub const EncodeOptions = encoder.EncodeOptions;
@@ -21,4 +22,5 @@ test {
     _ = @import("vp8.zig");
     _ = @import("alpha.zig");
     _ = @import("yuv.zig");
+    _ = lossy;
 }

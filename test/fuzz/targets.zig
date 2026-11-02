@@ -27,6 +27,7 @@ pub const netpbm_encode = @import("netpbm_encode.zig");
 pub const wbmp = @import("wbmp.zig");
 pub const wbmp_encode = @import("wbmp_encode.zig");
 pub const webp = @import("webp.zig");
+pub const webp_lossy_encode = @import("webp_lossy_encode.zig");
 pub const jxl = @import("jxl.zig");
 pub const jxl_jbrd = @import("jxl_jbrd.zig");
 pub const webp_encode = @import("webp_encode.zig");
