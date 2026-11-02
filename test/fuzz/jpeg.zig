@@ -43,14 +43,8 @@ fn checkContainer(input: []const u8, choice: u64) !void {
     var r: std.Io.Reader = .fixed(input);
     var d: D = .init(&r, .{ .limits = harness.limits });
     const config = d.decodeConfig() catch return;
-    var frame: D.FrameParams = .{
-        .width = d.width,
-        .height = d.height,
-        .components = d.ncomp,
-        .precision = d.precision,
-        .lossless = d.lossless,
-    };
-    for (frame.sampling[0..d.ncomp], d.comps[0..d.ncomp]) |*f, c| f.* = .{ .h = c.h, .v = c.v };
+    var frame = d.frameParams();
+    frame.multi_scan = true;
     const multi = D.workLen(frame, .{ .limits = .none }) catch return error.WorkLenDiffers;
     frame.multi_scan = false;
     const single = D.workLen(frame, .{ .limits = .none }) catch return error.WorkLenDiffers;
@@ -669,6 +663,8 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
     const ncomp: u8 = switch (random.uintLessThan(u8, 8)) {
         0, 1 => 1,
         2 => 4,
+        // Gray and alpha, as TIFF writes them.
+        3 => 2,
         else => 3,
     };
     var g: Gen = .{

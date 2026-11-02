@@ -113,8 +113,10 @@ static unsigned scale(unsigned v, unsigned prec, int wide) {
 static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format format,
                               uint64_t max_pixels, struct image *out) {
   int inks = format == PF_CMYK8 || format == PF_CMYK16;
-  int wide = format == PF_RGB16 || format == PF_GRAY16 || format == PF_CMYK16;
-  if (format != PF_RGB8 && format != PF_GRAY8 && format != PF_CMYK8 && !wide) return STATUS_SKIPPED;
+  int alpha = format == PF_GRAY_ALPHA8 || format == PF_GRAY_ALPHA16;
+  int wide = format == PF_RGB16 || format == PF_GRAY16 || format == PF_CMYK16 || format == PF_GRAY_ALPHA16;
+  if (format != PF_RGB8 && format != PF_GRAY8 && format != PF_CMYK8 && format != PF_GRAY_ALPHA8 && !wide)
+    return STATUS_SKIPPED;
   struct jpeg_decompress_struct cinfo;
   struct strict err;
   void *row = NULL;
@@ -140,13 +142,19 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
   }
   int cmyk = cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK;
   int gray_out = format == PF_GRAY8 || format == PF_GRAY16;
-  if ((gray_out && cinfo.num_components != 1) || (inks && !cmyk)) {
+  // Two components (TIFF's gray and alpha) libjpeg-turbo reads as
+  // JCS_UNKNOWN and returns unconverted; they compare as gray and alpha,
+  // as gray alone, and as gray copied to RGB, as this package converts its
+  // native gray_alpha. Gray with alpha also compares for a gray image,
+  // opaque; not for color, which would need this package's RGB to gray.
+  int two = cinfo.num_components == 2;
+  if ((gray_out && cinfo.num_components > 2) || (alpha && cinfo.num_components > 2) || (inks && !cmyk)) {
     result = STATUS_SKIPPED;
     goto done;
   }
   // A grayscale image decodes as gray and is copied to RGB here: in
   // lossless mode libjpeg-turbo converts no colors, not even gray to RGB.
-  cinfo.out_color_space = cinfo.num_components == 1 ? JCS_GRAYSCALE : cmyk ? JCS_CMYK : JCS_RGB;
+  cinfo.out_color_space = cinfo.num_components == 1 ? JCS_GRAYSCALE : two ? JCS_UNKNOWN : cmyk ? JCS_CMYK : JCS_RGB;
   cinfo.do_block_smoothing = FALSE;
   jpeg_start_decompress(&cinfo);
   size_t bpp = pixel_bytes(format);
@@ -158,7 +166,7 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
   out->pixels = malloc(out->len ? out->len : 1);
   row = malloc((size_t)cinfo.output_width * ch * 2 + 1);
   unsigned max = (1u << prec) - 1;
-  size_t out_ch = gray_out ? 1 : inks ? 4 : 3;
+  size_t out_ch = gray_out ? 1 : alpha ? 2 : inks ? 4 : 3;
   while (cinfo.output_scanline < cinfo.output_height) {
     size_t y = cinfo.output_scanline;
     // libjpeg-turbo's sample types: 8 bits to 8, 12-bit (signed) to 12,
@@ -180,7 +188,8 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
         unsigned v = prec <= 8 ? ((uint8_t *)row)[x * ch + c] : ((uint16_t *)row)[x * ch + c];
         p[c] = v > max ? max : v;
       }
-      if (ch == 1) p[1] = p[2] = p[0];
+      if (ch == 1 && alpha) p[1] = max;
+      else if (ch == 1 || (two && !alpha)) p[1] = p[2] = p[0];
       if (cmyk && !inks) {
         for (int c = 0; c < 3; c++) p[c] = (unsigned)((2 * (uint64_t)p[c] * p[3] + max) / (2 * max));
       }

@@ -1,6 +1,7 @@
 //! JPEG against libjpeg-turbo, the bar, and Wuffs (test/oracle/jpeg.c), in
-//! RGB, for grayscale images gray, and for CMYK and YCCK images their inks
-//! (`cmyk8`, `cmyk16`), each 8- and 16-bit. libjpeg-turbo's decoding choices
+//! RGB, for grayscale and two-component images gray and gray with alpha,
+//! and for CMYK and YCCK images their inks (`cmyk8`, `cmyk16`), each 8- and
+//! 16-bit. libjpeg-turbo's decoding choices
 //! are its defaults, which this package matches bit for bit (owner
 //! decision 2), so any pixel it writes differently is a mismatch.
 //!
@@ -33,7 +34,9 @@ const image = @import("image");
 pub const name = "jpeg";
 pub const fuzz = @import("fuzz").jpeg;
 pub const oracles = [_][]const u8{ "jpeg-turbo", "jpeg-wuffs" };
-pub const formats = [_]image.PixelFormat{ .rgb8, .gray8, .rgb16, .gray16, .cmyk8, .cmyk16 };
+pub const formats = [_]image.PixelFormat{
+    .rgb8, .gray8, .rgb16, .gray16, .cmyk8, .cmyk16, .gray_alpha8, .gray_alpha16,
+};
 
 /// This package's decoder with its default options, but asked for a CMYK
 /// format, with `cmyk = .raw`: the inks as stored, which libjpeg-turbo

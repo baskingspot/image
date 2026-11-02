@@ -194,7 +194,7 @@ processes.
   and there would be nothing to match. **Owner decision:** convert them
   anyway, with the 8- or 12-bit formula, unchecked.
 - **TIFF's JPEG (compression 7).** `Options.tables` takes the bytes of a
-  TIFF's JPEGTables tag: a table-specification stream (SOI, DQT, DHT, DRI,
+  TIFF's JPEGTables tag: a table-specification stream (SOI, DQT and DHT,
   then EOI), whose tables load before the image stream's own markers, as T.81
   B.5 describes for abbreviated streams. Each strip or tile is then its own
   abbreviated image stream. `Options.color` takes the photometric
@@ -202,6 +202,25 @@ processes.
   Adobe marker and component IDs are not consulted. The TIFF decoder can test
   for the interface with `@hasDecl(image.jpeg.Decoder.Options, "tables")`
   or `@hasField`. Old-style JPEG (compression 6) is not supported.
+- **Tables streams as libjpeg reads them** (TIFF stage 2's requests).
+  `Options.tables` is read as libjpeg's `jpeg_read_header` reads a
+  tables-only stream: SOFn is checked (nonzero size and component count,
+  and the length they need) and dropped, DNL skipped, RSTn and TEM ignored,
+  APPn and COM skipped, SOS refused. libjpeg's `get_soi` resets the restart
+  interval and the DAC conditioning at every SOI, so a DRI or DAC in the
+  tables stream does not reach the image; only DQT and DHT carry over.
+  The same holds across streams: libtiff decodes every strip with one
+  decompressor, so a strip's tables persist into the next, and
+  `Decoder.keptTables()` with `Options.prior` carries them the same way.
+- **The frame for a container.** `Decoder.frameParams()`, after
+  `decodeConfig`, returns the frame header as `FrameParams` (components,
+  each one's sampling, precision, lossless, and `multi_scan`), so TIFF
+  checks a stream against its IFD without reaching into the decoder.
+- **Two components.** libjpeg reads a two-component frame as JCS_UNKNOWN
+  and returns its samples unconverted; TIFF writes gray with alpha so. They
+  decode to native `gray_alpha8` (`gray_alpha16` past 8 bits), the first
+  component gray and the second alpha. The oracle compares them as gray
+  with alpha, gray, and RGB against libjpeg-turbo's JCS_UNKNOWN output.
 - **Work memory from the IFD.** `Decoder.workLen(params, options)` gives,
   from a `FrameParams` (width, height, component count, each component's
   sampling factors, precision, lossless, and `multi_scan`), the `work_len`

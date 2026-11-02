@@ -8,7 +8,9 @@
 //! color transform. Sequential and progressive DCT images with 8- or
 //! 12-bit samples, Huffman- or arithmetic-coded; lossless images (process
 //! 14, Huffman-coded) of 2 to 16 bits; every sampling factor libjpeg-turbo
-//! accepts, restart intervals, grayscale, YCbCr, RGB, CMYK, and YCCK; and
+//! accepts, restart intervals, grayscale, gray with alpha (two
+//! components, unconverted, as libjpeg reads them), YCbCr, RGB, CMYK, and
+//! YCCK; and
 //! decoding DCT images at 1/2, 1/4, or 1/8 size (`Options.scale`). The
 //! hierarchical processes and lossless arithmetic coding, which
 //! libjpeg-turbo does not decode either, are `Unsupported`.
@@ -56,10 +58,19 @@ pub const Options = struct {
     /// image's size times the scale, rounded up. Lossless images, which
     /// have no DCT, ignore it, as in libjpeg-turbo.
     scale: Scale = .full,
-    /// A table-specification stream (SOI, then DQT, DHT, DAC, or DRI
-    /// segments, then EOI) whose tables apply as if they came before the
-    /// image's own: TIFF's JPEGTables, for its abbreviated image streams.
+    /// A table-specification stream (SOI, segments, EOI) whose quantization
+    /// and Huffman tables apply as if they came before the image's own:
+    /// TIFF's JPEGTables, for its abbreviated image streams. It is read as
+    /// libjpeg reads a header: SOFn is checked and dropped, DNL skipped,
+    /// RSTn and TEM ignored, and SOS refused; DAC and DRI are read, but the
+    /// image stream's SOI resets them, as in libjpeg.
     tables: ?[]const u8 = null,
+    /// Tables an earlier stream left (`Decoder.keptTables`), applied before
+    /// `tables`: libjpeg keeps a stream's quantization and Huffman tables
+    /// for the next one it reads, as libtiff relies on across a TIFF's
+    /// strips and tiles. A caller that carries them reads JPEGTables once,
+    /// into the first stream.
+    prior: ?*const Tables = null,
     /// How to read a three- or four-component image's color: from its
     /// markers and component IDs, as libjpeg-turbo guesses (`auto`), or as
     /// the caller knows it, as TIFF's photometric interpretation says.
@@ -71,6 +82,17 @@ pub const Options = struct {
     /// decoding the rest without writing it, as for TIFF's edge tiles,
     /// which are coded whole but lie partly outside the image.
     crop: bool = false,
+};
+
+/// The quantization and Huffman tables a stream defined, with those it
+/// inherited.
+pub const Tables = struct {
+    quant: [4][64]u16 = undefined,
+    quant_set: [4]bool = @splat(false),
+    dc_spec: [4]huffman.Spec = undefined,
+    ac_spec: [4]huffman.Spec = undefined,
+    dc_set: [4]bool = @splat(false),
+    ac_set: [4]bool = @splat(false),
 };
 
 pub const Scale = enum(u2) {
@@ -242,7 +264,9 @@ const Scan = struct {
     al: u4,
 };
 
-const Color = enum { gray, ycc, rgb, cmyk, ycck };
+/// `gray_alpha`: two components, which libjpeg reads as JCS_UNKNOWN and
+/// does not convert; TIFF writes gray with alpha so.
+const Color = enum { gray, gray_alpha, ycc, rgb, cmyk, ycck };
 
 const Geometry = struct {
     hmax: u8,
@@ -324,10 +348,42 @@ pub fn init(reader: *Io.Reader, options: Options) Decoder {
     return .{ .reader = reader, .options = options };
 }
 
+/// The tables defined so far, for `Options.prior` of the next stream:
+/// after `decodeFrame`, all of this stream's.
+pub fn keptTables(d: *const Decoder) Tables {
+    return .{
+        .quant = d.quant,
+        .quant_set = d.quant_set,
+        .dc_spec = d.dc_spec,
+        .ac_spec = d.ac_spec,
+        .dc_set = d.dc_set,
+        .ac_set = d.ac_set,
+    };
+}
+
+/// The frame header `decodeConfig` read, as a container would state it:
+/// components, sampling, precision, and whether the stream is lossless or
+/// keeps every coefficient (progressive, or its first scan codes fewer
+/// than all the components).
+pub fn frameParams(d: *const Decoder) FrameParams {
+    std.debug.assert(d.state != .start);
+    var f: FrameParams = .{
+        .width = d.width,
+        .height = d.height,
+        .components = d.ncomp,
+        .precision = d.precision,
+        .lossless = d.lossless,
+        .multi_scan = d.progressive or d.scan.n < d.ncomp,
+    };
+    for (d.comps[0..d.ncomp], f.sampling[0..d.ncomp]) |c, *x| x.* = .{ .h = c.h, .v = c.v };
+    return f;
+}
+
 /// Reads the markers through the first scan's header. The native format
-/// is `gray8` for one component and `rgb8` for three or four (`cmyk8`
-/// with `Options.cmyk = .raw`), or `gray16`, `rgb16`, and `cmyk16` for
-/// samples past 8 bits. Calling it again returns the same config.
+/// is `gray8` for one component, `gray_alpha8` for two, and `rgb8` for
+/// three or four (`cmyk8` with `Options.cmyk = .raw`), or the 16-bit
+/// formats for samples past 8 bits. Calling it again returns the same
+/// config.
 pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     if (d.err) |e| return e;
     if (d.state == .start) {
@@ -369,7 +425,7 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
 pub const FrameParams = struct {
     width: u32,
     height: u32,
-    /// 1 (gray), 3, or 4.
+    /// 1 (gray), 2 (gray and alpha, as TIFF writes them), 3, or 4.
     components: u8,
     /// Each component's sampling factors, 1 to 4.
     sampling: [4]Sampling = @splat(.{}),
@@ -491,7 +547,18 @@ fn segmentLen(d: *Decoder) Error!usize {
 }
 
 fn readHeader(d: *Decoder) Error!void {
+    if (d.options.prior) |t| {
+        d.quant = t.quant;
+        d.quant_set = t.quant_set;
+        d.dc_spec = t.dc_spec;
+        d.ac_spec = t.ac_spec;
+        d.dc_set = t.dc_set;
+        d.ac_set = t.ac_set;
+    }
     if (d.options.tables) |t| try d.readTables(t);
+    // SOI resets the restart interval and the arithmetic conditioning.
+    d.restart = 0;
+    d.cond = @splat(.{});
     const soi = d.reader.takeArray(2) catch |e| return mapRead(e);
     d.pos += 2;
     if (soi[0] != 0xff or soi[1] != markers.soi) return error.BadSignature;
@@ -521,11 +588,31 @@ fn readTables(d: *Decoder, tables: []const u8) Error!void {
         const m = try d.nextMarker();
         switch (m) {
             markers.eoi => return,
-            markers.dht, markers.dqt, markers.dac, markers.dri, markers.com => try d.readMarker(m, false),
+            markers.dht, markers.dqt, markers.dac, markers.dri, markers.com, markers.dnl => try d.readMarker(m, false),
+            markers.rst0...markers.rst7, markers.tem => {},
             markers.app0...markers.app15 => try d.skip(try d.segmentLen()),
+            markers.sof0, markers.sof1, markers.sof2, markers.sof3 => try d.skipSof(),
+            markers.sof9, markers.sof10, markers.sof11 => try d.skipSof(),
+            markers.sof5, markers.sof6, markers.sof7, markers.jpg => return error.Unsupported,
+            markers.sof13, markers.sof14, markers.sof15 => return error.Unsupported,
             else => return error.BadMarker,
         }
     }
+}
+
+/// A frame header in a table-specification stream, checked as libjpeg
+/// checks one (a nonzero size and component count, and the length that
+/// count needs) and dropped: the image stream's own frame header follows.
+fn skipSof(d: *Decoder) Error!void {
+    const len = try d.readU16();
+    const b = d.reader.takeArray(6) catch |e| return mapRead(e);
+    d.pos += 6;
+    const nc = b[5];
+    const height = std.mem.readInt(u16, b[1..3], .big);
+    const width = std.mem.readInt(u16, b[3..5], .big);
+    if (height == 0 or width == 0 or nc == 0) return error.BadHeader;
+    if (len != 8 + 3 * @as(u32, nc)) return error.BadMarker;
+    try d.skip(3 * @as(usize, nc));
 }
 
 /// Every marker but SOS. `header` is whether the first scan is still to
@@ -596,7 +683,7 @@ fn checkFrame(d: *Decoder, nc: u8) Error!void {
     if (d.lossless) {
         if (d.precision < 2 or d.precision > 16) return error.BadHeader;
     } else if (d.precision != 8 and d.precision != 12) return error.BadHeader;
-    if (nc != 1 and nc != 3 and nc != 4) return error.Unsupported;
+    if (nc < 1 or nc > 4) return error.Unsupported;
     d.ncomp = nc;
 }
 
@@ -832,6 +919,7 @@ fn setup(d: *Decoder) Error!void {
     const wide = d.precision > 8;
     g.native = switch (g.color) {
         .gray => if (wide) .gray16 else .gray8,
+        .gray_alpha => if (wide) .gray_alpha16 else .gray_alpha8,
         .ycc, .rgb => if (wide) .rgb16 else .rgb8,
         .cmyk, .ycck => if (d.options.cmyk != .raw) (if (wide) .rgb16 else .rgb8) else if (wide) .cmyk16 else .cmyk8,
     };
@@ -929,6 +1017,7 @@ fn setup(d: *Decoder) Error!void {
 fn colorSpace(d: *const Decoder) Error!Color {
     switch (d.ncomp) {
         1 => return .gray,
+        2 => return .gray_alpha,
         3 => {
             switch (d.options.color) {
                 .none => return .rgb,
@@ -1651,6 +1740,9 @@ fn Output(comptime S: type) type {
                 o.scaled(target, rows, n);
             } else switch (g.color) {
                 .gray => @memcpy(target[0..n], rows[0][0..n]),
+                .gray_alpha => for (0..n) |x| {
+                    target[2 * x ..][0..2].* = .{ rows[0][x], rows[1][x] };
+                },
                 .ycc => sample.yccToRgb(target, rows[0], rows[1], rows[2], n),
                 .rgb => for (0..n) |x| {
                     target[3 * x ..][0..3].* = .{ rows[0][x], rows[1][x], rows[2][x] };
@@ -1704,6 +1796,7 @@ fn Output(comptime S: type) type {
             const out_max: u32 = if (wide) 65535 else 255;
             const comps = switch (color) {
                 .gray => 1,
+                .gray_alpha => 2,
                 .ycc, .rgb => 3,
                 .cmyk, .ycck => 4,
             };
@@ -1712,7 +1805,7 @@ fn Output(comptime S: type) type {
                 var p: [4]u32 = undefined;
                 inline for (0..comps) |k| p[k] = @min(rows[k][x], max);
                 switch (color) {
-                    .gray, .rgb => {},
+                    .gray, .gray_alpha, .rgb => {},
                     // Only the DCT has these, so only at 12 bits.
                     .ycc => {
                         const v = sample.ycc(12, @intCast(p[0]), @intCast(p[1]), @intCast(p[2]));
@@ -1728,8 +1821,8 @@ fn Output(comptime S: type) type {
                         }
                     },
                 }
-                // Gray has one channel, the others three, or four for raw
-                // inks.
+                // Gray has one channel, gray with alpha two, the others
+                // three, or four for raw inks.
                 const ch: usize = if (comps == 4 and raw) 4 else @min(comps, 3);
                 for (p[0..ch], 0..) |v, k| {
                     const q = (v * out_max + max / 2) / max;
@@ -1828,7 +1921,7 @@ test "workLen and crop" {
     try testing.expect(multi > single);
     try testing.expectError(error.BadHeader, workLen(.{ .width = 0, .height = 8, .components = 1 }, .{}));
     try testing.expectError(error.Unsupported, workLen(.{ .width = 70000, .height = 8, .components = 1 }, .{}));
-    try testing.expectError(error.Unsupported, workLen(.{ .width = 8, .height = 8, .components = 2 }, .{}));
+    try testing.expectError(error.Unsupported, workLen(.{ .width = 8, .height = 8, .components = 5 }, .{}));
     const bad: FrameParams = .{ .width = 8, .height = 8, .components = 3, .sampling = .{ .{ .h = 5 }, .{}, .{}, .{} } };
     try testing.expectError(error.BadHeader, workLen(bad, .{}));
     // A destination smaller than the frame: an error without
@@ -1853,4 +1946,65 @@ test "workLen and crop" {
         d = .init(&r, .{ .crop = true });
         try testing.expectError(error.SizeMismatch, d.decodeFrame(try PixelBuffer.init(&large, .gray8, 9, 8), work));
     }
+}
+
+test "TIFF's tables streams, carried tables, frame parameters, and two components" {
+    // A 16×8 gray image of two flat blocks of DC 0, abbreviated: no DQT.
+    const image = "\xff\xd8" ++
+        "\xff\xc0\x00\x0b\x08\x00\x08\x00\x10\x01\x01\x11\x00" ++
+        "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
+        // 00 1010 twice, padded with ones.
+        "\x28\xaf\xff\xd9";
+    // Its tables, among what libjpeg reads in a header: a frame header,
+    // DNL, RST0, and TEM, and a restart interval that the image's SOI
+    // resets (kept, it would want a marker after the first block).
+    const tables = "\xff\xd8" ++
+        "\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00" ++
+        "\xff\xdd\x00\x04\x00\x01" ++
+        "\xff\xdc\x00\x04\x00\x08" ++ "\xff\xd0\xff\x01" ++
+        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xd9";
+    var out: [128]u8 = undefined;
+    const work = try testing.allocator.alloc(u8, 1 << 16);
+    defer testing.allocator.free(work);
+    var r: Io.Reader = .fixed(image);
+    var d: Decoder = .init(&r, .{ .tables = tables });
+    _ = try d.decodeConfig();
+    const f = d.frameParams();
+    try testing.expectEqual(16, f.width);
+    try testing.expectEqual(1, f.components);
+    try testing.expectEqual(FrameParams.Sampling{ .h = 1, .v = 1 }, f.sampling[0]);
+    try testing.expectEqual(8, f.precision);
+    try testing.expect(!f.multi_scan and !f.lossless);
+    _ = (try d.decodeFrame(try PixelBuffer.init(&out, .gray8, 16, 8), work)).?;
+    for (out) |s| try testing.expectEqual(128, s);
+    // The next stream takes the tables this one kept, as libjpeg does
+    // across a TIFF's strips; without them it has no quantization table.
+    const kept = d.keptTables();
+    r = .fixed(image);
+    d = .init(&r, .{ .prior = &kept });
+    @memset(&out, 0);
+    _ = (try d.decodeFrame(try PixelBuffer.init(&out, .gray8, 16, 8), work)).?;
+    for (out) |s| try testing.expectEqual(128, s);
+    r = .fixed(image);
+    d = .init(&r, .{});
+    try testing.expectError(error.BadScan, d.decodeFrame(try PixelBuffer.init(&out, .gray8, 16, 8), work));
+    // A tables stream with a scan is not one.
+    r = .fixed(image);
+    d = .init(&r, .{ .tables = image });
+    try testing.expectError(error.BadMarker, d.decodeConfig());
+
+    // Two components, as TIFF writes gray with alpha, which libjpeg reads
+    // without converting: DC differences +1 and -1 quantized by 64 make
+    // samples 136 and 120.
+    const two = "\xff\xd8" ++
+        "\xff\xdb\x00\x43\x00\x40" ++ "\x01" ** 63 ++
+        "\xff\xc0\x00\x0e\x08\x00\x08\x00\x08\x02\x01\x11\x00\x02\x11\x00" ++
+        "\xff\xda\x00\x0a\x02\x01\x00\x02\x00\x00\x3f\x00" ++
+        // 010 1 1010, 010 0 1010.
+        "\x5a\x4a\xff\xd9";
+    var ga: [64 * 2]u8 = undefined;
+    const config = try testDecode(two, .gray_alpha8, .{}, &ga);
+    try testing.expectEqual(PixelFormat.gray_alpha8, config.native);
+    for (0..64) |i| try testing.expectEqualSlices(u8, &.{ 136, 120 }, ga[i * 2 ..][0..2]);
 }
