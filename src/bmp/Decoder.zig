@@ -136,7 +136,7 @@ fn pixels(d: *Decoder, dst: PixelBuffer) Error!void {
     try d.skipTo(d.offset);
     try dib.decodePixels(&d.in, h, &palette, dst);
     if (d.options.blob_sink != null) {
-        if (d.icc()) |b| if (b.offset >= d.in.pos) try d.skipTo(b.offset + b.len);
+        if (d.icc()) |b| if (b.offset >= d.in.pos) try d.skipTo(b.offset + b.len.?);
     }
 }
 
@@ -145,11 +145,12 @@ fn pixels(d: *Decoder, dst: PixelBuffer) Error!void {
 fn skipTo(d: *Decoder, to: u64) Error!void {
     const sink = d.options.blob_sink orelse return d.in.skipTo(to);
     const blob = d.icc() orelse return d.in.skipTo(to);
-    if (blob.offset < d.in.pos or blob.offset + blob.len > to) return d.in.skipTo(to);
+    const len = blob.len.?;
+    if (blob.offset < d.in.pos or blob.offset + len > to) return d.in.skipTo(to);
     try d.in.skipTo(blob.offset);
     var at: u64 = 0;
-    while (at < blob.len) {
-        const piece = try d.in.take(@intCast(@min(blob.len - at, d.in.maxTake(1))));
+    while (at < len) {
+        const piece = try d.in.take(@intCast(@min(len - at, d.in.maxTake(1))));
         sink.put(blob, at, piece);
         at += piece.len;
     }

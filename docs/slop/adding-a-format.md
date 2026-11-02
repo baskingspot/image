@@ -95,7 +95,10 @@ Rules every decoder keeps (AGENTS.md has the reasons):
   `image.Decoder` passes on the shared fields a format's `Options` has; `src/ico/Decoder.zig`'s `goTo` is the example, and its
   fuzz target checks that a seeker changes nothing but what was behind.
 - Metadata is reported in `Config.metadata` and `Frame`, and ICC, EXIF, and
-  XMP bytes go to `options.blob_sink` as the decoder passes them. Frame
+  XMP bytes go to `options.blob_sink` as the decoder passes them (a blob
+  whose length is known only at its end passes `len` null until its last
+  piece; plan.md decision 13, and `image.Blob` for one split into pieces).
+  Frame
   durations are in flicks (`image.flicks_per_second`). Metadata that follows
   the frames (TGA's footer, a PNG's chunks after IDAT) is read by the
   `decodeFrame` call that returns null, and a format that has some declares

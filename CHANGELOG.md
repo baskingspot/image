@@ -12,6 +12,7 @@ All notable changes to image are recorded here. The format follows
 - `image.Config`, `image.Frame`, `image.Limits`, `image.DecodeOptions`, `image.Metadata`, and `image.DecodeError`, shared by every decoder; `image.exif.orientation` reads EXIF orientation.
 - `image.detect` names a file's `image.Format` from its first `image.detect_prefix_len` bytes, for every phase-1 format.
 - `image.Decoder` decodes any supported format behind one interface; `Decoder.initDetect` picks the format from the input.
+- `image.BlobSink` takes blobs whose length is known only at their end: `image.Blob.len` is `?u64`, null until the last piece, and `Blob.endsAt` says whether a piece ends its blob.
 - `image.Decoder.decodeFrameConfig` returns the next frame before `decodeFrame` draws it, for every format with one frame and for GIF and ICO; Netpbm's raw files and animated PNG are `error.Unsupported` there for now.
 - `image.Decoder.finalConfig` returns the `Config` updated with metadata a format finds after its frames, once `decodeFrame` has returned null.
 - `image.qoi.Decoder`, a streaming QOI decoder that writes any pixel format and needs no work memory.

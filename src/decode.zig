@@ -274,24 +274,41 @@ pub const Density = struct {
     };
 };
 
-/// Where a metadata blob sits in the input, counted in bytes from the
-/// first byte the decoder read.
+/// A metadata blob: where it starts in the input, counted in bytes from
+/// the first byte the decoder read, and its length.
+///
+/// Most formats store a blob as one span of the input, and `offset` and
+/// `len` give that span (compressed if `encoding` says so). A format that
+/// splits it into pieces with other bytes between them, as GIF's
+/// sub-blocks do, reports the payload: `len` counts the payload bytes the
+/// blob sink receives, and `offset` is where the first of them is in the
+/// input, so the blob cannot be read back as one span from there.
 pub const Blob = struct {
     kind: Kind,
     offset: u64,
-    /// The stored length, compressed if `encoding` says so.
-    len: u64,
+    /// The length, or null while a format that learns it only at the
+    /// blob's end is still passing the blob to the sink. A `Blob` in
+    /// `Metadata` always has it.
+    len: ?u64,
     encoding: Encoding = .raw,
 
     pub const Kind = enum { icc, exif, xmp };
     pub const Encoding = enum { raw, zlib, brotli };
+
+    /// Whether a piece of `n` bytes at `at`, passed with this blob, is the
+    /// blob's last.
+    pub fn endsAt(b: Blob, at: u64, n: usize) bool {
+        return if (b.len) |len| at + n == len else false;
+    }
 };
 
 /// A caller's receiver for metadata blobs. The decoder calls `write` with
-/// each blob's stored bytes in order, in as many pieces as it reads them:
-/// `at` is the piece's offset in the blob, so a piece with `at == 0` starts
-/// a blob and one ending at `blob.len` ends it. The sink copies what it
-/// wants; the bytes are gone after it returns.
+/// each blob's bytes in order, in as many pieces as it reads them: `at` is
+/// the piece's offset in the blob, so a piece with `at == 0` starts a blob
+/// and one for which `blob.endsAt(at, bytes.len)` ends it. A format that
+/// knows the length passes it with every piece; one that learns it only at
+/// the end passes `blob.len` null until the last piece, which may be empty.
+/// The sink copies what it wants; the bytes are gone after it returns.
 pub const BlobSink = struct {
     context: *anyopaque,
     write: *const fn (context: *anyopaque, blob: Blob, at: u64, bytes: []const u8) void,
@@ -310,6 +327,17 @@ test "limits" {
     try Limits.none.checkSize(std.math.maxInt(u32), std.math.maxInt(u32));
     try testing.expectError(error.TooManyFrames, (Limits{ .max_frames = 2 }).checkFrames(3));
     try testing.expectError(error.WorkTooLarge, (Limits{ .max_work = 2 }).checkWork(3));
+}
+
+test "a blob ends on its last piece, known only there or all along" {
+    const known: Blob = .{ .kind = .icc, .offset = 10, .len = 5 };
+    try testing.expect(!known.endsAt(0, 3));
+    try testing.expect(known.endsAt(3, 2));
+    try testing.expect(known.endsAt(5, 0));
+    var late: Blob = .{ .kind = .xmp, .offset = 10, .len = null };
+    try testing.expect(!late.endsAt(0, 5));
+    late.len = 5;
+    try testing.expect(late.endsAt(5, 0));
 }
 
 test "orientation" {

@@ -655,7 +655,7 @@ fn readIcc(d: *Decoder, seq: u8, count: u8, len: usize) Error!void {
             .blob = .{ .kind = .icc, .offset = d.pos, .len = std.mem.readInt(u32, &size, .big) },
         };
     }
-    if (icc.at + len > icc.blob.len) {
+    if (icc.at + len > icc.blob.len.?) {
         icc.state = .bad;
         return d.skip(len);
     }
@@ -663,7 +663,7 @@ fn readIcc(d: *Decoder, seq: u8, count: u8, len: usize) Error!void {
     icc.at += len;
     icc.next +%= 1;
     if (seq == count) {
-        if (icc.at == icc.blob.len) {
+        if (icc.at == icc.blob.len.?) {
             icc.state = .done;
             d.metadata.icc = icc.blob;
         } else icc.state = .bad;
