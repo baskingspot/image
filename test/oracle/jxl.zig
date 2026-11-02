@@ -7,9 +7,14 @@
 //!
 //! Left out of the comparison:
 //!
-//! - What this decoder does not decode yet (`error.Unsupported`): VarDCT,
-//!   XYB, YCbCr, upsampling, the restoration filters, patches, splines,
-//!   noise, and LF frames. docs/slop/jxl.md lists the stages.
+//! - What this decoder does not decode (`error.Unsupported`).
+//! - Images with a frame drawn in floats (VarDCT, XYB, the restoration
+//!   filters, upsampling, patches, splines, noise): the specification
+//!   leaves their arithmetic open within the conformance suite's error
+//!   bounds, so this decoder's floats differ from libjxl's by about 1e-5
+//!   and their 16-bit roundings by one in places. They need a comparison
+//!   within a tolerance, which the comparison does not have yet
+//!   (docs/slop/jxl.md, Testing, compares them with libjxl's floats).
 //! - Files with a header bundle that has extensions (which no encoder
 //!   writes): libjxl keeps one bundle's extension state for the next, so
 //!   when a frame's restoration filter has extensions and the frame header
@@ -35,8 +40,8 @@ pub const formats = [_]image.PixelFormat{ .rgba16, .rgba16_premul, .rgba_f32 };
 /// comparison keeps every work buffer a batch of inputs asks for until the
 /// batch ends, and this decoder's work memory is large, so this wrapper
 /// reports none and allocates its own for each frame. It also notes, for
-/// `comparable`, whether the input decoded to `Unsupported` and whether
-/// its native format is float.
+/// `comparable`, whether the input decoded to `Unsupported`, whether a
+/// frame was drawn in floats, and whether its native format is float.
 pub const Decoder = struct {
     inner: image.jxl.Decoder,
     input: []const u8,
@@ -64,6 +69,9 @@ pub const Decoder = struct {
         const raw = gpa.rawAlloc(d.work_len, .@"64", @returnAddress()) orelse return error.OutOfMemory;
         const work = raw[0..d.work_len];
         defer gpa.rawFree(work, .@"64", @returnAddress());
+        defer if (d.inner.float_frames) {
+            note(d.input).drawn = true;
+        };
         defer if (d.inner.br.extensions != 0) {
             note(d.input).extensions = true;
         };
@@ -74,7 +82,12 @@ pub const Decoder = struct {
     }
 };
 
-const Verdict = struct { extensions: bool = false, unsupported: bool = false, float: bool = false };
+const Verdict = struct {
+    extensions: bool = false,
+    unsupported: bool = false,
+    drawn: bool = false,
+    float: bool = false,
+};
 
 // Per thread, since the comparison runs batches on every core.
 threadlocal var noted_input: []const u8 = &.{};
@@ -94,7 +107,7 @@ fn note(input: []const u8) *Verdict {
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
     _ = op;
     const v = note(input).*;
-    if (v.extensions or v.unsupported) return false;
+    if (v.extensions or v.unsupported or v.drawn) return false;
     return (format.sample() == .f32) == v.float;
 }
 

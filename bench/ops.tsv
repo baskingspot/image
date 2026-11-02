@@ -65,3 +65,5 @@ tiff-decode-packbits	TiffDecodePackBits	tiff/packbits	4	same
 tiff-decode-g4	TiffDecodeG4	tiff/g4	4	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own
+jxl-decode	JxlDecode	jxl/lossy	8	own
+jxl-decode-lossless	JxlDecodeLossless	jxl/lossless	8	same

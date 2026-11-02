@@ -1,0 +1,3 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   giflib   libjxl image-rs     zunejxl-oxide       go
+jxl-decode                985.6        -        -        -        -        -        -    534.7        -        -   1855.0        -
+jxl-decode-lossless       988.5        -        -        -        -        -        -    419.1        -        -   1016.0        -

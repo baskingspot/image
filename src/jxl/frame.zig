@@ -11,6 +11,15 @@ const entropy = @import("entropy.zig");
 const Arena = @import("Arena.zig");
 const headers = @import("headers.zig");
 const modular = @import("modular.zig");
+const vardct = @import("vardct.zig");
+const upsample = @import("upsample.zig");
+const noise = @import("noise.zig");
+const patches = @import("patches.zig");
+const splines = @import("splines.zig");
+pub const PatchSource = patches.Source;
+const quant = @import("quant.zig");
+const color = @import("color.zig");
+const filters = @import("filters.zig");
 
 pub const Error = modular.Error || headers.Error;
 
@@ -95,10 +104,20 @@ fn readPermutation(br: *BitReader, arena: *Arena, order: []u32) Error!void {
 
 /// What a frame decodes to.
 pub const Decoded = struct {
-    /// Frame-sized channels: the color channels (none, one, or three)
-    /// then the extra channels.
+    /// Frame-sized channels: the color channels (none, one, or three,
+    /// unless `color` holds them) then the extra channels.
     img: modular.Image,
     num_color: u32,
+    /// A VarDCT frame's color channels, as floats ready for output, rows
+    /// of `color_stride`.
+    color: ?[3][]f32 = null,
+    color_stride: usize = 0,
+    /// The extra channels as floats, when they are not in `img`
+    /// (upsampled): planes of `w` by `h`.
+    ec: ?[]const []f32 = null,
+    /// The frame's size: after upsampling.
+    w: u32,
+    h: u32,
 };
 
 pub const Context = struct {
@@ -110,17 +129,34 @@ pub const Context = struct {
     num_color: u32 = 0,
     got_global: bool = false,
     done: []bool = &.{},
+    vd: ?*vardct.Shared = null,
+    lf_quant: [3]f32 = quant.default_dc_quant,
+    lf_done: usize = 0,
+    got_hf_global: bool = false,
+    noise: ?noise.Params = null,
+    patches: ?patches.Dictionary = null,
+    splines: ?splines.Splines = null,
+    refs: *const [4]?PatchSource,
+    /// The frame counts that seed the noise (`noise.Frame`).
+    counts: [2]u32,
+    lf_in: ?LfImage,
+};
+
+/// An LF frame's output, which a frame with `flag_use_lf_frame` takes as
+/// its dequantized LF: three planes of `w` by `h`, rows of `w`.
+pub const LfImage = struct {
+    planes: [3][]const f32,
+    w: usize,
+    h: usize,
 };
 
 /// Fails with `Unsupported` on what this stage does not decode yet.
 pub fn checkSupported(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) Error!void {
-    if (!fh.modular) return error.Unsupported;
-    if (fh.kind == .lf or fh.flags & headers.flag_use_lf_frame != 0) return error.Unsupported;
-    if (fh.flags & (headers.flag_patches | headers.flag_splines | headers.flag_noise) != 0) return error.Unsupported;
-    if (fh.ycbcr or image.xyb) return error.Unsupported;
-    if (fh.upsampling != 1) return error.Unsupported;
-    for (fh.ec_upsampling[0..image.num_ec]) |u| if (u != 1) return error.Unsupported;
-    if (fh.filter.gab or fh.filter.epf_iters != 0) return error.Unsupported;
+    if (fh.maxHShift() | fh.maxVShift() != 0) {
+        if (fh.modular) return error.Unsupported;
+        if (fh.flags & headers.flag_skip_adaptive_lf_smoothing == 0) return error.BadHeader;
+    }
+    if (image.xyb) _ = color.Xyb.init(image) catch return error.Unsupported;
 }
 
 /// Decodes a frame's sections after its header and TOC.
@@ -130,14 +166,18 @@ pub fn decode(
     image: *const headers.ImageHeader,
     fh: *const headers.FrameHeader,
     toc: *const Toc,
+    counts: [2]u32,
+    refs: *const [4]?PatchSource,
+    lf_in: ?LfImage,
 ) Error!Decoded {
-    var ctx: Context = .{ .image = image, .fh = fh, .d = .init(fh) };
+    var ctx: Context = .{ .image = image, .fh = fh, .d = .init(fh), .counts = counts, .refs = refs, .lf_in = lf_in };
     ctx.done = try arena.alloc(bool, toc.sizes.len);
     @memset(ctx.done, false);
     if (toc.sizes.len == 1) {
         try br.beginSection(toc.sizes[0]);
         try lfGlobal(br, arena, &ctx);
         try lfGroup(br, arena, &ctx, 0);
+        try hfGlobal(br, arena, &ctx);
         try passGroup(br, arena, &ctx, 0, 0);
         try br.endSection();
     } else {
@@ -152,7 +192,7 @@ pub fn decode(
             } else if (id <= nlf) {
                 try lfGroup(br, arena, &ctx, id - 1);
             } else if (id == nlf + 1) {
-                // HfGlobal is empty for Modular.
+                try hfGlobal(br, arena, &ctx);
             } else {
                 const k = id - nlf - 2;
                 try passGroup(br, arena, &ctx, k / ctx.d.num_groups, k % ctx.d.num_groups);
@@ -164,25 +204,246 @@ pub fn decode(
     // The channels must be back to the frame's layout.
     const want = ctx.num_color + image.num_ec;
     if (ctx.full.len != want) return error.BadImage;
-    for (ctx.full.channels()) |c| {
-        if (c.w != ctx.d.width or c.h != ctx.d.height) return error.BadImage;
+    for (ctx.full.channels(), 0..) |c, i| {
+        const w, const h = if (i < ctx.num_color)
+            .{ ctx.d.width, ctx.d.height }
+        else
+            ecDims(&ctx.d, fh.ec_upsampling[i - ctx.num_color]);
+        if (c.w != w or c.h != h) return error.BadImage;
     }
-    return .{ .img = ctx.full, .num_color = ctx.num_color };
+    if (!needsFloat(image, fh)) return .{
+        .img = ctx.full,
+        .num_color = ctx.num_color,
+        .w = ctx.d.width,
+        .h = ctx.d.height,
+    };
+    return toPlanes(arena, &ctx);
+}
+
+/// Whether the frame's color goes through float planes: VarDCT, XYB, and
+/// the restoration filters.
+fn needsFloat(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) bool {
+    return !fh.modular or image.xyb or fh.filter.gab or fh.filter.epf_iters != 0 or upsampled(image, fh) or
+        fh.flags & (headers.flag_noise | headers.flag_patches | headers.flag_splines) != 0 or fh.ycbcr or
+        fh.kind == .lf;
+}
+
+/// An extra channel's stored size, upsampled `up` times to the frame's.
+fn ecDims(d: *const headers.Dims, up: u32) struct { u32, u32 } {
+    return .{
+        @intCast((@as(u64, d.width_up) + up - 1) / up),
+        @intCast((@as(u64, d.height_up) + up - 1) / up),
+    };
+}
+
+fn upsampled(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) bool {
+    if (fh.upsampling != 1) return true;
+    for (fh.ec_upsampling[0..image.num_ec]) |u| if (u != 1) return true;
+    return false;
+}
+
+/// The frame's color as float planes, filtered and color-transformed.
+fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
+    const image = ctx.image;
+    const fh = ctx.fh;
+    const w: usize = ctx.d.width;
+    const h: usize = ctx.d.height;
+    var bw = (w + 7) / 8;
+    var bh = (h + 7) / 8;
+    var planes: [3][]f32 = undefined;
+    var stride: usize = undefined;
+    var img = ctx.full;
+    if (ctx.vd) |vd| {
+        for (vd.passes_done) |p| if (p != fh.passes.num) return error.BadImage;
+        vardct.upsampleChroma(vd, w, h);
+        planes = vd.planes;
+        stride = vd.bw * 8;
+        bw = vd.bw;
+        bh = vd.bh;
+    } else {
+        stride = w;
+        for (&planes) |*p| p.* = try arena.alloc(f32, w * h);
+        const nc = ctx.num_color;
+        for (0..3) |c| {
+            var c_in: usize = if (nc == 1) 0 else c;
+            var factor_bits = image.depth;
+            if (image.xyb) {
+                if (c < 2) c_in = 1 - c;
+                factor_bits = undefined;
+            }
+            const ch = &img.buf[c_in];
+            for (0..h) |y| {
+                const in = ch.row(y)[0..w];
+                const out = planes[c][y * w ..][0..w];
+                if (!image.xyb) {
+                    toFloat(factor_bits, in, out);
+                } else if (c == 2) {
+                    const ys = img.buf[0].row(y)[0..w];
+                    for (out, in, ys) |*o, b, yy| o.* = @as(f32, @floatFromInt(b +% yy)) * ctx.lf_quant[c];
+                } else {
+                    for (out, in) |*o, v| o.* = @as(f32, @floatFromInt(v)) * ctx.lf_quant[c];
+                }
+            }
+        }
+        // The color channels now live in the planes.
+        img.buf = img.buf[nc..];
+        img.len -= nc;
+    }
+    const pl: filters.Planes = .{ .p = planes, .stride = stride, .w = w, .h = h };
+    const rf = &fh.filter;
+    if (rf.gab) try filters.gaborish(arena, &pl, rf);
+    if (rf.epf_iters != 0) {
+        const m = arena.mark();
+        defer arena.release(m);
+        const sig = try arena.alloc(f32, bw * bh);
+        if (ctx.vd) |vd| vardct.epfSigmas(vd, rf, sig) else filters.sigmas(sig, rf, true, 0, &.{}, &.{});
+        if (rf.epf_iters >= 3) try filters.epf(arena, &pl, rf, 0, sig, bw);
+        try filters.epf(arena, &pl, rf, 1, sig, bw);
+        if (rf.epf_iters >= 2) try filters.epf(arena, &pl, rf, 2, sig, bw);
+    }
+    // The extra channels leave `img` as floats when they are upsampled
+    // or patched; those upsampled by another factor than the colors are
+    // upsampled first (and then cannot be patched).
+    var ec: ?[][]f32 = null;
+    const ne = image.num_ec;
+    const dw: usize = ctx.d.width_up;
+    const dh: usize = ctx.d.height_up;
+    var late_ec = fh.upsampling != 1;
+    for (fh.ec_upsampling[0..ne]) |u| late_ec = late_ec and u == fh.upsampling;
+    const patched = ctx.patches != null;
+    if (upsampled(image, fh) or patched) {
+        if (patched and fh.upsampling != 1 and !late_ec) return error.BadImage;
+        const ecs = try arena.alloc([]f32, ne);
+        for (ecs, img.channels()[0..ne], fh.ec_upsampling[0..ne], 0..) |*o, *ch, u, e| {
+            const sw: usize = ch.w;
+            const sh: usize = ch.h;
+            // Upsampled now to the frame's size, or later with the colors.
+            o.* = try arena.alloc(f32, if (u == 1 or late_ec) sw * sh else dw * dh);
+            if (u == 1 or late_ec) {
+                for (0..sh) |y| toFloat(image.ec[e].depth, ch.row(y)[0..sw], o.*[y * sw ..][0..sw]);
+                continue;
+            }
+            const m = arena.mark();
+            defer arena.release(m);
+            const tmp = try arena.alloc(f32, sw * sh);
+            for (0..sh) |y| toFloat(image.ec[e].depth, ch.row(y)[0..sw], tmp[y * sw ..][0..sw]);
+            const k: upsample.Kernel = .init(image, u);
+            upsample.upsample(&k, tmp, sw, sh, sw, o.*, dw, dh);
+        }
+        ec = ecs;
+        if (ctx.patches) |*dict| {
+            const all = try arena.alloc([]f32, 3 + ne);
+            @memcpy(all[0..3], &planes);
+            @memcpy(all[3..], ecs);
+            patches.apply(dict, image, ctx.refs, all, stride, w, h);
+        }
+    }
+    const base: [2]f32 = if (ctx.vd) |vd| .{ vd.base_x, vd.base_b } else .{ 0, if (image.xyb) 1 else 0 };
+    if (ctx.splines) |*sp| {
+        try splines.draw(arena, sp, planes, stride, w, h, @as(u64, dw) * dh, base[0], base[1]);
+    }
+    if (fh.upsampling != 1) {
+        const k: upsample.Kernel = .init(image, fh.upsampling);
+        var up: [3][]f32 = undefined;
+        for (&up, planes) |*o, p| {
+            o.* = try arena.alloc(f32, dw * dh);
+            upsample.upsample(&k, p, w, h, stride, o.*, dw, dh);
+        }
+        planes = up;
+        stride = dw;
+        if (late_ec) {
+            for (ec.?) |*o| {
+                const up_ec = try arena.alloc(f32, dw * dh);
+                upsample.upsample(&k, o.*, w, h, w, up_ec, dw, dh);
+                o.* = up_ec;
+            }
+        }
+    }
+    if (ctx.noise) |*np| {
+        const d = &ctx.d;
+        try noise.apply(arena, np, .{
+            .w = dw,
+            .h = dh,
+            .group_dim = d.group_dim,
+            .groups_x = d.xsize_groups,
+            .groups_y = d.ysize_groups,
+            .upsampling = fh.upsampling,
+            .visible = ctx.counts[0],
+            .nonvisible = ctx.counts[1],
+        }, planes, stride, base[0], base[1]);
+    }
+    const grey = image.colour.space == .grey;
+    return .{
+        .img = img,
+        .num_color = if (grey) 1 else 3,
+        .color = planes,
+        .color_stride = stride,
+        .ec = ec,
+        .w = @intCast(dw),
+        .h = @intCast(dh),
+    };
+}
+
+/// Applies the frame's color transform to a decoded frame's planes, once
+/// it has been saved for reference before it, if it is.
+pub fn colorTransform(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, dec: *const Decoded) void {
+    const planes = dec.color orelse return;
+    if (image.xyb) {
+        // checkSupported has made sure this succeeds.
+        const x = color.Xyb.init(image) catch return;
+        x.apply(planes);
+    } else if (fh.ycbcr) {
+        color.ycbcrToRgb(planes);
+    }
+}
+
+fn hfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
+    const vd = ctx.vd orelse return;
+    if (ctx.lf_done != ctx.d.num_lf_groups) return error.Unsupported;
+    const skip = headers.flag_skip_adaptive_lf_smoothing | headers.flag_use_lf_frame;
+    if (ctx.fh.flags & skip == 0) try vardct.smoothLf(arena, vd);
+    try vardct.readHfGlobal(br, arena, vd, if (ctx.tree) |*t| t else null, ctx.d.num_lf_groups);
+    ctx.got_hf_global = true;
 }
 
 fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
     const image = ctx.image;
     const fh = ctx.fh;
+    if (fh.flags & headers.flag_patches != 0) {
+        const d = &ctx.d;
+        ctx.patches = try patches.read(
+            br,
+            arena,
+            @as(u64, d.xsize_blocks) * 8,
+            @as(u64, d.ysize_blocks) * 8,
+            image,
+            ctx.refs,
+        );
+    }
+    if (fh.flags & headers.flag_splines != 0) ctx.splines = try splines.read(
+        br,
+        arena,
+        @as(u64, ctx.d.width) * ctx.d.height,
+    );
+    if (fh.flags & headers.flag_noise != 0) ctx.noise = try .read(br);
     // LF dequantization weights.
+    var lf_quant = quant.default_dc_quant;
     if (!try br.boolean()) {
-        for (0..3) |_| {
-            const v = try br.f16Field() / 128;
-            if (v < 1e-8) return error.BadHeader;
+        for (&lf_quant) |*q| {
+            q.* = try br.f16Field() / 128;
+            if (q.* < 1e-8) return error.BadHeader;
         }
+    }
+    ctx.lf_quant = lf_quant;
+    if (!fh.modular) {
+        const vd = try vardct.Shared.init(arena, image, fh, &ctx.d);
+        try vardct.readLfGlobal(br, arena, vd, lf_quant);
+        if (ctx.lf_in) |lf| try vardct.takeLf(vd, lf.planes, lf.w, lf.h);
+        ctx.vd = vd;
     }
     // GlobalModular.
     const grey = image.colour.space == .grey;
-    var nb_color: u32 = if (grey and !fh.ycbcr) 1 else 3;
+    var nb_color: u32 = if (grey and !fh.ycbcr and !image.xyb) 1 else 3;
     const nb_extra = image.num_ec;
     if (try br.boolean()) {
         const px = @as(u64, ctx.d.width) * ctx.d.height;
@@ -199,8 +460,7 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
     var img: modular.Image = try .init(arena, nb_color + nb_extra, ctx.d.width, ctx.d.height, depth.bits);
     for (img.channels()[nb_color..], 0..) |*c, e| {
         const up = fh.ec_upsampling[e];
-        c.w = @intCast((@as(u64, ctx.d.width_up) + up - 1) / up);
-        c.h = @intCast((@as(u64, ctx.d.height_up) + up - 1) / up);
+        c.w, c.h = ecDims(&ctx.d, up);
         const s: i32 = @as(i32, std.math.log2_int_ceil(u32, up)) - std.math.log2_int_ceil(u32, fh.upsampling);
         c.hshift = s;
         c.vshift = s;
@@ -302,7 +562,11 @@ fn lfGroup(br: *BitReader, arena: *Arena, ctx: *Context, g: u32) Error!void {
     const gx = g % d.xsize_lf_groups;
     const gy = g / d.xsize_lf_groups;
     const rect: Rect = .{ .x0 = gx * dim, .y0 = gy * dim, .w = dim, .h = dim };
+    const tree = if (ctx.tree) |*t| t else null;
+    if (ctx.vd) |vd| if (ctx.lf_in == null) try vardct.readLf(br, arena, vd, g, tree, ctx.full.bitdepth);
     try group(br, arena, ctx, rect, 3, 1000, 1 + d.num_lf_groups + g);
+    if (ctx.vd) |vd| try vardct.readHfMeta(br, arena, vd, g, d.num_lf_groups, tree, ctx.full.bitdepth);
+    ctx.lf_done += 1;
 }
 
 fn passGroup(br: *BitReader, arena: *Arena, ctx: *Context, pass: u32, g: u32) Error!void {
@@ -311,6 +575,10 @@ fn passGroup(br: *BitReader, arena: *Arena, ctx: *Context, pass: u32, g: u32) Er
     const gx = g % d.xsize_groups;
     const gy = g / d.xsize_groups;
     const rect: Rect = .{ .x0 = gx * dim, .y0 = gy * dim, .w = dim, .h = dim };
+    if (ctx.vd) |vd| {
+        if (!ctx.got_hf_global) return error.Unsupported;
+        try vardct.readPassGroup(br, arena, vd, pass, g);
+    }
     const b = bracket(&ctx.fh.passes, pass);
     const id = 1 + 3 * d.num_lf_groups + num_quant_tables + d.num_groups * pass + g;
     try group(br, arena, ctx, rect, b[0], b[1], id);
@@ -336,6 +604,55 @@ fn bracket(p: *const headers.Passes, pass: u32) [2]i32 {
         if (i == pass) return .{ min_shift, max_shift };
         max_shift = min_shift - 1;
     }
+}
+
+/// Converts stored integers of `depth` to floats as the reference
+/// decoder does: integers scaled by 1 / (2^bits - 1), floats unpacked.
+pub fn toFloat(depth: headers.BitDepth, in: []const i32, out: []f32) void {
+    if (depth.float) {
+        for (in, out) |v, *o| o.* = intToFloat(v, depth.bits, depth.exp_bits);
+        return;
+    }
+    const factor64 = 1.0 / @as(f64, @floatFromInt((@as(u64, 1) << @intCast(depth.bits)) - 1));
+    if (depth.bits < 23) {
+        const factor: f32 = @floatCast(factor64);
+        for (in, out) |v, *o| o.* = @as(f32, @floatFromInt(v)) * factor;
+    } else {
+        for (in, out) |v, *o| o.* = @floatCast(@as(f64, @floatFromInt(v)) * factor64);
+    }
+}
+
+/// A float of `bits` bits with `exp_bits` exponent bits, stored as an
+/// integer, as a 32-bit float.
+pub fn intToFloat(v: i32, bits: u32, exp_bits: u32) f32 {
+    if (bits == 32) return @bitCast(v);
+    var f: u32 = @bitCast(v);
+    const bias: i32 = (@as(i32, 1) << @intCast(exp_bits - 1)) - 1;
+    const sign_shift: u5 = @intCast(bits - 1);
+    const mant_bits: u5 = @intCast(bits - exp_bits - 1);
+    const mant_shift: u5 = @intCast(23 - @as(u32, mant_bits));
+    const sign = (f >> sign_shift) & 1;
+    f &= (@as(u32, 1) << sign_shift) - 1;
+    if (f == 0) return if (sign == 1) -0.0 else 0.0;
+    var exp: i32 = @intCast(f >> mant_bits);
+    var mant: u32 = f & ((@as(u32, 1) << mant_bits) - 1);
+    if (exp == (@as(i32, 1) << @intCast(exp_bits)) - 1) {
+        const r: u32 = (sign << 31) | (0xff << 23) | (mant << mant_shift);
+        return @bitCast(r);
+    }
+    mant <<= mant_shift;
+    if (exp == 0 and exp_bits < 8) {
+        while (mant & 0x800000 == 0) {
+            mant <<= 1;
+            exp -= 1;
+        }
+        exp += 1;
+        mant &= 0x7fffff;
+    }
+    exp = exp - bias + 127;
+    if (exp < 0) exp = 0;
+    const r: u32 = (sign << 31) | (@as(u32, @intCast(exp)) << 23) | mant;
+    return @bitCast(r);
 }
 
 test "bracket" {

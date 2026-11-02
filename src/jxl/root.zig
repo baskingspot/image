@@ -12,4 +12,13 @@ test {
     _ = @import("modular.zig");
     _ = @import("frame.zig");
     _ = @import("icc.zig");
+    _ = @import("dct.zig");
+    _ = @import("quant.zig");
+    _ = @import("filters.zig");
+    _ = @import("vardct.zig");
+    _ = @import("color.zig");
+    _ = @import("upsample.zig");
+    _ = @import("noise.zig");
+    _ = @import("patches.zig");
+    _ = @import("splines.zig");
 }

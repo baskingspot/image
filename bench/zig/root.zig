@@ -17,6 +17,7 @@ pub const netpbm = @import("netpbm.zig");
 pub const wbmp = @import("wbmp.zig");
 pub const webp = @import("webp.zig");
 pub const tiff = @import("tiff.zig");
+pub const jxl = @import("jxl.zig");
 
 const Self = @This();
 

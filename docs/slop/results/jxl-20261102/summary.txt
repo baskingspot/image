@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   libjxl jxl-oxide     ±   <1    ~   slowest vs libjxl
+JxlDecode/icon                    13        6.8     1.39    66.11    2%    3    1   0.91 [0.89, 0.94] icon_64-actions_bookmark_new-64x64.jxl
+JxlDecode/1mp                     23       11.6     0.57     1.77    2%   23    0   0.21 [0.20, 0.22] screenshot_game-20XX_Menu_picture-634x406.jxl
+JxlDecode/large                    8       13.7     0.48     1.37    2%    8    0   0.40 [0.38, 0.41] photo_mosaic-50mp-8192x6144.jxl
+JxlDecodeLossless/icon            13        4.0     1.31     1.21    1%    5    0   0.92 [0.88, 0.95] icon_64-actions_bookmark_new-64x64.jxl
+JxlDecodeLossless/1mp             23        4.5     0.77     1.08    1%   23    0   0.69 [0.68, 0.70] icon_512-actions_bookmark_new-512x512.jxl
+JxlDecodeLossless/large            8        4.2     0.75     1.08    2%    8    0   0.71 [0.68, 0.74] screenshot_web-apple_com-1313x4755.jxl
+all                               88        6.6     0.80     2.34         70    1

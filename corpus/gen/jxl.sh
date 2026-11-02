@@ -1,0 +1,31 @@
+# Sourced by corpus/generate, with $src (PngSuite) and $out
+# (corpus/vendor/generated) set and `im` running ImageMagick. Small JPEG XL
+# files from libjxl's cjxl, each exercising a VarDCT or lossy-Modular path
+# the conformance suite reaches only in large files: seeds the fuzzer and
+# the oracle can run quickly. One thread, so the output does not depend on
+# the machine.
+rm -rf "${out:?}/jxl" && mkdir -p "$out/jxl"
+tmp=$(mktemp -d)
+cj() { cjxl --quiet --num_threads=0 "$@"; }
+rgba="$src/basn6a08.png"
+rgb="$src/basn2c08.png"
+grey="$src/basn0g08.png"
+cj -d 1 "$rgba" "$out/jxl/vardct-alpha.jxl"
+cj -d 1 "$grey" "$out/jxl/vardct-grey.jxl"
+cj -d 4 -p "$rgb" "$out/jxl/vardct-progressive.jxl"
+cj -d 2 --progressive_dc=1 "$rgb" "$out/jxl/vardct-lf-frame.jxl"
+cj -d 2 --resampling=2 "$rgb" "$out/jxl/vardct-upsampling.jxl"
+# Alpha stored at a quarter of the size and upsampled on its own.
+cj -d 1 --ec_resampling=4 "$rgba" "$out/jxl/vardct-ec-upsampling.jxl"
+cj -d 1 --photon_noise_iso=6400 "$rgb" "$out/jxl/vardct-noise.jxl"
+cj -d 1 --epf=3 --gaborish=1 "$rgb" "$out/jxl/vardct-filters.jxl"
+cj -d 2 -m 1 "$rgba" "$out/jxl/modular-lossy.jxl"
+# JPEG recompression: YCbCr with 4:2:0 and 4:4:4 chroma, and a jbrd box.
+im "$rgb" -quality 85 -sampling-factor 4:2:0 "$tmp/420.jpg"
+im "$rgb" -quality 85 -sampling-factor 4:4:4 "$tmp/444.jpg"
+cj --lossless_jpeg=1 "$tmp/420.jpg" "$out/jxl/jpeg-420.jxl"
+cj --lossless_jpeg=1 "$tmp/444.jpg" "$out/jxl/jpeg-444.jxl"
+# Three frames of animation.
+im -delay 10 "$rgb" "$src/basn2c16.png" "$src/basn3p08.png" "$tmp/anim.gif"
+cj -d 1 "$tmp/anim.gif" "$out/jxl/vardct-animation.jxl"
+rm -rf "$tmp"

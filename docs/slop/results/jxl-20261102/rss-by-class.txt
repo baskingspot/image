@@ -1,0 +1,7 @@
+peak RSS (MiB)         class      image    libjxl jxl-oxide
+jxl-decode             icon         2.6       8.7       7.7
+jxl-decode             1mp         27.6      23.1      46.8
+jxl-decode             large      985.7     527.0    1852.5
+jxl-decode-lossless    icon         2.5       7.9       4.3
+jxl-decode-lossless    1mp         24.3      22.8      33.1
+jxl-decode-lossless    large      988.7     418.8    1015.6

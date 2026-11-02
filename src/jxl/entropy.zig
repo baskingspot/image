@@ -394,7 +394,8 @@ fn initAlias(counts_in: []const u16, log_alpha: u5, table: []Alias) void {
 
 /// Reads a context map for `map.len` contexts and returns the number of
 /// clusters.
-fn readContextMap(br: *BitReader, arena: *Arena, map: []u8) Error!u32 {
+/// Reads a context map into `map` and returns the number of clusters.
+pub fn readContextMap(br: *BitReader, arena: *Arena, map: []u8) Error!u32 {
     if (try br.boolean()) {
         const nbits = try br.bits(2);
         for (map) |*e| e.* = @intCast(try br.bits(@intCast(nbits)));
@@ -781,9 +782,13 @@ pub const Reader = struct {
 
     /// Decodes the next integer in context `ctx`.
     pub fn read(r: *Reader, br: *BitReader, ctx: usize) Error!u32 {
+        return r.readCluster(br, r.code.context_map[ctx]);
+    }
+
+    /// Decodes the next integer with `cluster`'s histogram.
+    pub fn readCluster(r: *Reader, br: *BitReader, cluster: u32) Error!u32 {
         const code = r.code;
         if (r.num_to_copy > 0) return r.copy();
-        const cluster = code.context_map[ctx];
         const token = try r.symbol(br, cluster);
         if (code.lz77.enabled and token >= code.lz77.min_symbol) {
             const len = try code.lz77.len_config.value(token - code.lz77.min_symbol, br);

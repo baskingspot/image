@@ -12,14 +12,16 @@ does where the specification leaves room.
    the image and frame headers, the TOC with its permutation, ANS and prefix
    codes with context clustering, LZ77, hybrid integers, and the ICC
    profile's encoding.
-2. **Modular** (this branch). Lossless and lossy Modular frames end to end:
+2. **Modular** (landed). Lossless and lossy Modular frames end to end:
    meta-adaptive trees, every predictor including the weighted one, RCT,
    palette (delta palettes, implicit cubes), squeeze, the global and group
    streams, LF and pass groups, extra channels, animation, blending,
    reference frames, and cropped layers larger than the canvas.
-3. **VarDCT and the restoration filters.** XYB and YCbCr, LF frames, the
-   transforms, dequantization, chroma from luma, Gaborish, EPF, upsampling,
-   patches, splines, and noise, then progressive passes.
+3. **VarDCT and the restoration filters** (this branch). XYB and YCbCr
+   with chroma subsampling, LF frames, every transform, dequantization with
+   custom tables, chroma from luma, adaptive LF smoothing, Gaborish, EPF,
+   upsampling (2×, 4×, 8×, custom weights), patches, splines, noise, and
+   progressive passes.
 4. **JPEG reconstruction** from `jbrd` (plan.md decision 5).
 
 Until a stage lands, files that need it fail with `error.Unsupported`, and
@@ -54,6 +56,16 @@ the oracle leaves them out (`test/oracle/jxl.zig`).
   each group copied into the frame's channels.
 - `icc.zig`: the encoded ICC profile's prediction, written straight into
   work memory and sent to the blob sink as kind `.icc`.
+- `vardct.zig`: the HF global and LF group sections (quantized LF,
+  adaptive smoothing, the AC strategy, quant field, and chroma-from-luma
+  maps), and the pass groups: coefficient orders, non-zero contexts, and
+  the coefficients, kept across passes in i32 and dequantized when the last
+  pass of a group arrives. `dct.zig` has the inverse transforms (8-lane
+  columns over `@Vector`), `quant.zig` the dequantization tables.
+- `color.zig`: XYB to linear sRGB, YCbCr, and the sRGB transfer function,
+  eight pixels at a time. `filters.zig` has Gaborish and EPF, `upsample.zig`
+  the upsampling kernels, and `patches.zig`, `splines.zig`, and `noise.zig`
+  the features they name.
 - `Decoder.zig`: frames converted to floats at their bit depth, composited
   onto the canvas with the frame's blend mode, saved to reference slots, and
   written to the caller's buffer through `image.convert`.
@@ -79,13 +91,21 @@ writing past it. Its terms, in `Decoder.workBound`:
   budget plus its LZ77 window.
 - Reference-property rows and the weighted predictor's rows.
 
-The bound is conservative: on the conformance files the arena's peak is
-7–39% of it (alpha_nonpremultiplied, 1024×1024 RGBA at 12 bits: 16.8 MB used
-of a 220 MB bound). Memory the decoder never touches costs a caller nothing
-when it comes from `mmap`, but a caller that fills it, as Zig's safe
-allocators do, pays for all of it. Tightening it is stage-3 work: the
-squeeze term can drop to one extra channel by undoing squeezes row by row,
-and the frame term can use the first frame's size when it is known.
+- With VarDCT: three padded planes, the coefficients kept between passes
+  when there is more than one, the block fields, each pass's orders and
+  code, and the LF frames' planes at each level when frames may use them.
+- Upsampled planes, noise's planes, and the patch and spline budgets, for
+  the features the frame header turns on.
+
+When `decodeConfig` has peeked a single last frame, the frame term is that
+frame's exactly (`frameBound`); otherwise it covers any frame of up to twice
+the canvas with every feature. On a 50-megapixel photograph the arena's peak
+is 627 MB (12.5 bytes a pixel) of a 929 MB bound for `cjxl -d 1`, and 608 MB
+for `-d 0`. Memory the decoder never touches costs a caller nothing when it
+comes from `mmap`, but a caller that fills it, as Zig's safe allocators do,
+pays for all of it. Further cuts: undoing squeezes row by row (one extra
+channel instead of three), and decoding VarDCT a group row at a time into
+the canvas instead of whole planes.
 
 ## Decisions
 
@@ -112,10 +132,29 @@ and the frame term can use the first frame's size when it is known.
   channels, as libjxl does with `JxlDecoderSetRenderSpotcolors(false)`; the
   shared pixel formats have nowhere to put extra channels yet.
 - **Orientation** is reported, not applied, as for every other format.
-- **Preview frames** are skipped.
+- **Preview frames** are skipped, but count as non-visible frames for
+  noise's seed, as the specification says.
+- **Lossy output precision.** A lossy (drawn) frame's native format is
+  16-bit, as for integer images of up to 16 bits, and `rgba_f32` output
+  goes through that 16-bit pivot. Two conformance bounds (alpha_premultiplied
+  and spot, 3.8e-6) are a quarter of a 16-bit step, so they would need f32
+  native for drawn or blended frames, which doubles the caller's buffer;
+  the owner decides.
+- **Splines** are drawn with an exact erf and cosine; animation_spline
+  differs from libjxl by up to 1.1e-3, within its 4e-3 bound.
+- **Feature budgets.** Patches are held to 65536 plus one per 16 padded
+  pixels, and splines to 1 MiB plus 4 bytes a pixel of work memory; past
+  them is `TooComplex`, where the specification's own limits (references,
+  control points) are `BadImage`.
 - **Errors.** `BadBox`, `BadEntropy`, `BadImage`, `BadIcc`, and
-  `TooComplex` beside the shared ones; `Unsupported` for what a later stage
-  adds.
+  `TooComplex` beside the shared ones.
+- **JPEG reconstruction** (stage 4) is not implemented; `jbrd` is skipped
+  and the pixels decode. The proposed shape is a separate entry point,
+  `image.jxl.JpegReconstructor`: `init(reader, options)`, `workLen()` once
+  the `jbrd` box and the frame header are read, then `run(writer, work)`,
+  which streams the JPEG to a `std.Io.Writer` from the box and the frame's
+  quantized coefficients without producing pixels. `Config.metadata` would
+  say whether a `jbrd` box is present.
 
 ## Testing
 
@@ -127,19 +166,42 @@ and the frame term can use the first frame's size when it is known.
 - Fuzz: `test/fuzz/jxl.zig` writes valid one-group Modular files (gray or
   RGB, optional alpha, 8 to 12 bits, a random predictor, an optional RCT)
   with a small bit writer, and random bodies an eighth of the time.
-- Conformance: the `jxl-conformance` suite. Stage 2 decodes 12 of its 43
-  files bit for bit against libjxl, every frame (all 36 of
-  animation_newtons_cradle, checked by hand with a libjxl program that
-  hashes each frame): alpha_nonpremultiplied, alpha_triangles,
-  animation_newtons_cradle, blendmodes, blendmodes_5, cmyk_layers,
-  delta_palette, lossless_pfm, lz77_flower, mul_no_extra_channels, spot,
-  and sunset_logo. The rest need stage 3: VarDCT or XYB (most), patches
-  (patches_lossless), and Gaborish and EPF on a Modular frame
-  (grayscale_public_university).
+- Conformance: the `jxl-conformance` suite's 40 files, every frame
+  compared in floats with libjxl's float output against each file's
+  `test.json` peak bound (a scratch program; the harness compares bytes
+  only). All 40 decode, and 38 are within their bounds; the worst lossy
+  error is 4.3e-5 (upsampling), and animation_spline's 1.1e-3 is the
+  largest, from the splines' exact erf. The lossless files match libjxl's
+  16-bit output bit for bit. alpha_premultiplied (9.5e-6 against 3.8e-6)
+  and spot (7.6e-6 against 3.8e-6, its blended layers falling between
+  16-bit steps) have bounds a quarter of a 16-bit step, which our float
+  output cannot meet through the 16-bit native pivot (Decisions, lossy
+  output precision).
+- Oracle: lossy frames are left out (`test/oracle/jxl.zig`) until the
+  comparison takes a tolerance, so the oracle checks VarDCT inputs for
+  crashes and errors only. `corpus/gen/jxl.sh` writes twelve small cjxl
+  files covering VarDCT, the filters, LF frames, progressive passes,
+  upsampling (of the colors, and of alpha alone), noise, animation, lossy
+  Modular, and JPEG recompression, which seed the fuzzer and the oracle;
+  all twelve match libjxl in floats.
 
 ## Measurements
 
-One thread, ReleaseSafe, against `djxl --num_threads=0`: about 2× slower on
-the 1024×1024 lossless files (0.24 s against 0.13 s for
-alpha_nonpremultiplied). The bench arms (libjxl in C, jxl-oxide in Rust)
-and the write-up in `results/` come with stage 3.
+`results/jxl-20261102.md`, one thread, RGBA16 out, against libjxl 0.12.0
+and jxl-oxide 0.12.6. Lossy (VarDCT): 1.39× libjxl on icons, 0.57× to a
+megapixel, 0.48× above; 1.4–1.8× jxl-oxide past icons. Lossless (Modular):
+1.31×, 0.77×, and 0.75× libjxl; 1.1–1.2× jxl-oxide. Peak RSS on the
+50-megapixel mosaic is about 590 MiB beyond the output for us, 130 MiB
+(lossy) and 25 MiB (lossless) for libjxl, and more for jxl-oxide; below a
+megapixel we are within 20% of libjxl.
+
+## Next
+
+1. **Render by group row** for single-frame images without a permuted TOC
+   or self-referencing features: two group rows of planes instead of the
+   frame, written straight into the caller's buffer. The memory term above
+   drops from 12 bytes a pixel to about 50 MiB at 8192 wide.
+2. **Speed**: profile VarDCT and vectorize what is still scalar (the
+   IDCT's rows, chroma from luma, Gaborish, upsampling); specialize
+   Modular's common trees.
+3. **JPEG reconstruction** (stage 4).
