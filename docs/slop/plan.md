@@ -812,6 +812,16 @@ orb asks for a change to them, or for text in this file, in its report.
     as they are (`transfer = .linear`, sRGB `primaries`); the ICC is still
     delivered and documented as the original's space (libjxl's original
     profile), not the pixels'.
+47. **TIFF compression. Decided by the owner:** `tiff.encode` defaults to
+    LZW with Predictor 2 (libtiff's own default is none).
+48. **TIFF strips. Decided by the owner:** libtiff's 8 KiB, which keeps the
+    byte match; larger strips may come later as an option.
+49. **TIFF Deflate effort. Decided by the owner:** `.default` (compress level
+    7, filtered), as PNG's decision 16.
+50. **ICO 16-bit sources. Decided by the owner:** `png.EncodeOptions` gains an
+    8-bit cap, converted row by row with no extra work memory, and ICO sets
+    it for PNG entries (decision 38). The BMP/ICO orb makes the PNG encode
+    change in `wave1-ico-png2`.
 
 ## Harness requests
 
