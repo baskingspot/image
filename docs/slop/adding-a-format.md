@@ -128,7 +128,10 @@ few-bytes-at-a-time writer, for a target's own checks.
 ## The harnesses
 
 - **Fuzz.** `check(input, choice)` calls `harness.checkDecoder(image.<fmt>.Decoder, input, choice)`
-  and adds format-specific properties if there are any. `generate` makes
+  and adds format-specific properties if there are any; it checks
+  `decodeFrameConfig` against every `decodeFrame` where a decoder has one
+  (`harness.announced`, which a format's own decode loops can call too).
+  `generate` makes
   structurally valid files most of the time and slightly broken ones
   otherwise; it is where most bugs are found, so make it reach every chunk,
   marker, or box type. `corpus` names the seed directories (`corpus/fetched`,

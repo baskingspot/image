@@ -13,7 +13,11 @@
 //!   `image.convert` (for frames that replace their region; a blended
 //!   frame's rounding depends on the format);
 //! - refuse a pixel buffer one byte short and work memory one byte short
-//!   with an error, writing nothing out of bounds.
+//!   with an error, writing nothing out of bounds;
+//! - where it has `decodeFrameConfig`, return from `decodeFrame` the frame
+//!   that announced, or null where it announced null, and fail with the
+//!   error it announced (`announced`); and decode the same frames, pixels,
+//!   and error whether or not it is called first.
 
 const std = @import("std");
 const Io = std.Io;
@@ -42,6 +46,7 @@ pub const Finding = error{
     EncodeFailed,
     RoundTripDiffers,
     ChunkedWriterDiffers,
+    FrameConfigDiffers,
 };
 
 const max_bytes = limits.max_pixels * 16;
@@ -106,9 +111,29 @@ const FrameResult = struct {
     hash: u64,
 };
 
+/// `d.decodeFrame`, checked against `d.decodeFrameConfig` called first: a
+/// frame `decodeFrame` returns must be the one announced, null only where
+/// null was announced, and an announced error must be `decodeFrame`'s
+/// error. An announced frame may still fail in its pixels. A decoder
+/// without `decodeFrameConfig` is only decoded.
+pub fn announced(comptime D: type, d: *D, dst: PixelBuffer, work: []u8) Finding!(anyerror!?image.Frame) {
+    if (comptime !@hasDecl(D, "decodeFrameConfig")) return d.decodeFrame(dst, work);
+    const next = d.decodeFrameConfig();
+    const got = d.decodeFrame(dst, work);
+    if (next) |n| {
+        if (got) |g| {
+            if (!std.meta.eql(n, g)) return error.FrameConfigDiffers;
+        } else |_| {}
+    } else |e| {
+        if (got) |_| return error.FrameConfigDiffers else |e2| if (e2 != e) return error.FrameConfigDiffers;
+    }
+    return got;
+}
+
 /// Decodes every frame of `input` into `pixels` as `format`, reading
-/// through `reader`, and returns what happened. `hash_format`, when set,
-/// hashes each frame's pixels converted to it.
+/// through `reader`, and returns what happened. With `announce`, each frame
+/// is checked against `decodeFrameConfig` first (`announced`).
+/// `convert_to`, when set, hashes each frame's pixels converted to it.
 fn decodeAll(
     comptime D: type,
     reader: *Io.Reader,
@@ -116,7 +141,8 @@ fn decodeAll(
     format: PixelFormat,
     pixels: []u8,
     convert_to: ?PixelFormat,
-) Result {
+    announce: bool,
+) Finding!Result {
     var result: Result = .{};
     var d = D.init(reader, .{ .limits = limits });
     _ = d.decodeConfig() catch |e| {
@@ -126,7 +152,9 @@ fn decodeAll(
     const dst = PixelBuffer.init(pixels, format, config.width, config.height) catch unreachable;
     @memset(pixels[0 .. PixelBuffer.len(format, config.width, config.height) orelse unreachable], 0);
     while (true) {
-        const frame = d.decodeFrame(dst, work_buffer[0..config.work_len]) catch |e| {
+        const work = work_buffer[0..config.work_len];
+        const step: anyerror!?image.Frame = if (announce) try announced(D, &d, dst, work) else d.decodeFrame(dst, work);
+        const frame = step catch |e| {
             result.err = e;
             return result;
         } orelse return result;
@@ -147,6 +175,68 @@ fn decodeAll(
         result.frames[result.count] = .{ .frame = frame, .hash = hash };
         result.count += 1;
     }
+}
+
+/// A toy one-frame format for testing `announced`: "T", the width and
+/// height as bytes, then gray pixels. `lie` makes `decodeFrameConfig`
+/// announce a wider frame, or an error, for a width of 3, or change the
+/// pixels `decodeFrame` writes.
+fn FrameToy(comptime lie: enum { none, frame, err, pixels }) type {
+    return struct {
+        const Self = @This();
+        pub const Options = image.DecodeOptions;
+        r: *Io.Reader,
+        limits: image.Limits,
+        config: ?image.Config = null,
+        done: bool = false,
+        peeked: bool = false,
+
+        pub fn init(r: *Io.Reader, options: Options) Self {
+            return .{ .r = r, .limits = options.limits };
+        }
+        pub fn decodeConfig(d: *Self) !image.Config {
+            if (d.config) |c| return c;
+            const h = try d.r.takeArray(3);
+            if (h[0] != 'T') return error.BadSignature;
+            try d.limits.checkSize(h[1], h[2]);
+            d.config = .{ .width = h[1], .height = h[2], .native = .gray8, .frame_count = 1 };
+            return d.config.?;
+        }
+        pub fn decodeFrameConfig(d: *Self) !?image.Frame {
+            const c = try d.decodeConfig();
+            if (d.done) return null;
+            if (lie == .err and c.width == 3) return error.Truncated;
+            d.peeked = true;
+            return .{ .width = c.width + @intFromBool(lie == .frame and c.width == 3), .height = c.height };
+        }
+        pub fn decodeFrame(d: *Self, dst: PixelBuffer, _: []u8) !?image.Frame {
+            const c = try d.decodeConfig();
+            if (d.done) return null;
+            try dst.check();
+            const conv: image.convert.Converter = .init(dst.format, .gray8);
+            var row: [255]u8 = undefined;
+            for (0..c.height) |y| {
+                d.r.readSliceAll(row[0..c.width]) catch return error.Truncated;
+                if (lie == .pixels and d.peeked) row[0] ^= 1;
+                conv.run(dst.row(@intCast(y)), &row, c.width);
+            }
+            d.done = true;
+            return .{ .width = c.width, .height = c.height };
+        }
+    };
+}
+
+test announced {
+    const file = "T\x03\x02" ++ "abcdef";
+    // Every prefix holds, including announced frames whose pixels are cut
+    // short.
+    for (0..file.len + 1) |n| try checkDecoder(FrameToy(.none), file[0..n], n);
+    try std.testing.expectError(error.FrameConfigDiffers, checkDecoder(FrameToy(.frame), file, 0));
+    try std.testing.expectError(error.FrameConfigDiffers, checkDecoder(FrameToy(.err), file, 0));
+    // Announcing must not change what is decoded.
+    try std.testing.expectError(error.FrameConfigDiffers, checkDecoder(FrameToy(.pixels), file, 0));
+    // Other widths are announced truly.
+    try checkDecoder(FrameToy(.frame), "T\x02\x01ab", 0);
 }
 
 /// A reader that hands over at most `step` bytes per read, into a buffer
@@ -207,17 +297,20 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
 
     const native = config.native;
     fixed = .fixed(input);
-    const want = decodeAll(D, &fixed, config, native, &buffers[0], null);
-    const got = decodeAll(D, &trickle.reader, config, native, &buffers[1], null);
+    const want = try decodeAll(D, &fixed, config, native, &buffers[0], null, false);
+    fixed = .fixed(input);
+    const with = try decodeAll(D, &fixed, config, native, &buffers[1], null, true);
+    if (!want.eql(&with)) return error.FrameConfigDiffers;
+    const got = try decodeAll(D, &trickle.reader, config, native, &buffers[1], null, true);
     if (!want.eql(&got)) return error.ChunkedDiffers;
 
     // Another format: the native pixels converted, frame by frame.
     const formats = std.enums.values(PixelFormat);
     const other = formats[(choice / 7) % formats.len];
     fixed = .fixed(input);
-    const converted = decodeAll(D, &fixed, config, native, &buffers[0], other);
+    const converted = try decodeAll(D, &fixed, config, native, &buffers[0], other, false);
     fixed = .fixed(input);
-    const direct = decodeAll(D, &fixed, config, other, &buffers[1], other);
+    const direct = try decodeAll(D, &fixed, config, other, &buffers[1], other, false);
     var replaced = true;
     for (direct.frames[0..direct.count]) |f| replaced = replaced and f.frame.blend == .src;
     if (replaced and !converted.eql(&direct)) return error.FormatDiffers;

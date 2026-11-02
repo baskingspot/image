@@ -17,41 +17,6 @@ pub const extensions = [_][]const u8{ ".pbm", ".pgm", ".ppm", ".pnm", ".pam", ".
 
 pub fn check(input: []const u8, choice: u64) !void {
     try harness.checkDecoder(image.netpbm.Decoder, input, choice);
-    try checkAnnounced(input);
-}
-
-var canvases: [2][harness.limits.max_pixels * 16]u8 = undefined;
-
-/// Calling `decodeFrameConfig` before each `decodeFrame` changes nothing:
-/// the same frames, pixels, and error, and each frame is the one announced.
-fn checkAnnounced(input: []const u8) !void {
-    var pr: std.Io.Reader = .fixed(input);
-    var ar: std.Io.Reader = .fixed(input);
-    var p: image.netpbm.Decoder = .init(&pr, .{ .limits = harness.limits });
-    var a: image.netpbm.Decoder = .init(&ar, .{ .limits = harness.limits });
-    const config = p.decodeConfig() catch return;
-    _ = try a.decodeConfig();
-    const len = image.PixelBuffer.len(config.native, config.width, config.height).?;
-    const pd = try image.PixelBuffer.init(&canvases[0], config.native, config.width, config.height);
-    const ad = try image.PixelBuffer.init(&canvases[1], config.native, config.width, config.height);
-    for (0..harness.limits.max_frames + 1) |_| {
-        const want = p.decodeFrame(pd, &.{});
-        const next = a.decodeFrameConfig();
-        const got = a.decodeFrame(ad, &.{});
-        if (next) |n| {
-            if (got) |g| {
-                if (!std.meta.eql(n, g)) return error.FrameConfigDiffers;
-            } else |_| {}
-        } else |e| if (got) |_| return error.FrameConfigDiffers else |e2| if (e2 != e) return error.FrameConfigDiffers;
-        const w = want catch |e| {
-            if (got) |_| return error.FrameConfigDiffers else |e2| if (e2 != e) return error.FrameConfigDiffers;
-            return;
-        };
-        const g = got catch return error.FrameConfigDiffers;
-        if (!std.meta.eql(w, g)) return error.FrameConfigDiffers;
-        if (w == null) return;
-        if (!std.mem.eql(u8, canvases[0][0..len], canvases[1][0..len])) return error.FrameConfigDiffers;
-    }
 }
 
 /// A Netpbm file, usually valid: a header with random separators and
