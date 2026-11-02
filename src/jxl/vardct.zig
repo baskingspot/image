@@ -211,14 +211,19 @@ pub const Jpeg = struct {
 
     fn onLf(ctx: *anyopaque, s: *const Shared, q: QuantLf) Error!void {
         const j: *Jpeg = @ptrCast(@alignCast(ctx));
-        if (q.extra_precision != 0 or s.lf_cfl[0] != 0 or s.lf_cfl[2] != 0) return error.NotJpeg;
+        if (s.lf_cfl[0] != 0 or s.lf_cfl[2] != 0) return error.NotJpeg;
+        // The DC is the LF over `1 << extra_precision`, truncated and
+        // clamped to a JPEG's ±2047, as libjxl rebuilds it.
+        const scale = @as(i32, 1) << q.extra_precision;
         for (q.channels, 0..) |ch, c| {
             const jc = component[c];
             const x0 = q.rect.x0 >> s.hs[c];
             const y0 = q.rect.y0 >> s.vs[c];
             for (0..ch.h) |y| {
                 const row = j.coefs[jc][((y0 + y) * j.blocks_x[jc] + x0) * 64 ..];
-                for (ch.row(@intCast(y))[0..ch.w], 0..) |v, x| row[x * 64] = try toI16(v);
+                for (ch.row(@intCast(y))[0..ch.w], 0..) |v, x| {
+                    row[x * 64] = @intCast(std.math.clamp(@divTrunc(v, scale), -2047, 2047));
+                }
             }
         }
     }
@@ -1217,4 +1222,17 @@ test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
     var d2: Decoder = .init(&r2, .{});
     _ = try d2.decodeConfig();
     try testing.expectError(error.NotJpeg, d2.decodeJpeg(&coefs, work));
+    // With extra_precision 1 (byte 614, bit 3) each DC is the LF halved
+    // toward zero (79 to 39, -3 to -1), as djxl rebuilds the same file.
+    var halved = file[0..file.len].*;
+    halved[614] |= 1 << 3;
+    var r3: std.Io.Reader = .fixed(&halved);
+    var d3: Decoder = .init(&r3, .{});
+    _ = try d3.decodeConfig();
+    const h = try d3.decodeJpeg(&coefs, work);
+    for (0..3) |c| for (0..2) |b| {
+        var w = want[c][b];
+        w[0] = @divTrunc(w[0], 2);
+        try testing.expectEqualSlices(i16, &w, h.coefs[c][b * 64 ..][0..64]);
+    };
 }
