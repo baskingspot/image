@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   libpng     spng     ±   <1    ~   slowest vs libpng
+PngEncode/icon                    13       14.4     2.14     1.91    7%    0    4   0.96 [0.85, 1.03] icon_16-actions_appointment_new-16x16.rgba
+PngEncode/1mp                     23       46.8     6.68     7.60    2%    0    0   3.94 [3.70, 4.32] screenshot_game-3dbrick2-320x240.rgb
+PngEncode/large                    8       40.0     7.64     8.40    2%    0    0   4.84 [4.80, 5.04] textures_plants-plant_02-1024x1316.rgba
+PngEncodeFast/icon                13       14.2     1.29     1.12    6%    3    4   0.90 [0.78, 0.97] icon_16-actions_appointment_new-16x16.rgba
+PngEncodeFast/1mp                 23       46.8     1.94     2.62    1%    0    0   1.10 [1.04, 1.11] photo_wikipedia-002-1260x806.rgb
+PngEncodeFast/large                8       40.2     1.90     2.53    2%    0    0   1.36 [1.22, 1.46] photo_wikipedia-001-1276x850.rgb
+all                               88       32.1     2.90     3.23          3    8

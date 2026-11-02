@@ -1,0 +1,7 @@
+op               class      image   libpng     spng
+png-encode       icon         2.6      2.9      2.9
+png-encode       mid         11.0     10.9     13.0
+png-encode       large      386.8    386.9    432.5
+png-encode-fast  icon         2.8      2.9      2.8
+png-encode-fast  mid         11.1     10.9     13.0
+png-encode-fast  large      386.8    387.0    440.0

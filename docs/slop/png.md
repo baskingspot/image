@@ -148,3 +148,74 @@ to `flate.Reader` (2.3–2.9× on PNG image data), which takes the decoder to
 added 13.8%, and palettes expanded straight into RGBA8 rows 44–48% on
 palette images. What is left against Wuffs: inflate on literal-heavy data,
 the copy of each row out of inflate's window, and per-call setup on icons.
+
+## Encoder
+
+`src/png/encode.zig` (`encode`, `encodeAnimation`, `workLen`), from the
+same specification. Results: `results/png-encode-20261102.md`.
+
+- **Shape.** Rows are converted with `image.convert` to the base format
+  (the sources' channels, straight, 8-bit for 8-bit sources and 16-bit
+  otherwise), packed to the file's samples (`reduce.zig`), filtered
+  (`forward.zig`), and written through `compress`'s `zlib.Writer`, whose
+  output goes through an `Io.Writer` that wraps it as IDAT or fdAT chunks of
+  up to 16 KiB; the zlib trailer shares the last one. Work memory is the
+  zlib writer (392 KiB), its buffer (417 KiB: the window and one block's
+  token list and compressed scratch, which `compress` keeps there rather
+  than on the stack, by the owner's decision 16), the chunk buffer, a
+  palette table, and nine rows of up to 8 bytes a pixel (four with a fixed
+  filter): 850,439 bytes (about 831 KiB) plus 72 bytes per pixel of width,
+  nothing per row, and no large stack frame.
+  A stream starts with `zlib.Writer.initInPlace`: assigning a new writer
+  copies its 392 KiB, which was most of an icon's encode. The output never
+  depends on what the work memory held (ICO measures an entry with one
+  encode and writes it with another over the same memory): `compress`
+  clears a stream's match-finder tables at its first block, and the test
+  "the bytes do not depend on what the work memory held" encodes through
+  zeroed, patterned, random, and used memory at every effort. Debug and
+  ReleaseSafe hide a missing clear (they fill `undefined` with 0xaa), so
+  that test catches one only in ReleaseFast; with level 6's clear removed
+  it fails there. Removing the lazy levels' clear changes no output: every
+  position goes into their chains, so a stale head inside the window points
+  at bytes of another hash and can never match.
+- **Reduction** (`EncodeOptions.reduce`, on by default). One survey of the
+  base pixels of every frame keeps what still holds: alpha all opaque (drop
+  it), binary alpha with one transparent color no opaque pixel has (a tRNS
+  key, checked by a second pass when the palette overflowed), gray, 16-bit
+  samples that are a byte repeated, gray on the 1/2/4-bit grid, and up to
+  256 colors. The plan is the fewest bits per pixel; a palette must also
+  save more than twice what PLTE and tRNS cost, since the samples it
+  replaces would compress too (without that rule 16×16 icons came out
+  larger than libpng's RGBA). Palette entries are in first-seen order with
+  the non-opaque ones first, so tRNS is short. Float sources are never
+  reduced to gray, since `convert` computes their gray in float. Alpha is
+  dropped only when every pixel is opaque, never composited, and colors
+  under transparent pixels are kept, so the file decodes to exactly the
+  base pixels.
+- **Filters.** Palette and sub-byte images are unfiltered (section 12.7's
+  advice); the rest take each row's filter by the minimum sum of absolute
+  differences over all five, or `EncodeOptions.filter` for every row. The
+  five filters run 32 bytes at a time. MSAD made files 1.4–2.1% smaller than
+  Paeth alone at the same deflate level, with no time difference beyond
+  the noise (deflate dominates), so every effort searches.
+- **Effort.** `fast` is `compress`'s greedy level 6; `default` is its lazy
+  level 7 with the filtered strategy (matches under 6 bytes coded as
+  literals); `best` is level 9 filtered.
+  The default was chosen by measurement: level 7 filtered makes files 3–4%
+  smaller than level 6 (smaller than libpng's and libspng's defaults) at
+  about a third of level 6's speed, which is still faster than libpng;
+  level 9 takes 1.2–1.6% more off at another 2.5–3.5×. The numbers are in
+  the results file. Level 1, fixed Huffman only, made files 28% larger than
+  libpng's, so no effort uses it.
+- **APNG.** The first frame is the default image, so it must cover the
+  canvas (`BadFrame` otherwise); every frame shares the color type, depth,
+  and palette the survey of all frames picks. A frame's duration in flicks
+  becomes delay_num/delay_den exactly when it is a fraction with both
+  below 65536, and the nearest such fraction (continued fractions)
+  otherwise.
+- **Metadata.** cHRM, gAMA, sRGB or iCCP (not both: `BadMetadata`), then
+  pHYs and eXIf, all before PLTE. iCCP's profile is compressed twice, once
+  to learn the chunk's length and once into it, so no buffer holds it.
+  `EncodeOptions.density` is pHYs: per meter or unitless as given, and per
+  inch converted to per meter, rounded. Not written, by the owner's
+  decision 16: text chunks, bKGD, and interlacing.

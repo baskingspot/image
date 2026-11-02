@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   libpng     spng     ±   <1    ~   slowest vs libpng
+PngEncode/icon                    13       14.0     2.24     1.95    3%    0    0   1.43 [1.32, 1.50] icon_16-actions_appointment_new-16x16.rgba
+PngEncode/1mp                     23       24.0     3.51     3.99    1%    0    0   2.63 [2.52, 2.71] photo_kodak-kodim01-768x512.rgb
+PngEncode/large                    8       17.6     3.45     3.80    2%    0    0   3.10 [2.88, 3.33] textures_plants-plant_02-1024x1316.rgba
+PngEncodeFast/icon                13       17.5     1.59     1.39    3%    0    0   1.21 [1.12, 1.27] icon_16-actions_appointment_new-16x16.rgba
+PngEncodeFast/1mp                 23       46.3     1.99     2.70    2%    0    0   1.10 [1.04, 1.16] photo_wikipedia-002-1260x806.rgb
+PngEncodeFast/large                8       40.0     1.92     2.53    2%    0    0   1.39 [1.33, 1.43] photo_wikipedia-001-1276x850.rgb
+all                               88       25.6     2.38     2.65          0    0

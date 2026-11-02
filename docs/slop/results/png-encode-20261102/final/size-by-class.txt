@@ -1,0 +1,16 @@
+PngEncode      libpng icon   rows  13  image       33661  libpng       34909  total 0.964  geomean 0.984
+PngEncode      libpng 1mp    rows  23  image     9276152  libpng     9343390  total 0.993  geomean 0.881
+PngEncode      libpng large  rows   8  image    61923433  libpng    62762337  total 0.987  geomean 0.957
+PngEncode      libpng all    rows  44  image    71233246  libpng    72140636  total 0.987  geomean 0.924
+PngEncode      spng   icon   rows  13  image       33661  spng       34909  total 0.964  geomean 0.984
+PngEncode      spng   1mp    rows  23  image     9276152  spng     9343390  total 0.993  geomean 0.881
+PngEncode      spng   large  rows   8  image    61923433  spng    62762337  total 0.987  geomean 0.957
+PngEncode      spng   all    rows  44  image    71233246  spng    72140636  total 0.987  geomean 0.924
+PngEncodeFast  libpng icon   rows  13  image       33929  libpng       38351  total 0.885  geomean 0.918
+PngEncodeFast  libpng 1mp    rows  23  image     9574907  libpng    10180466  total 0.941  geomean 0.797
+PngEncodeFast  libpng large  rows   8  image    63715901  libpng    71840187  total 0.887  geomean 0.899
+PngEncodeFast  libpng all    rows  44  image    73324737  libpng    82059004  total 0.894  geomean 0.849
+PngEncodeFast  spng   icon   rows  13  image       33929  spng       38351  total 0.885  geomean 0.918
+PngEncodeFast  spng   1mp    rows  23  image     9574907  spng    10180466  total 0.941  geomean 0.797
+PngEncodeFast  spng   large  rows   8  image    63715901  spng    71840187  total 0.887  geomean 0.899
+PngEncodeFast  spng   all    rows  44  image    73324737  spng    82059004  total 0.894  geomean 0.849
