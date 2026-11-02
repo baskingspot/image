@@ -510,7 +510,8 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   stores u8 property buckets (default peak 158→124 MiB, best 255→144 MiB;
   libjxl e8 267). Icons encode 1.2–1.7× faster. The fast and default trees
   grow to 256 and 2048 leaves: default matches e7's size (1.003× total) at
-  0.82× of e7's speed up to 1 MP and 1.01× above. The encoder uses the
+  0.82× of e7's speed up to 1 MP and 1.01× above; decision 71 sets
+  default to 1024 leaves (next stage). The encoder uses the
   decoder's predictors, weighted predictor, and alias table; the per-pixel
   properties stay private until the decoder shares them. Next: screenshots
   (4–7% larger than e7), count subtraction in split scoring, prefix codes
@@ -993,6 +994,21 @@ width)` for every file with several entries.
 66. **WebP lossless effort 1 on RGB. Decided by the owner:** keeps its hash
     chain; the cheap path for flat, few-color images is the fix for their
     speed.
+67. **APNG undersized default image. Decided by the owner:** the whole image
+    is frame 0, as libpng and libspng show it; Wuffs, which draws only the
+    fcTL's region, is a documented split (decision 59).
+68. **Gain-map oracle scope. Decided by the owner:** `jpeg_gain_map`
+    compares whole files only, the corpus and generated declare/carry
+    combinations, since libultrahdr can't check the base image's
+    declaration on damaged files.
+69. **Oracle `mutates` opt-in. Decided by the owner:** an oracle module may
+    declare `mutates = false` in test/oracle/compare.zig when its reference
+    can't judge mutated inputs.
+70. **JPEG XL learning samples. Decided by the owner:** `default` keeps its
+    sample count; 2^19 samples (−1.16% size for +28% time) is not taken.
+71. **JPEG XL default leaves. Decided by the owner:** `default` grows its
+    tree to 1024 leaves, not 2048 (−0.78% against stage 1 for +13% time,
+    instead of −0.93% for +20%).
 
 ## Harness requests
 
