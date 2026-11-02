@@ -233,7 +233,9 @@ pub const Metadata = struct {
     /// The ITU-T H.273 code points the file states (PNG cICP), as stored.
     /// They take precedence over an ICC profile, `gamma`, and the other
     /// color chunks: `transfer`, `gamma`, and `primaries` then come from
-    /// them alone, and are null for code points they cannot name.
+    /// them alone, and are null for code points they cannot name. `icc` is
+    /// still reported beside them, though they, not it, describe the
+    /// pixels.
     cicp: ?Cicp = null,
     /// The display the image was mastered on (PNG mDCV).
     mastering_display: ?MasteringDisplay = null,
@@ -247,6 +249,7 @@ pub const Metadata = struct {
     /// applied: the pixels are the base image's.
     gain_map: bool = false,
     density: ?Density = null,
+    /// The embedded ICC profile. A `cicp` beside it takes precedence.
     icc: ?Blob = null,
     exif: ?Blob = null,
     xmp: ?Blob = null,
