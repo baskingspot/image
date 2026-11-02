@@ -115,6 +115,15 @@ and Brotli boxes, unknown APP markers, comments, fill bytes, and trailing
 data. cjxl refuses the JPEG corpus's arithmetic, 12-bit, lossless, and
 CMYK files, so those have no transcode.
 
+## Open
+
+- libjxl refuses to rebuild a JPEG unless the frame's DCT8 quantization
+  table is raw with denominator 1/(8 · 255) (the f16 0x1404), the one a
+  JPEG's table implies; `Decoder.decodeJpeg` takes any raw table. The check
+  belongs in `src/jxl/vardct.zig` (the JPEG XL orb's file), where
+  `raw_dct8` is set. Until it lands, the oracle leaves out the three
+  mutated transcodes it found at seed 1, by hash.
+
 ## Corpus
 
 `corpus/gen/jxl_jbrd.sh` transcodes (`cjxl --lossless_jpeg=1`, one

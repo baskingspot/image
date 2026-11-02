@@ -17,3 +17,4 @@ FORMAT(webp) // link: libwebp libwebpdemux
 FORMAT(tiff) // link: libtiff-4 zlib libjpeg
 FORMAT(jxl) // link: libjxl
 FORMAT(tiff_encode) // link: libtiff-4
+FORMAT(jxl_jbrd) // link: libjxl
