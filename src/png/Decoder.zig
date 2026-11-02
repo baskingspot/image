@@ -496,14 +496,13 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
         types.chrm => if (try d.readSmall(&buf)) |b| {
             if (b.len != 32 or d.seen.chrm) return;
             d.seen.chrm = true;
-            var v: [8]u32 = undefined;
-            for (&v, 0..) |*x, i| x.* = std.mem.readInt(u32, b[i * 4 ..][0..4], .big);
-            d.metadata.chromaticities = .{
-                .white = .{ v[0], v[1] },
-                .red = .{ v[2], v[3] },
-                .green = .{ v[4], v[5] },
-                .blue = .{ v[6], v[7] },
-            };
+            // White, red, green, blue there; red, green, blue, white here.
+            var v: [8]f32 = undefined;
+            for (&v, 0..) |*x, i| {
+                const at = (i + 2) % 8 * 4;
+                x.* = @as(f32, @floatFromInt(std.mem.readInt(u32, b[at..][0..4], .big))) / 100_000;
+            }
+            d.metadata.primaries = v;
         },
         types.srgb => if (try d.readSmall(&buf)) |b| {
             if (b.len != 1 or b[0] > 3 or d.seen.srgb) return;
@@ -2033,7 +2032,7 @@ test "metadata and blobs, through a reader that trickles" {
         .orientation = .right_top,
         .transfer = .srgb,
         .gamma = 45455,
-        .chromaticities = .{ .white = .{ 1, 2 }, .red = .{ 3, 4 }, .green = .{ 5, 6 }, .blue = .{ 7, 8 } },
+        .primaries = .{ 3e-5, 4e-5, 5e-5, 6e-5, 7e-5, 8e-5, 1e-5, 2e-5 },
         .density = .{ .x = 2835, .y = 2834, .unit = .per_meter },
         .icc = .{ .kind = .icc, .offset = icc_at + 4, .len = 300, .encoding = .zlib },
         .exif = .{ .kind = .exif, .offset = exif_at, .len = exif_body.len },

@@ -33,6 +33,8 @@ pub const PixelFormat = enum(u8) {
     /// 32-bit float samples, nominally 0 to 1, for float and HDR sources.
     rgba_f32,
     rgba_f32_premul,
+    rgb_f32,
+    gray_f32,
     /// Cyan, magenta, yellow, and black, each inverted (the maximum is no
     /// ink) as Adobe's CMYK JPEGs store them and libjpeg-turbo returns
     /// them, so that all-zero bytes are black here as in every other
@@ -60,7 +62,7 @@ pub const PixelFormat = enum(u8) {
         return switch (f) {
             .gray8, .gray_alpha8, .gray_alpha8_premul, .rgb8, .bgr8 => .u8,
             .rgba8, .rgba8_premul, .bgra8, .bgra8_premul, .cmyk8 => .u8,
-            .rgba_f32, .rgba_f32_premul => .f32,
+            .rgba_f32, .rgba_f32_premul, .rgb_f32, .gray_f32 => .f32,
             else => .u16,
         };
     }
@@ -68,9 +70,9 @@ pub const PixelFormat = enum(u8) {
     /// The number of samples per pixel: 1 to 4.
     pub fn channelCount(f: PixelFormat) usize {
         return switch (f) {
-            .gray8, .gray16 => 1,
+            .gray8, .gray16, .gray_f32 => 1,
             .gray_alpha8, .gray_alpha8_premul, .gray_alpha16, .gray_alpha16_premul => 2,
-            .rgb8, .bgr8, .rgb16, .bgr16 => 3,
+            .rgb8, .bgr8, .rgb16, .bgr16, .rgb_f32 => 3,
             else => 4,
         };
     }
@@ -109,9 +111,9 @@ pub const PixelFormat = enum(u8) {
 
     pub fn channels(f: PixelFormat) Channels {
         return switch (f) {
-            .gray8, .gray16 => .{ .y = 0 },
+            .gray8, .gray16, .gray_f32 => .{ .y = 0 },
             .gray_alpha8, .gray_alpha8_premul, .gray_alpha16, .gray_alpha16_premul => .{ .y = 0, .a = 1 },
-            .rgb8, .rgb16 => .{ .r = 0, .g = 1, .b = 2 },
+            .rgb8, .rgb16, .rgb_f32 => .{ .r = 0, .g = 1, .b = 2 },
             .bgr8, .bgr16 => .{ .b = 0, .g = 1, .r = 2 },
             .rgba8, .rgba8_premul, .rgba16, .rgba16_premul => .{ .r = 0, .g = 1, .b = 2, .a = 3 },
             .rgba_f32, .rgba_f32_premul => .{ .r = 0, .g = 1, .b = 2, .a = 3 },
@@ -211,6 +213,8 @@ test "pixel format layout" {
     try testing.expectEqual(3, PixelFormat.bgr8.bytesPerPixel());
     try testing.expectEqual(8, PixelFormat.bgra16_premul.bytesPerPixel());
     try testing.expectEqual(16, PixelFormat.rgba_f32.bytesPerPixel());
+    try testing.expectEqual(12, PixelFormat.rgb_f32.bytesPerPixel());
+    try testing.expectEqual(4, PixelFormat.gray_f32.bytesPerPixel());
     try testing.expectEqual(2, PixelFormat.gray16.bytesPerPixel());
     try testing.expect(PixelFormat.gray_alpha8_premul.isPremultiplied());
     try testing.expect(!PixelFormat.rgba8.isPremultiplied());

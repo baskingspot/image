@@ -21,7 +21,8 @@
 //!   the one place the integer results differ from its.
 //! - Gray from color is `(19595 R + 38470 G + 7471 B + 32768) >> 16` on
 //!   16-bit samples (Rec. 601 luma), and `0.299 R + 0.587 G + 0.114 B` with
-//!   those weights in float. Color from gray repeats the gray sample.
+//!   those weights in float, except that equal R, G, and B give that value
+//!   exactly. Color from gray repeats the gray sample.
 //! - Color from CMYK, whose samples are inverted inks, is libjpeg-turbo's
 //!   naive conversion at the source's depth: `ink * black / max`, rounded,
 //!   with `max` 255 or 65535 (`ink * black` in float). CMYK from color is
@@ -374,7 +375,9 @@ inline fn packFloatPixel(comptime f: PixelFormat, bytes: []u8, pixel: usize, p: 
     }
     const c = comptime f.channels();
     if (c.y) |y| {
-        storeFloat(f, bytes, pixel, y, 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]);
+        // Gray stays exactly itself: the weights' sum rounds away from 1.
+        const gray = p[0] == p[1] and p[1] == p[2];
+        storeFloat(f, bytes, pixel, y, if (gray) p[1] else 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]);
     } else {
         storeFloat(f, bytes, pixel, c.r.?, p[0]);
         storeFloat(f, bytes, pixel, c.g.?, p[1]);
@@ -1035,6 +1038,30 @@ test "float samples" {
     const hdr = [4]f32{ 4, 0, 0, 0.5 };
     convert(&out, .rgba_f32_premul, std.mem.asBytes(&hdr), .rgba_f32, 1);
     try testing.expectEqual(@as(f32, 2), std.mem.bytesAsValue([4]f32, out[0..16])[0]);
+    // RGB and gray float: alpha dropped, Rec. 601 luma, and rounding to
+    // bytes.
+    var rgb: [3]f32 = undefined;
+    convert(std.mem.asBytes(&rgb), .rgb_f32, &[4]u8{ 255, 51, 0, 7 }, .rgba8, 1);
+    try testing.expectEqual([3]f32{ 1, 0.2, 0 }, rgb);
+    var y: f32 = undefined;
+    convert(std.mem.asBytes(&y), .gray_f32, std.mem.asBytes(&rgb), .rgb_f32, 1);
+    try testing.expectApproxEqAbs(@as(f32, 0.299 + 0.587 * 0.2), y, 1e-6);
+    const nan = std.math.nan(f32);
+    const grays = [16]f32{ 0.5, 1.5, -1, nan, 0.25, 1, 0, 0.75, 2.0 / 255.0, 0.1, 0.9, 0.3, 0.6, 0.002, 0.998, 0.4 };
+    var bytes: [16]u8 = undefined;
+    convert(&bytes, .gray8, std.mem.asBytes(&grays), .gray_f32, 16);
+    const want = [16]u8{ 128, 255, 0, 0, 64, 255, 0, 191, 2, 26, 230, 77, 153, 1, 254, 102 };
+    try testing.expectEqualSlices(u8, &want, &bytes);
+    convert(&bytes, .rgb8, std.mem.asBytes(&grays), .gray_f32, 1);
+    try testing.expectEqualSlices(u8, &.{ 128, 128, 128 }, bytes[0..3]);
+    // A gray sample comes back exactly through color, even past 1.
+    for ([_]f32{ 0.3, 1.7, -0.25, 0.1 }) |v| {
+        var color: [4]f32 = undefined;
+        convert(std.mem.asBytes(&color), .rgba_f32, std.mem.asBytes(&v), .gray_f32, 1);
+        var back: f32 = undefined;
+        convert(std.mem.asBytes(&back), .gray_f32, std.mem.asBytes(&color), .rgba_f32, 1);
+        try testing.expectEqual(v, back);
+    }
 }
 
 test "convertBuffer" {

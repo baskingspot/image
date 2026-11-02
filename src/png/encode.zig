@@ -75,8 +75,9 @@ pub const EncodeOptions = struct {
     reduce: bool = true,
     /// gAMA: the image's gamma times 100,000.
     gamma: ?u32 = null,
-    /// cHRM.
-    chromaticities: ?decode.Chromaticities = null,
+    /// cHRM: red, green, blue, and white xy, as `Metadata.primaries`
+    /// reports them, each stored times 100,000, rounded.
+    primaries: ?[8]f32 = null,
     /// sRGB; not with `icc`.
     srgb: ?RenderingIntent = null,
     /// iCCP; not with `srgb`.
@@ -97,7 +98,8 @@ pub const EncodeError = shared.Error || error{
     /// frame that is not the whole canvas.
     BadFrame,
     /// A metadata option PNG cannot store: a gamma or density of 0, a value
-    /// past 2^31 - 1, a bad profile name, both `srgb` and `icc`, or a chunk
+    /// past 2^31 - 1 (for `primaries`, once times 100,000), a negative or
+    /// NaN primary, a bad profile name, both `srgb` and `icc`, or a chunk
     /// longer than 2^31 - 1 bytes.
     BadMetadata,
 };
@@ -466,11 +468,7 @@ fn writeChunk(w: *Io.Writer, kind: *const [4]u8, data: []const u8) Io.Writer.Err
 fn checkMetadata(o: EncodeOptions) EncodeError!void {
     const max = max_side;
     if (o.gamma) |g| if (g == 0 or g > max) return error.BadMetadata;
-    if (o.chromaticities) |c| {
-        for ([_][2]u32{ c.white, c.red, c.green, c.blue }) |xy| {
-            if (xy[0] > max or xy[1] > max) return error.BadMetadata;
-        }
-    }
+    if (o.primaries) |p| _ = chrm(p) orelse return error.BadMetadata;
     if (o.srgb != null and o.icc != null) return error.BadMetadata;
     if (o.icc) |icc| {
         const n = icc.name;
@@ -500,14 +498,24 @@ fn physDensity(density: decode.Density) [2]u64 {
     };
 }
 
+/// cHRM's eight values for `primaries`: white first, then red, green, and
+/// blue, each times 100,000, rounded; null if one is negative, NaN, or past
+/// what a chunk field holds.
+fn chrm(primaries: [8]f32) ?[8]u32 {
+    var v: [8]u32 = undefined;
+    for (&v, 0..) |*x, i| {
+        const f = primaries[(i + 6) % 8] * 100_000;
+        if (!(f >= 0 and f < @as(f32, @floatFromInt(max_side)))) return null;
+        x.* = @intFromFloat(@round(f));
+    }
+    return v;
+}
+
 /// cHRM, gAMA, sRGB, and iCCP, then pHYs and eXIf.
 fn writeMetadata(w: *Io.Writer, o: EncodeOptions, fixed: *Work) EncodeError!void {
-    if (o.chromaticities) |c| {
+    if (o.primaries) |p| {
         var b: [32]u8 = undefined;
-        for ([_][2]u32{ c.white, c.red, c.green, c.blue }, 0..) |xy, i| {
-            std.mem.writeInt(u32, b[i * 8 ..][0..4], xy[0], .big);
-            std.mem.writeInt(u32, b[i * 8 + 4 ..][0..4], xy[1], .big);
-        }
+        for (chrm(p).?, 0..) |x, i| std.mem.writeInt(u32, b[i * 4 ..][0..4], x, .big);
         try writeChunk(w, "cHRM", &b);
     }
     if (o.gamma) |g| {
@@ -743,18 +751,14 @@ test "metadata chunks are written and read" {
     // Big-endian TIFF, one IFD entry: orientation (0x0112), SHORT, 6.
     const exif_data = "MM\x00\x2a\x00\x00\x00\x08" ++ "\x00\x01" ++
         "\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00" ++ "\x00\x00\x00\x00";
-    const chrm: decode.Chromaticities = .{
-        .white = .{ 31270, 32900 },
-        .red = .{ 64000, 33000 },
-        .green = .{ 30000, 60000 },
-        .blue = .{ 15000, 6000 },
-    };
+    // sRGB's primaries and D65.
+    const primaries = [8]f32{ 0.64, 0.33, 0.3, 0.6, 0.15, 0.06, 0.3127, 0.329 };
     var profile: [3000]u8 = undefined;
     for (&profile, 0..) |*b, i| b.* = @truncate(i / 7);
     var w: Io.Writer = .fixed(&file);
     try encode(&w, src, .{
         .gamma = 45455,
-        .chromaticities = chrm,
+        .primaries = primaries,
         .icc = .{ .profile = &profile },
         .exif = exif_data,
         .density = .{ .x = 72, .y = 96, .unit = .per_inch },
@@ -763,7 +767,11 @@ test "metadata chunks are written and read" {
     var d: Decoder = .init(&r, .{});
     const m = (try d.decodeConfig()).metadata;
     try testing.expectEqual(45455, m.gamma.?);
-    try testing.expectEqual(chrm, m.chromaticities.?);
+    try testing.expectEqual(primaries, m.primaries.?);
+    // Stored white first, times 100,000.
+    const at = std.mem.find(u8, w.buffered(), "cHRM").? + 4;
+    try testing.expectEqual(31270, std.mem.readInt(u32, w.buffered()[at..][0..4], .big));
+    try testing.expectEqual(64000, std.mem.readInt(u32, w.buffered()[at + 8 ..][0..4], .big));
     // 72 and 96 per inch are 2834.6 and 3779.5 per meter.
     try testing.expectEqual(decode.Density{ .x = 2835, .y = 3780, .unit = .per_meter }, m.density.?);
     try testing.expectEqual(decode.Orientation.right_top, m.orientation);

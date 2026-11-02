@@ -21,8 +21,9 @@ const Converter = @import("../convert.zig").Converter;
 const Decoder = @import("Decoder.zig");
 
 pub const EncodeOptions = struct {
-    /// The header's colorspace byte: 0 for sRGB with linear alpha, 1 for
-    /// all channels linear. It changes nothing in the pixels.
+    /// The header's colorspace byte: 1 for `linear` (all channels
+    /// linear), and 0, sRGB with linear alpha, for any other transfer,
+    /// which QOI cannot name. It changes nothing in the pixels.
     transfer: Transfer = .srgb,
 };
 
@@ -50,8 +51,8 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     std.mem.writeInt(u32, header[8..12], src.height, .big);
     header[12] = if (native == .rgba8) 4 else 3;
     header[13] = switch (options.transfer) {
-        .srgb => 0,
         .linear => 1,
+        else => 0,
     };
     try w.writeAll(&header);
     var s: State = .{};

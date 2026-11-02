@@ -640,7 +640,7 @@ const Out = struct {
 
     fn put(o: *const Out, row: []u8, indices: []const u8) void {
         switch (o.dst.format.bytesPerPixel()) {
-            inline 1, 2, 3, 4, 6, 8, 16 => |bpp| {
+            inline 1, 2, 3, 4, 6, 8, 12, 16 => |bpp| {
                 if (o.over)
                     putN(bpp, true, row, o.palette, indices, o.transparent)
                 else

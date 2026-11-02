@@ -360,6 +360,7 @@ fn metadata(d: *const Decoder) decode.Metadata {
     }
     m.exif = d.br.src.exif;
     m.xmp = d.br.src.xmp;
+    m.jpeg_reconstruction = d.br.src.saw_jbrd;
     return m;
 }
 
@@ -896,6 +897,22 @@ test "signature" {
     r = .fixed("");
     d = .init(&r, .{});
     try testing.expectError(error.Truncated, d.decodeConfig());
+}
+
+test "a jbrd box is reported" {
+    // An 8×8 codestream with default metadata, transform data, and frame
+    // header, split as libjxl splits it: the headers, `jbrd`, and the rest.
+    const head = "\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a" ++ "\x00\x00\x00\x14ftypjxl \x00\x00\x00\x00jxl ";
+    const first = "\x00\x00\x00\x10jxlp\x00\x00\x00\x00\xff\x0a\x41\x06";
+    const last = "\x00\x00\x00\x0djxlp\x80\x00\x00\x01\x01";
+    var r: Io.Reader = .fixed(head ++ first ++ "\x00\x00\x00\x09jbrd\x00" ++ last);
+    var d: Decoder = .init(&r, .{});
+    const config = try d.decodeConfig();
+    try testing.expectEqual(8, config.width);
+    try testing.expect(config.metadata.jpeg_reconstruction);
+    r = .fixed(head ++ first ++ last);
+    d = .init(&r, .{});
+    try testing.expect(!(try d.decodeConfig()).metadata.jpeg_reconstruction);
 }
 
 test "16-bit output matches the reference's float path" {

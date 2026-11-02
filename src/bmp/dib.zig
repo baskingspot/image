@@ -350,7 +350,7 @@ pub fn decodePixels(in: *Input, h: Header, palette: *const Palette, dst: PixelBu
     // An empty image has no pixel data to read, RLE's end code included.
     if (h.width == 0 or h.height == 0) return;
     switch (dst.format.bytesPerPixel()) {
-        inline 1, 2, 3, 4, 6, 8, 16 => |n| return pixelsAs(n, in, h, palette, dst),
+        inline 1, 2, 3, 4, 6, 8, 12, 16 => |n| return pixelsAs(n, in, h, palette, dst),
         else => unreachable,
     }
 }

@@ -40,10 +40,12 @@ size_t pixel_bytes(enum pixel_format f) {
   switch (f) {
     case PF_GRAY8: return 1;
     case PF_GRAY_ALPHA8: case PF_GRAY_ALPHA8_PREMUL: case PF_GRAY16: return 2;
+    case PF_GRAY_F32: return 4;
     case PF_RGB8: case PF_BGR8: return 3;
     case PF_RGBA8: case PF_RGBA8_PREMUL: case PF_BGRA8: case PF_BGRA8_PREMUL: case PF_CMYK8: return 4;
     case PF_GRAY_ALPHA16: case PF_GRAY_ALPHA16_PREMUL: return 4;
     case PF_RGB16: case PF_BGR16: return 6;
+    case PF_RGB_F32: return 12;
     case PF_RGBA16: case PF_RGBA16_PREMUL: case PF_BGRA16: case PF_BGRA16_PREMUL: case PF_CMYK16: return 8;
     case PF_RGBA_F32: case PF_RGBA_F32_PREMUL: return 16;
   }

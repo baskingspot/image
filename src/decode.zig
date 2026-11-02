@@ -216,11 +216,23 @@ pub const Frame = struct {
 pub const Metadata = struct {
     /// From EXIF (see `exif.orientation`) or the format's own field.
     orientation: Orientation = .top_left,
-    /// The transfer function the file declares, if any.
+    /// The transfer function the file names, if any. A plain power law is
+    /// `gamma` instead.
     transfer: ?Transfer = null,
-    /// The file's gamma times 100,000 (PNG gAMA), if any.
+    /// The file's gamma times 100,000, if any: the exponent that encoded
+    /// linear light, so 45455 is 1/2.2 (PNG gAMA, a JPEG XL gamma, TGA's
+    /// extension area). PNG may state it beside an sRGB `transfer`.
     gamma: ?u32 = null,
-    chromaticities: ?Chromaticities = null,
+    /// CIE 1931 xy chromaticities of the red, green, and blue primaries
+    /// and the white point, in that order (PNG cHRM, JPEG XL's color
+    /// encoding).
+    primaries: ?[8]f32 = null,
+    /// The luminance in nits (cd/m²) that a sample of 1.0 stands for, as
+    /// JPEG XL states it for HDR images.
+    intensity_target: ?f32 = null,
+    /// The file carries a JPEG XL `jbrd` box: the original JPEG can be
+    /// rebuilt with `image.jxl.JpegReconstructor`.
+    jpeg_reconstruction: bool = false,
     density: ?Density = null,
     icc: ?Blob = null,
     exif: ?Blob = null,
@@ -250,17 +262,19 @@ pub const Orientation = enum(u3) {
     }
 };
 
+/// A named transfer function, from encoded samples to linear light.
 pub const Transfer = enum {
+    /// IEC 61966-2-1.
     srgb,
     linear,
-};
-
-/// CIE xy chromaticities times 100,000, as PNG's cHRM stores them.
-pub const Chromaticities = struct {
-    white: [2]u32,
-    red: [2]u32,
-    green: [2]u32,
-    blue: [2]u32,
+    /// ITU-R BT.709 (and BT.601 and BT.2020's SDR curve).
+    bt709,
+    /// DCI-P3's power law, 1/2.6.
+    dci,
+    /// SMPTE ST 2084's perceptual quantizer (BT.2100 PQ).
+    pq,
+    /// BT.2100's hybrid log-gamma.
+    hlg,
 };
 
 pub const Density = struct {

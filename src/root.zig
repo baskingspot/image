@@ -19,7 +19,6 @@ pub const DecodeError = decode.Error;
 pub const Metadata = decode.Metadata;
 pub const Orientation = decode.Orientation;
 pub const Transfer = decode.Transfer;
-pub const Chromaticities = decode.Chromaticities;
 pub const Density = decode.Density;
 pub const Blob = decode.Blob;
 pub const BlobSink = decode.BlobSink;

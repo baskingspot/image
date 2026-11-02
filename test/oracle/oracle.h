@@ -31,6 +31,8 @@ enum pixel_format {
   PF_BGRA16_PREMUL,
   PF_RGBA_F32,
   PF_RGBA_F32_PREMUL,
+  PF_RGB_F32,
+  PF_GRAY_F32,
   // Inverted inks, so all-zero bytes are black (src/pixel.zig).
   PF_CMYK8,
   PF_CMYK16,
