@@ -346,6 +346,10 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. If the
   oracle files, on the coefficient callback the JPEG XL orb adds to
   vardct.zig (`wave4-jxl-coeffs`). The rest of `src/jxl/` stays with the
   JPEG XL orb (render by group row, then speed).
+  The jbrd box and the JPEG writer landed (byte-identical on 67 cjxl
+  transcodes given libjpeg-turbo's coefficients); `JpegReconstructor` needs
+  a seeker; the coefficients, oracle, and bench wait on the vardct
+  coefficient pass.
 - **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
   `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
   fuzz and oracle files, and the jxl-encode bench rows; only its export
