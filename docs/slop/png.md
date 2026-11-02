@@ -158,9 +158,12 @@ records what it does where the specification leaves room, and why. Results:
   `stored / 50000` and its luminances and cLLI's light levels
   `stored / 10000` nits, each the f64 quotient rounded to f32; an mDCV or
   cLLI with a luminance past 2^31 − 1 (PNG's four-byte limit) is ignored,
-  as libpng ignores it. As for the other metadata chunks, a malformed one
-  is not counted, so a valid duplicate after it is read; libpng counts the
-  malformed one as seen and drops the duplicate. The HDR chunks are read
+  as libpng ignores it. The first of each with the right length decides,
+  valid or not, as libpng has it (plan.md decision 63): a duplicate after
+  it is dropped even when the first was ignored for its values, while one
+  of the wrong length does not count, so the next decides. (Until then a
+  malformed one did not count, as for the other metadata chunks.) The
+  HDR chunks are read
   after a PLTE too, as gAMA, cHRM, sRGB, and iCCP are, though the
   specification puts them before it and libpng drops them there. The
   pre-Recommendation names mDCv and cLLi are not read (libpng reads only

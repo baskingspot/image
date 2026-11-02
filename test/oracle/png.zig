@@ -130,12 +130,11 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
 /// libpng's answer only when libpng does (it skips otherwise); the `png`
 /// module compares the files themselves. The expected splits:
 ///
-/// - libpng drops a cICP whose matrix is not 0 and an mDCV or cLLI with a
-///   value past 2^31 - 1, but counts it as seen, so it drops a valid one
-///   after it as a duplicate; this package ignores the broken chunk and
-///   reads the next. It also ignores a cICP whose range flag is past 1,
-///   which libpng keeps. `adapt` hands libpng every such chunk renamed to
-///   an unknown one, which both skip.
+/// - Both drop a cICP whose matrix is not 0 and an mDCV or cLLI with a
+///   value past 2^31 - 1, and count it as seen, so a duplicate after it is
+///   dropped too (plan.md decision 63). This package also drops a cICP
+///   whose range flag is past 1, which libpng keeps, so `comparable`
+///   leaves out inputs whose first cICP has one.
 /// - libpng drops a color chunk after PLTE; this package reads the HDR
 ///   chunks up to the image data, as it reads gAMA, cHRM, sRGB, and iCCP.
 ///   `comparable` leaves out inputs with an HDR chunk after a PLTE.
@@ -148,7 +147,8 @@ pub const hdr = struct {
     pub const formats = [_]image.PixelFormat{.gray8};
 
     /// Whether libpng's answer counts: this package reads the input's
-    /// header, and no HDR chunk follows a PLTE.
+    /// header, no HDR chunk follows a PLTE, and the first cICP's range
+    /// flag is 0 or 1 (see above).
     pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
         _ = op;
         _ = format;
@@ -156,6 +156,7 @@ pub const hdr = struct {
         var d: HdrDecoder = .init(&r, .{ .limits = .{ .max_pixels = 1 << 22 } });
         _ = d.decodeConfig() catch return false;
         var plte = false;
+        var cicp = false;
         var at: usize = 8;
         while (input.len >= at + 8) {
             const len = std.mem.readInt(u32, input[at..][0..4], .big);
@@ -163,13 +164,16 @@ pub const hdr = struct {
             if (std.mem.eql(u8, kind, "IDAT")) return true;
             if (std.mem.eql(u8, kind, "PLTE")) plte = true;
             if (plte and hdrChunk(kind)) return false;
+            if (!cicp and len == 4 and std.mem.eql(u8, kind, "cICP") and input.len >= at + 12) {
+                cicp = true;
+                if (input[at + 10] == 0 and input[at + 11] > 1) return false;
+            }
             at += @as(usize, 12) + len;
         }
         return true;
     }
 
-    /// `input` with each HDR chunk before IDAT given a good CRC, and each
-    /// that this package ignores for its values renamed (see above).
+    /// `input` with each HDR chunk before IDAT given a good CRC.
     pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
         _ = op;
         var out: ?[]u8 = null;
@@ -182,14 +186,6 @@ pub const hdr = struct {
             if (hdrChunk(kind)) {
                 const o = out orelse try arena.dupe(u8, input);
                 out = o;
-                const body = o[at + 8 ..][0..len];
-                const broken = if (std.mem.eql(u8, kind, "cICP"))
-                    len == 4 and (body[2] != 0 or body[3] > 1)
-                else if (std.mem.eql(u8, kind, "mDCV"))
-                    len == 24 and (body[16] >= 0x80 or body[20] >= 0x80)
-                else
-                    len == 8 and (body[0] >= 0x80 or body[4] >= 0x80);
-                if (broken) o[at + 7] = 'x';
                 const crc = std.hash.Crc32.hash(o[at + 4 ..][0 .. 4 + len]);
                 std.mem.writeInt(u32, o[at + 8 + len ..][0..4], crc, .big);
             }

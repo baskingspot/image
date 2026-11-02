@@ -153,6 +153,9 @@ const Seen = packed struct {
     exif: bool = false,
     phys: bool = false,
     bkgd: bool = false,
+    cicp: bool = false,
+    mdcv: bool = false,
+    clli: bool = false,
 };
 
 const Ihdr = struct {
@@ -522,15 +525,21 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
             d.seen.srgb = true;
             d.metadata.transfer = .srgb;
         },
-        // A matrix other than 0 (PNG stores RGB) or a range flag past 1
-        // breaks cICP, which is then ignored; libpng ignores the former too.
+        // The first of each HDR chunk with the right length decides, as
+        // libpng has it (plan.md decision 63): one whose values are broken
+        // is ignored, and so is any after it. A matrix other than 0 (PNG
+        // stores RGB) or a range flag past 1 breaks cICP; libpng ignores
+        // the former too.
         types.cicp => if (try d.readSmall(&buf)) |b| {
-            if (b.len != 4 or b[2] != 0 or b[3] > 1 or d.metadata.cicp != null) return;
+            if (b.len != 4 or d.seen.cicp) return;
+            d.seen.cicp = true;
+            if (b[2] != 0 or b[3] > 1) return;
             d.metadata.cicp = .{ .primaries = b[0], .transfer = b[1], .matrix = b[2], .full_range = b[3] == 1 };
         },
         // Luminances are PNG four-byte unsigned integers, at most 2^31 - 1.
         types.mdcv => if (try d.readSmall(&buf)) |b| {
-            if (b.len != 24 or d.metadata.mastering_display != null) return;
+            if (b.len != 24 or d.seen.mdcv) return;
+            d.seen.mdcv = true;
             const max = std.mem.readInt(u32, b[16..20], .big);
             const min = std.mem.readInt(u32, b[20..24], .big);
             if (max > 0x7fff_ffff or min > 0x7fff_ffff) return;
@@ -543,7 +552,8 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
             };
         },
         types.clli => if (try d.readSmall(&buf)) |b| {
-            if (b.len != 8 or d.metadata.content_light_level != null) return;
+            if (b.len != 8 or d.seen.clli) return;
+            d.seen.clli = true;
             const cll = std.mem.readInt(u32, b[0..4], .big);
             const fall = std.mem.readInt(u32, b[4..8], .big);
             if (cll > 0x7fff_ffff or fall > 0x7fff_ffff) return;
@@ -2215,15 +2225,20 @@ test "cICP takes precedence over the other color chunks; mDCV and cLLI in nits" 
                 .content_light_level = .{ .max_cll = 1000, .max_fall = 400 },
             },
         },
-        // A matrix other than 0 or a range flag past 1 is ignored, and a
-        // valid cICP after it counts.
+        // A matrix other than 0 or a range flag past 1 is ignored, and so
+        // is any cICP after it: the first decides.
         .{
-            .before = &(srgb_etc ++ [_]Named{ .{ "cICP", "\x09\x10\x01\x01" }, .{ "cICP", "\x09\x10\x00\x02" } }),
+            .before = &(srgb_etc ++ [_]Named{ .{ "cICP", "\x09\x10\x01\x01" }, .{ "cICP", "\x09\x10\x00\x01" } }),
             .want = .{ .transfer = .srgb, .gamma = 45455, .primaries = srgb_primaries },
         },
         .{
+            .before = &.{ .{ "cICP", "\x09\x10\x00\x02" }, .{ "cICP", "\x09\x10\x00\x01" } },
+            .want = .{},
+        },
+        // One of the wrong length does not count, so the next decides.
+        .{
             .before = &.{
-                .{ "cICP", "\x09\x10\x00\x07" },
+                .{ "cICP", "\x09\x10\x00" },
                 .{ "cICP", "\x01\x0d\x00\x00" },
                 .{ "cICP", "\x09\x12\x00\x01" },
             },
@@ -2256,15 +2271,25 @@ test "cICP takes precedence over the other color chunks; mDCV and cLLI in nits" 
                 .cicp = .{ .primaries = 12, .transfer = 18, .matrix = 0, .full_range = true },
             },
         },
-        // Luminances past 2^31 - 1 and wrong lengths are ignored.
+        // Luminances past 2^31 - 1 and wrong lengths are ignored, and a
+        // broken mDCV or cLLI still decides.
         .{
             .before = &.{
                 .{ "mDCV", mdcv[0..16] ++ "\x80\x00\x00\x00" ++ mdcv[20..] },
+                .{ "mDCV", mdcv },
                 .{ "cLLI", "\x00\x00\x00\x01\x80\x00\x00\x00" },
-                .{ "cLLI", "\x00\x00\x00\x01" },
+                .{ "cLLI", "\x00\x00\x00\x01\x00\x00\x00\x01" },
                 .{ "cICP", "\x01\x01\x00" },
             },
             .want = .{},
+        },
+        .{
+            .before = &.{
+                .{ "cLLI", "\x00\x00\x00\x01" },
+                .{ "cLLI", "\x00\x98\x96\x80\x00\x3d\x09\x00" },
+                .{ "cLLI", "\x00\x00\x00\x01\x00\x00\x00\x01" },
+            },
+            .want = .{ .content_light_level = .{ .max_cll = 1000, .max_fall = 400 } },
         },
         // After the image data, they are skipped.
         .{
