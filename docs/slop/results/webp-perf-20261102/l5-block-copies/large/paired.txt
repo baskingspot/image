@@ -1,0 +1,3 @@
+  0.979  photo_mosaic-50mp-8192x6144.webp
+large  rows=  1  B/A time geomean 0.979  (B speedup 1.021x)
+all    rows=  1  B/A time geomean 0.979  (B speedup 1.021x)

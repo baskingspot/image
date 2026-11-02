@@ -1,0 +1,12 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, pinned to core 3
+                                                         │ /tmp/wl/ab-s3m/a.txt │      /tmp/wl/ab-s3m/b.txt       │
+                                                         │        sec/op        │    sec/op     vs base           │
+WebpDecodeLosslessLarge/photo_mosaic-50mp-8192x6144.webp           983.6m ± ∞ ¹   978.0m ± ∞ ¹  ~ (p=0.700 n=3) ²
+¹ need >= 6 samples for confidence interval at level 0.95
+² need >= 4 samples to detect a difference at alpha level 0.05
+
+                                                         │ /tmp/wl/ab-s3m/a.txt │      /tmp/wl/ab-s3m/b.txt      │
+                                                         │         MP/s         │    MP/s      vs base           │
+WebpDecodeLosslessLarge/photo_mosaic-50mp-8192x6144.webp            51.17 ± ∞ ¹   51.46 ± ∞ ¹  ~ (p=0.700 n=3) ²
+¹ need >= 6 samples for confidence interval at level 0.95
+² need >= 4 samples to detect a difference at alpha level 0.05

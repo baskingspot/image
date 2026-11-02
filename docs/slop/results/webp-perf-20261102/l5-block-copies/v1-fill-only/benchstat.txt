@@ -1,0 +1,44 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, pinned to core 3
+                                                                                  │ /tmp/wl/ab-v1/a.txt │         /tmp/wl/ab-v1/b.txt         │
+                                                                                  │       sec/op        │    sec/op     vs base               │
+WebpDecodeLossless/icon_32-actions_address_book_new-32x32.webp                             21.13µ ± ∞ ¹   22.25µ ± ∞ ¹        ~ (p=0.343 n=4)
+WebpDecodeLossless/icon_32-actions_appointment_new-32x32.webp                              22.25µ ± ∞ ¹   24.36µ ± ∞ ¹   +9.48% (p=0.029 n=4)
+WebpDecodeLossless/icon_32-actions_bookmark_new-32x32.webp                                 16.68µ ± ∞ ¹   17.91µ ± ∞ ¹        ~ (p=0.114 n=4)
+WebpDecodeLossless/icon_32-actions_contact_new-32x32.webp                                  16.70µ ± ∞ ¹   17.44µ ± ∞ ¹   +4.41% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_address_book_new-64x64.webp                             48.96µ ± ∞ ¹   52.28µ ± ∞ ¹   +6.79% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_appointment_new-64x64.webp                              58.76µ ± ∞ ¹   64.44µ ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/icon_64-actions_bookmark_new-64x64.webp                                 40.55µ ± ∞ ¹   44.11µ ± ∞ ¹   +8.78% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_contact_new-64x64.webp                                  43.80µ ± ∞ ¹   46.77µ ± ∞ ¹   +6.79% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim01-768x512.webp                                        8.200m ± ∞ ¹   8.881m ± ∞ ¹   +8.30% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim02-768x512.webp                                        8.037m ± ∞ ¹   8.866m ± ∞ ¹  +10.32% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim03-768x512.webp                                        6.719m ± ∞ ¹   6.875m ± ∞ ¹        ~ (p=0.343 n=4)
+WebpDecodeLossless/photo_wikipedia-001-1276x850.webp                                       18.50m ± ∞ ¹   20.04m ± ∞ ¹   +8.28% (p=0.029 n=4)
+WebpDecodeLossless/photo_wikipedia-002-1260x806.webp                                       21.44m ± ∞ ¹   23.97m ± ∞ ¹  +11.81% (p=0.029 n=4)
+WebpDecodeLossless/photo_wikipedia-003-1436x730.webp                                       18.58m ± ∞ ¹   19.16m ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.webp          734.1µ ± ∞ ¹   546.0µ ± ∞ ¹  -25.62% (p=0.029 n=4)
+WebpDecodeLossless/screenshot_game-3dcursedlabyrinth_mazegame-343x480.webp                 233.5µ ± ∞ ¹   213.2µ ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/test-qoi_logo-448x220.webp                                              187.5µ ± ∞ ¹   156.7µ ± ∞ ¹  -16.45% (p=0.029 n=4)
+geomean                                                                                    379.5µ         389.0µ         +2.50%
+¹ need >= 6 samples for confidence interval at level 0.95
+
+                                                                                  │ /tmp/wl/ab-v1/a.txt │        /tmp/wl/ab-v1/b.txt         │
+                                                                                  │        MP/s         │    MP/s      vs base               │
+WebpDecodeLossless/icon_32-actions_address_book_new-32x32.webp                              48.47 ± ∞ ¹   46.03 ± ∞ ¹        ~ (p=0.343 n=4)
+WebpDecodeLossless/icon_32-actions_appointment_new-32x32.webp                               46.02 ± ∞ ¹   42.03 ± ∞ ¹   -8.66% (p=0.029 n=4)
+WebpDecodeLossless/icon_32-actions_bookmark_new-32x32.webp                                  61.40 ± ∞ ¹   57.22 ± ∞ ¹        ~ (p=0.114 n=4)
+WebpDecodeLossless/icon_32-actions_contact_new-32x32.webp                                   61.31 ± ∞ ¹   58.72 ± ∞ ¹   -4.22% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_address_book_new-64x64.webp                              83.68 ± ∞ ¹   78.35 ± ∞ ¹   -6.37% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_appointment_new-64x64.webp                               69.72 ± ∞ ¹   63.56 ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/icon_64-actions_bookmark_new-64x64.webp                                 101.02 ± ∞ ¹   92.85 ± ∞ ¹   -8.08% (p=0.029 n=4)
+WebpDecodeLossless/icon_64-actions_contact_new-64x64.webp                                   93.52 ± ∞ ¹   87.57 ± ∞ ¹   -6.36% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim01-768x512.webp                                         47.95 ± ∞ ¹   44.33 ± ∞ ¹   -7.57% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim02-768x512.webp                                         48.92 ± ∞ ¹   44.35 ± ∞ ¹   -9.34% (p=0.029 n=4)
+WebpDecodeLossless/photo_kodak-kodim03-768x512.webp                                         58.53 ± ∞ ¹   57.20 ± ∞ ¹        ~ (p=0.343 n=4)
+WebpDecodeLossless/photo_wikipedia-001-1276x850.webp                                        58.62 ± ∞ ¹   54.15 ± ∞ ¹   -7.63% (p=0.029 n=4)
+WebpDecodeLossless/photo_wikipedia-002-1260x806.webp                                        47.37 ± ∞ ¹   42.37 ± ∞ ¹  -10.55% (p=0.029 n=4)
+WebpDecodeLossless/photo_wikipedia-003-1436x730.webp                                        56.44 ± ∞ ¹   54.72 ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.webp           490.4 ± ∞ ¹   659.4 ± ∞ ¹  +34.47% (p=0.029 n=4)
+WebpDecodeLossless/screenshot_game-3dcursedlabyrinth_mazegame-343x480.webp                  705.0 ± ∞ ¹   772.8 ± ∞ ¹        ~ (p=0.200 n=4)
+WebpDecodeLossless/test-qoi_logo-448x220.webp                                               525.6 ± ∞ ¹   629.1 ± ∞ ¹  +19.68% (p=0.029 n=4)
+geomean                                                                                     90.43         88.24         -2.43%
+¹ need >= 6 samples for confidence interval at level 0.95

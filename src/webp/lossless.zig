@@ -822,7 +822,16 @@ const Stream = struct {
                         // Forward, so an overlapping copy repeats its
                         // pattern, as LZ77 means.
                         const src = ring[si..][0..n];
-                        for (dst, src) |*d, v| d.* = v;
+                        if (dist == 1) {
+                            @memset(dst, src[0]);
+                        } else if (dist >= 8) {
+                            // Each block's source is written before it.
+                            var i: usize = 0;
+                            while (i + 8 <= n) : (i += 8) dst[i..][0..8].* = src[i..][0..8].*;
+                            for (dst[i..], src[i..]) |*d, v| d.* = v;
+                        } else for (dst, src) |*d, v| {
+                            d.* = v;
+                        }
                     } else {
                         const k = ring_len - si;
                         for (dst[0..k], ring[si..ring_len]) |*d, v| d.* = v;

@@ -1,0 +1,21 @@
+  1.060  icon_32-actions_address_book_new-32x32.webp
+  1.095  icon_32-actions_appointment_new-32x32.webp
+  1.052  icon_32-actions_bookmark_new-32x32.webp
+  1.058  icon_32-actions_contact_new-32x32.webp
+  1.067  icon_64-actions_address_book_new-64x64.webp
+  1.098  icon_64-actions_appointment_new-64x64.webp
+  1.087  icon_64-actions_bookmark_new-64x64.webp
+  1.069  icon_64-actions_contact_new-64x64.webp
+  1.083  photo_kodak-kodim01-768x512.webp
+  1.102  photo_kodak-kodim02-768x512.webp
+  1.019  photo_kodak-kodim03-768x512.webp
+  1.079  photo_wikipedia-001-1276x850.webp
+  1.121  photo_wikipedia-002-1260x806.webp
+  1.051  photo_wikipedia-003-1436x730.webp
+  0.734  pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.webp
+  0.913  screenshot_game-3dcursedlabyrinth_mazegame-343x480.webp
+  0.836  test-qoi_logo-448x220.webp
+icon   rows=  8  B/A time geomean 1.073  (B speedup 0.932x)
+1mp    rows=  8  B/A time geomean 0.973  (B speedup 1.028x)
+large  rows=  1  B/A time geomean 1.079  (B speedup 0.927x)
+all    rows= 17  B/A time geomean 1.025  (B speedup 0.976x)

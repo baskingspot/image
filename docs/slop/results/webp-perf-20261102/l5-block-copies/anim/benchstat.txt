@@ -1,0 +1,20 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, pinned to core 3
+                                            │ /tmp/wl/ab-s3a/a.txt │       /tmp/wl/ab-s3a/b.txt        │
+                                            │        sec/op        │   sec/op     vs base              │
+WebpDecodeAnim/lossless_cutout-640x480.webp            15.49m ± 6%   14.93m ± 3%       ~ (p=0.161 n=8)
+WebpDecodeAnim/lossless_sprite-768x512.webp            9.731m ± 1%   9.917m ± 0%  +1.91% (p=0.000 n=8)
+WebpDecodeAnim/lossless_turn-64x64.webp                676.2µ ± 5%   668.3µ ± 1%  -1.18% (p=0.038 n=8)
+WebpDecodeAnim/lossy_cutout-640x480.webp               11.11m ± 2%   10.31m ± 2%  -7.20% (p=0.000 n=8)
+WebpDecodeAnim/lossy_sprite-768x512.webp               7.566m ± 2%   7.627m ± 2%       ~ (p=0.505 n=8)
+WebpDecodeAnim/lossy_turn-64x64.webp                   748.3µ ± 1%   738.6µ ± 1%  -1.30% (p=0.021 n=8)
+geomean                                                4.310m        4.232m       -1.81%
+
+                                            │ /tmp/wl/ab-s3a/a.txt │       /tmp/wl/ab-s3a/b.txt        │
+                                            │         MP/s         │    MP/s      vs base              │
+WebpDecodeAnim/lossless_cutout-640x480.webp            19.84 ±  8%   20.57 ± 12%       ~ (p=0.168 n=8)
+WebpDecodeAnim/lossless_sprite-768x512.webp            40.41 ±  1%   39.65 ±  1%  -1.88% (p=0.000 n=8)
+WebpDecodeAnim/lossless_turn-64x64.webp                6.060 ± 20%   6.130 ±  5%  +1.16% (p=0.030 n=8)
+WebpDecodeAnim/lossy_cutout-640x480.webp               27.66 ±  4%   29.80 ±  6%  +7.77% (p=0.000 n=8)
+WebpDecodeAnim/lossy_sprite-768x512.webp               51.97 ± 12%   51.55 ±  3%       ~ (p=0.505 n=8)
+WebpDecodeAnim/lossy_turn-64x64.webp                   5.475 ±  3%   5.545 ±  8%  +1.28% (p=0.022 n=8)
+geomean                                                18.35         18.69        +1.82%

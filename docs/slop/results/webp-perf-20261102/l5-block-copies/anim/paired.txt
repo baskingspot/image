@@ -1,0 +1,9 @@
+  0.978  lossless_cutout-640x480.webp
+  1.022  lossless_sprite-768x512.webp
+  0.984  lossless_turn-64x64.webp
+  0.923  lossy_cutout-640x480.webp
+  1.005  lossy_sprite-768x512.webp
+  0.990  lossy_turn-64x64.webp
+icon   rows=  2  B/A time geomean 0.987  (B speedup 1.013x)
+1mp    rows=  4  B/A time geomean 0.981  (B speedup 1.019x)
+all    rows=  6  B/A time geomean 0.983  (B speedup 1.017x)

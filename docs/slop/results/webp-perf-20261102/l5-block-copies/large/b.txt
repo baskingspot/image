@@ -1,0 +1,3 @@
+BenchmarkWebpDecodeLosslessLarge/photo_mosaic-50mp-8192x6144.webp	1	978046228.0 ns/op	51.46 MP/s
+BenchmarkWebpDecodeLosslessLarge/photo_mosaic-50mp-8192x6144.webp	1	1130329147.0 ns/op	44.53 MP/s
+BenchmarkWebpDecodeLosslessLarge/photo_mosaic-50mp-8192x6144.webp	1	949480559.0 ns/op	53.01 MP/s
