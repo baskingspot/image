@@ -210,8 +210,20 @@ owning the files adding-a-format.md assigns to its format plus
   at about half its peak RSS. Stages 2 (VP8 and ALPH) and 3 (ANIM/ANMF)
   follow on the same branch.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
-  It uses `image.Seeker` (landed), and decodes
-  JPEG-compressed TIFF through `image.jpeg` behind `@hasDecl`.
+  Stage 1 landed at `e96a20e` (tiff.md, results/tiff-20261102.md): classic
+  TIFF and BigTIFF; strips and tiles; chunky and planar; none, PackBits,
+  LZW, Deflate, and CCITT MH/G3/G4; predictors 2 and 3; 1–32-bit integer
+  and 16–64-bit float samples; gray, palette, RGB, CMYK, and subsampled
+  YCbCr; every page a frame, with its size from `decodeFrameConfig`; IFDs
+  and strips behind the reader through `DecodeOptions.seeker`. Integers
+  wider than 16 bits scale to 16, signed samples are offset by half their
+  range, and floats decode to `rgba_f32`. CMYK decodes to `cmyk8` or
+  `cmyk16` holding max − ink (decision 15), float inks to `cmyk16`, with
+  alpha dropped. A chain longer than `max_frames` gives a null
+  `frame_count`. ×0.90 libtiff overall: faster on uncompressed data and
+  icons, about ×0.5 on the compressed paths at 1 MP and above; peak RSS at
+  or below libtiff's in every class. Stage 2 is JPEG compression through
+  `image.jpeg`'s `Options.tables` and `.color`.
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
   orb until `wave1-png-strict` lands.
@@ -479,6 +491,11 @@ not yet made:
   it with a threadlocal buffer. Allocate work per input outside the arena,
   or one buffer per worker.
 - A per-size-class peak RSS column in `just bench-compare`.
+- `PF_CMYK8` and `PF_CMYK16` in test/oracle/oracle.h and oracle.c, so
+  tiff-raw and JPEG's oracle answer CMYK natively.
+- `harness.checkDecoder` passing a `Seeker.fixed` itself (TIFF's fuzz
+  target does it privately). Avoid `threadlocal` in fuzz targets: in Zig
+  0.16 Debug it broke png's zig-fuzz test.
 - A generic `decodeFrameConfig` fuzz property in `test/fuzz/harness.zig`,
   replacing ICO's, PNG's, and Netpbm's copies.
 - `just ci`'s oracle pass is about 270 s of 419 s (wbmp 64 s, jpeg 60 s,
