@@ -480,8 +480,16 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   The rest of `src/jxl/` stays with the JPEG XL orb (render by group row,
   then speed). The jbrd box and the JPEG writer landed (byte-identical on 67
   cjxl transcodes given libjpeg-turbo's coefficients); `JpegReconstructor`
-  needs a seeker; stage 2 wires in `decodeJpeg`, then the oracle and the
-  bench against djxl.
+  needs a seeker. Stage 2 landed (results/jxl-jbrd-20261102.md):
+  `JpegReconstructor` rebuilds the transcoded JPEG byte for byte from
+  `jbrd` and `Decoder.decodeJpeg`; it matches libjxl on 67 committed
+  transcodes and on every oracle input (no exclusions; seeds 1–10 at 20000
+  and 100000 at seed 1, 0 mismatches). 0.63× libjxl overall, faster on icons
+  (1.48–1.67×), 0.31× baseline and 0.56× progressive past icons, peak RSS
+  lower in every class; decodeJpeg is 63–87% of the time. The Brotli state
+  (compress's `brotli.decode.Buffer`, 6953f33) lives in the work memory.
+  Open: libjxl also refuses a colour factor other than 84, which decodeJpeg
+  doesn't check yet.
 - **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
   `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
   fuzz and oracle files, and the jxl-encode bench rows; only its export
