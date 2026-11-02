@@ -391,14 +391,34 @@ test smithInput {
     try std.testing.expectEqualStrings(abc, comptime smithInput(abc));
 }
 
-/// The largest image `checkEncoder` makes, per side.
-const max_encode_side = 48;
-var encoded: [2][1 << 20]u8 = undefined;
-var source: [max_encode_side * max_encode_side * 16]u8 = undefined;
+/// The most pixels `checkEncoder` makes an image of.
+const max_encode_pixels = 1 << 16;
+var encoded: [2][4 << 20]u8 = undefined;
+var source: [max_encode_pixels * 16]u8 = undefined;
 
-/// Checks a lossless encoder on an image made from `input`: its first two
-/// bytes pick the size, `choice` the source pixel format, and the rest of
-/// the input, repeated, is the pixels. `F` is the format's namespace, with
+/// How `checkEncoderWith` makes images and what it expects back.
+pub const EncoderCheck = struct {
+    /// The largest image to make, per side; at most `max_encode_pixels`
+    /// in all.
+    max_width: u32 = 48,
+    max_height: u32 = 48,
+    /// What the file must decode to, for an encoder that quantizes (WBMP's
+    /// threshold, a palette) or loses detail: called with `want`, the
+    /// source converted to the file's native format by `image.convert`,
+    /// to change in place, and the source itself. Null expects `want`
+    /// unchanged, a lossless round trip.
+    expect: ?*const fn (want: PixelBuffer, src: PixelBuffer) void = null,
+};
+
+/// `checkEncoderWith` with the defaults: images up to 48 by 48, and a
+/// lossless round trip.
+pub fn checkEncoder(comptime F: type, input: []const u8, choice: u64) !void {
+    return checkEncoderWith(F, .{}, input, choice);
+}
+
+/// Checks an encoder on an image made from `input`: its first two bytes
+/// pick the size, `choice` the source pixel format, and the rest of the
+/// input, repeated, is the pixels. `F` is the format's namespace, with
 /// `encode`, `workLen`, `EncodeOptions`, and `Decoder` (src/encode.zig).
 /// The encoder must:
 ///
@@ -407,11 +427,13 @@ var source: [max_encode_side * max_encode_side * 16]u8 = undefined;
 /// - write the same bytes through a writer that drains every few bytes as
 ///   into one buffer;
 /// - write a file our decoder reads back, in its native format, as the
-///   source converted to that format by `image.convert`.
-pub fn checkEncoder(comptime F: type, input: []const u8, choice: u64) !void {
+///   source converted to that format by `image.convert` (and then by
+///   `check.expect`, when set).
+pub fn checkEncoderWith(comptime F: type, comptime check: EncoderCheck, input: []const u8, choice: u64) !void {
+    comptime std.debug.assert(@as(u64, check.max_width) * check.max_height <= max_encode_pixels);
     if (input.len < 3) return;
-    const width: u32 = 1 + input[0] % max_encode_side;
-    const height: u32 = 1 + input[1] % max_encode_side;
+    const width = encodeSide(input[0], check.max_width);
+    const height = encodeSide(input[1], check.max_height);
     const formats = std.enums.values(PixelFormat);
     const format = formats[choice % formats.len];
     const len = PixelBuffer.len(format, width, height).?;
@@ -454,19 +476,26 @@ pub fn checkEncoder(comptime F: type, input: []const u8, choice: u64) !void {
     _ = d.decodeFrame(got, work_buffer[0..config.work_len]) catch return error.RoundTripDiffers;
     const want = PixelBuffer.init(buffers[1][0..native_len], config.native, width, height) catch unreachable;
     image.convert.convertBuffer(want, src) catch unreachable;
+    if (check.expect) |expect| expect(want, src);
     if (!std.mem.eql(u8, got.pixels, want.pixels)) return error.RoundTripDiffers;
 }
 
+/// A side from 1 to `max` from a byte: the byte itself, wrapped, up to 256,
+/// and scaled above it.
+fn encodeSide(byte: u8, max: u32) u32 {
+    return 1 + if (max <= 256) byte % max else @as(u32, byte) * max / 256;
+}
+
 /// A writer with a buffer of `image.min_buffer_len` bytes that drains at
-/// most `step` bytes per call into `out`.
-const Drip = struct {
+/// most `step` bytes per call into `out`; `len` is how much it has written.
+pub const Drip = struct {
     out: []u8,
     len: usize,
     step: usize,
     buffer: [image.min_buffer_len]u8,
     writer: Io.Writer,
 
-    fn init(d: *Drip, out: []u8, step: usize) void {
+    pub fn init(d: *Drip, out: []u8, step: usize) void {
         d.* = .{
             .out = out,
             .len = 0,
@@ -551,4 +580,70 @@ test checkEncoder {
         prng.random().bytes(&input);
         try checkEncoder(Toy, input[0 .. 3 + i % 197], i);
     }
+}
+
+/// A toy two-level format for testing `checkEncoderWith`'s `expect`:
+/// "BW", the width and height as little-endian u16s, then a byte per
+/// pixel, 255 where the source's gray is at least 128 and 0 elsewhere.
+const ToyThreshold = struct {
+    const EncodeOptions = struct {};
+    fn workLen(_: EncodeOptions, width: u32, _: u32) ?usize {
+        return width;
+    }
+    fn encode(w: *Io.Writer, src: PixelBuffer, _: EncodeOptions, work: []u8) image.EncodeError!void {
+        try src.check();
+        if (work.len < src.width) return error.WorkTooSmall;
+        try w.writeAll("BW");
+        try w.writeInt(u16, @intCast(src.width), .little);
+        try w.writeInt(u16, @intCast(src.height), .little);
+        const conv: image.convert.Converter = .init(.gray8, src.format);
+        for (0..src.height) |y| {
+            const row = work[0..src.width];
+            conv.run(row, src.row(@intCast(y)), src.width);
+            threshold(row);
+            try w.writeAll(row);
+        }
+    }
+    fn threshold(gray: []u8) void {
+        for (gray) |*v| v.* = if (v.* >= 128) 255 else 0;
+    }
+    fn expect(want: PixelBuffer, _: PixelBuffer) void {
+        threshold(want.pixels);
+    }
+    const Decoder = struct {
+        r: *Io.Reader,
+        const Options = image.DecodeOptions;
+        fn init(r: *Io.Reader, _: Options) Decoder {
+            return .{ .r = r };
+        }
+        fn decodeConfig(d: *Decoder) !image.Config {
+            const h = try d.r.takeArray(6);
+            const width = std.mem.readInt(u16, h[2..4], .little);
+            const height = std.mem.readInt(u16, h[4..6], .little);
+            return .{ .width = width, .height = height, .native = .gray8 };
+        }
+        fn decodeFrame(d: *Decoder, dst: PixelBuffer, _: []u8) !?image.Frame {
+            for (0..dst.height) |y| try d.r.readSliceAll(dst.row(@intCast(y)));
+            return .{ .width = dst.width, .height = dst.height };
+        }
+    };
+};
+
+test checkEncoderWith {
+    var prng: std.Random.DefaultPrng = .init(std.testing.random_seed);
+    var input: [400]u8 = undefined;
+    var differed = false;
+    for (0..200) |i| {
+        prng.random().bytes(&input);
+        const in = input[0 .. 3 + i % 397];
+        // Sides past 256, and the threshold expected.
+        const check: EncoderCheck = .{ .max_width = 300, .max_height = 200, .expect = ToyThreshold.expect };
+        try checkEncoderWith(ToyThreshold, check, in, i);
+        // Without `expect`, a thresholded file does not round-trip.
+        checkEncoderWith(ToyThreshold, .{ .max_width = 300, .max_height = 200 }, in, i) catch |e| {
+            if (e != error.RoundTripDiffers) return e;
+            differed = true;
+        };
+    }
+    try std.testing.expect(differed);
 }
