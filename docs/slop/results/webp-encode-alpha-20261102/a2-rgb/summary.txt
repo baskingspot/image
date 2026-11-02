@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+WebpEncodeZ0/icon                  6       11.0     1.01    4%    0    6   0.99 [0.94, 1.00] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ0/1mp                  12       52.8     1.00    2%    0   12   0.99 [0.95, 1.04] screenshot_game-20XX_Menu_picture-634x406.raw
+WebpEncodeZ0/large                 3       35.2     1.00   11%    0    3   0.99 [0.74, 1.02] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ1/icon                  6        3.6     1.01    5%    0    3   1.00 [0.99, 1.31] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ1/1mp                  12       11.8     1.00    2%    0   10   0.98 [0.91, 1.02] test-testcard_rgba-256x256.raw
+WebpEncodeZ1/large                 3        7.7     0.99    4%    0    3   0.98 [0.92, 1.03] screenshot_web-apple_com-1313x4755.raw
+all                               42       15.8     1.00          0   37

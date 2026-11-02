@@ -1,0 +1,14 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+WebpEncodeZ1/icon                  6        3.5     1.00    2%    0    6   0.98 [0.98, 1.00] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ1/1mp                  12       11.7     1.00    2%    2   10   0.97 [0.84, 1.00] textures_pk-_pkf_water1-128x128.raw
+WebpEncodeZ1/large                 3        7.9     1.00    4%    0    3   0.99 [0.90, 1.01] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ3/icon                  6        2.4     1.01    2%    0    6   0.97 [0.97, 1.00] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ3/1mp                  12        5.7     1.00    2%    0   10   0.97 [0.88, 1.01] screenshot_game-20XX_Menu_picture-634x406.raw
+WebpEncodeZ3/large                 3        4.3     1.00    5%    0    3   0.99 [0.83, 1.04] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ5/icon                  6        2.3     1.00    6%    0    6   0.99 [0.80, 1.03] icon_32-actions_appointment_new-32x32.raw
+WebpEncodeZ5/1mp                  12        4.4     1.01    3%    0    9   0.96 [0.73, 1.03] screenshot_game-3dbrick2-320x240.raw
+WebpEncodeZ5/large                 3        3.8     0.99    4%    0    3   0.96 [0.89, 1.05] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ7/icon                  6        1.9     0.99    2%    2    4   0.97 [0.88, 0.99] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ7/1mp                  12        3.0     0.99    2%    1   11   0.95 [0.94, 0.96] test-qoi_logo-448x220.raw
+WebpEncodeZ7/large                 3        2.4     1.00    4%    0    3   0.99 [0.97, 1.04] screenshot_web-apple_com-1313x4755.raw
+all                               84        4.2     1.00          5   74

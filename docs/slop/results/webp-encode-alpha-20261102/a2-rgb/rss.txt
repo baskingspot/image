@@ -1,0 +1,3 @@
+peak RSS (MiB)            after   before
+webp-encode-z0            108.9    108.9
+webp-encode-z1            152.2    152.2
