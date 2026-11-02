@@ -17,17 +17,18 @@ ratio and interval.
 
 ## Arms
 
-| Arm        | What it runs                        | Built from                                          |
-| ---------- | ----------------------------------- | --------------------------------------------------- |
-| `image`    | this package, ReleaseFast           | `bench/zig/` and `bench/c/arm.c`, `zig build bench` |
-| `wuffs`    | Wuffs's decoders and pixel swizzler | `bench/c/wuffs-*.c`                                 |
-| `qoih`     | qoi.h, the reference QOI codec      | `bench/c/qoih-*.c`                                  |
-| `stb`      | stb_image                           | `bench/c/stb-*.c`                                   |
-| `libpng`   | libpng                              | `bench/c/libpng-*.c`                                |
-| `spng`     | libspng                             | `bench/c/spng-*.c`                                  |
-| `image-rs` | Rust's `image` crate                | `bench/rust`, feature `image-rs`                    |
-| `zune`     | the zune crates                     | `bench/rust`, feature `zune`                        |
-| `go`       | Go's `image` packages               | `bench/go`                                          |
+| Arm        | What it runs                             | Built from                                          |
+| ---------- | ---------------------------------------- | --------------------------------------------------- |
+| `image`    | this package, ReleaseFast                | `bench/zig/` and `bench/c/arm.c`, `zig build bench` |
+| `wuffs`    | Wuffs's decoders and pixel swizzler      | `bench/c/wuffs-*.c`                                 |
+| `qoih`     | qoi.h, the reference QOI codec           | `bench/c/qoih-*.c`                                  |
+| `stb`      | stb_image                                | `bench/c/stb-*.c`                                   |
+| `libpng`   | libpng                                   | `bench/c/libpng-*.c`                                |
+| `spng`     | libspng                                  | `bench/c/spng-*.c`                                  |
+| `libwebp`  | libwebp, and its demux animation decoder | `bench/c/libwebp-*.c`                               |
+| `image-rs` | Rust's `image` crate                     | `bench/rust`, feature `image-rs`                    |
+| `zune`     | the zune crates                          | `bench/rust`, feature `zune`                        |
+| `go`       | Go's `image` packages                    | `bench/go`                                          |
 
 Every arm but Go's is `bench/c/arm.c` with a set of operations linked in, so
 they share one harness: the same timing loop, and every buffer an anonymous

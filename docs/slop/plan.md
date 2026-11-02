@@ -200,7 +200,15 @@ owning the files adding-a-format.md assigns to its format plus
   libjpeg-turbo, and at or above it by size-class geomean on every row
   (results/jpeg-stage2-20261102.md). TIFF detects its interface
   with `@hasField(image.jpeg.Decoder.Options, "tables")`.
-- **WebP decode** (branch `wave3-webp`): `src/webp/`.
+- **WebP decode** (branch `wave3-webp`): `src/webp/`. Stage 1 landed at
+  `446a5da` (webp.md, results/webp-20261102.md): lossless (VP8L) from RFC
+  9649, simple and extended, with ICCP, EXIF, and XMP to the blob sink and
+  `Config.metadata`. `decodeConfig` states the work memory from the
+  dimensions alone, with prefix tables for at most `Options.max_prefix_groups`
+  groups (default 2600, libwebp's encoder maximum) at 10,024 bytes each;
+  only the used groups are touched. 1.03× libwebp overall, 1.46× on icons,
+  at about half its peak RSS. Stages 2 (VP8 and ALPH) and 3 (ANIM/ANMF)
+  follow on the same branch.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
   It uses `image.Seeker` (landed), and decodes
   JPEG-compressed TIFF through `image.jpeg` behind `@hasDecl`.
@@ -447,6 +455,12 @@ not yet made:
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
 - `src/encode.zig`: take the source as a const pixel view.
+- `test/oracle/compare.zig`'s `ours()` takes each input's work memory from
+  the batch arena, whose pages pile up across batches; WebP's worst-case
+  bound got the oracle OOM-killed, and `test/oracle/webp.zig` works around
+  it with a threadlocal buffer. Allocate work per input outside the arena,
+  or one buffer per worker.
+- A per-size-class peak RSS column in `just bench-compare`.
 - `just ci`'s oracle pass is about 270 s of 419 s (wbmp 64 s, jpeg 60 s,
   qoi 59 s); profile wbmp and qoi.
 - `cmyk8` and `cmyk16` pixel formats with their `image.convert` kernels
