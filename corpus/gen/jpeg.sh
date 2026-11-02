@@ -2,9 +2,9 @@
 # (corpus/vendor/generated) set and `im` running ImageMagick.
 #
 # JPEG: the processes libjpeg-turbo's and Wuffs's test images leave out,
-# written by the dev shell's cjpeg (libjpeg-turbo): arithmetic coding,
-# 12-bit samples, and lossless, at several sampling factors, with restart
-# intervals, and progressive.
+# written by the dev shell's cjpeg and tjbench (libjpeg-turbo): arithmetic
+# coding, 12-bit samples, and lossless, at several sampling factors, with
+# restart intervals, and progressive; and CMYK and YCCK in each.
 rm -rf "${out:?}/jpeg" && mkdir -p "$out/jpeg"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' RETURN
@@ -71,3 +71,28 @@ cj lossless-2x1-p12 -precision 12 -lossless 5 -sample 2x1,1x1,1x1 "$tmp/odd16.pp
 cj lossless-restart -lossless 2 -restart 2 "$tmp/odd8.ppm"
 printf '0: 1 0 0 0;\n1: 1 0 0 0;\n2: 1 0 0 0;\n' >"$tmp/lossless.scan"
 cj lossless-separate -lossless 1 -scans "$tmp/lossless.scan" -restart 1 "$tmp/odd8.ppm"
+
+# CMYK, from the dev shell's tjbench, which converts RGB to inverted inks
+# naively: lossy as YCCK (Adobe's transform 2) in each process, and
+# lossless as CMYK (transform 0), which allows no color transform, at
+# precisions below, at, and past 8 bits.
+# tj NAME QUALITY-OR-PSV OPTION... INPUT
+tj() {
+  local name=$1
+  shift
+  mkdir "$tmp/$name"
+  cp "${@: -1}" "$tmp/$name/src.ppm"
+  tjbench "$tmp/$name/src.ppm" "${@:1:$#-1}" -pixelformat cmyk -benchtime 0.01 -warmup 0 >/dev/null
+  # tjbench names its file after the input and the settings.
+  mv "$tmp/$name"/src_*.jpg "$out/jpeg/$name.jpg"
+}
+tj cmyk-420 85 -subsamp 420 "$tmp/odd8.ppm"
+tj cmyk-422-restart 85 -subsamp 422 -restart 2 "$tmp/odd8.ppm"
+tj cmyk-progressive 85 -subsamp 444 -progressive "$tmp/odd8.ppm"
+tj cmyk-arith 85 -subsamp 420 -arithmetic "$tmp/odd8.ppm"
+tj cmyk-p12 85 -subsamp 420 -precision 12 "$tmp/odd16.ppm"
+tj cmyk-p12-arith-progressive 85 -subsamp 420 -precision 12 -arithmetic -progressive "$tmp/odd16.ppm"
+tj cmyk-lossless 1 -lossless "$tmp/odd8.ppm"
+tj cmyk-lossless-p6 2 -lossless -precision 6 "$tmp/odd16.ppm"
+tj cmyk-lossless-p12 4 -lossless -precision 12 "$tmp/odd16.ppm"
+tj cmyk-lossless-p16 7 -lossless -precision 16 "$tmp/odd16.ppm"

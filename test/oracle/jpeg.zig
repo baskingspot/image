@@ -1,5 +1,6 @@
 //! JPEG against libjpeg-turbo, the bar, and Wuffs (test/oracle/jpeg.c), in
-//! RGB and, for grayscale images, gray, each 8- and 16-bit. libjpeg-turbo's decoding choices
+//! RGB, for grayscale images gray, and for CMYK and YCCK images their inks
+//! (`cmyk8`, `cmyk16`), each 8- and 16-bit. libjpeg-turbo's decoding choices
 //! are its defaults, which this package matches bit for bit (owner
 //! decision 2), so any pixel it writes differently is a mismatch.
 //!
@@ -30,10 +31,57 @@ const std = @import("std");
 const image = @import("image");
 
 pub const name = "jpeg";
-pub const Decoder = image.jpeg.Decoder;
 pub const fuzz = @import("fuzz").jpeg;
 pub const oracles = [_][]const u8{ "jpeg-turbo", "jpeg-wuffs" };
-pub const formats = [_]image.PixelFormat{ .rgb8, .gray8, .rgb16, .gray16 };
+pub const formats = [_]image.PixelFormat{ .rgb8, .gray8, .rgb16, .gray16, .cmyk8, .cmyk16 };
+
+/// This package's decoder with its default options, but asked for a CMYK
+/// format, with `cmyk = .raw`: the inks as stored, which libjpeg-turbo
+/// writes as JCS_CMYK. (The default reads a CMYK image as RGB, so its
+/// `cmyk8` would be the naive conversion inverted.) Raw only for CMYK
+/// formats, as a 12-bit image's raw `cmyk16` narrows to RGB at 16 bits,
+/// not at the image's precision as the default and libjpeg-turbo do.
+///
+/// compare.zig reads each input from a fixed reader, which buffers all of
+/// it, so the raw decoder reads the same bytes afresh.
+pub const Decoder = struct {
+    d: image.jpeg.Decoder,
+    input: []const u8,
+    options: Options,
+
+    pub const Options = image.jpeg.Decoder.Options;
+    pub const Error = image.jpeg.Decoder.Error;
+
+    pub fn init(reader: *std.Io.Reader, options: Options) Decoder {
+        return .{ .d = .init(reader, options), .input = reader.buffered(), .options = options };
+    }
+
+    /// The default decoder's configuration, with work memory for both:
+    /// raw needs less at 8 bits, where it writes the inks without a row to
+    /// convert them from, and more past them, where its native row has
+    /// four channels to the default's three.
+    pub fn decodeConfig(c: *Decoder) Error!image.Config {
+        var config = try c.d.decodeConfig();
+        var r: std.Io.Reader = .fixed(c.input);
+        var d = c.rawDecoder(&r);
+        config.work_len = @max(config.work_len, (try d.decodeConfig()).work_len);
+        return config;
+    }
+
+    pub fn decodeFrame(c: *Decoder, dst: image.PixelBuffer, work: []u8) Error!?image.Frame {
+        if (!dst.format.isCmyk()) return c.d.decodeFrame(dst, work);
+        var r: std.Io.Reader = .fixed(c.input);
+        var d = c.rawDecoder(&r);
+        _ = try d.decodeConfig();
+        return d.decodeFrame(dst, work);
+    }
+
+    fn rawDecoder(c: *const Decoder, r: *std.Io.Reader) image.jpeg.Decoder {
+        var options = c.options;
+        options.cmyk = .raw;
+        return .init(r, options);
+    }
+};
 
 /// Whether `op`'s answer counts: Wuffs's only for 8-bit Huffman-coded DCT
 /// images in 8-bit formats.

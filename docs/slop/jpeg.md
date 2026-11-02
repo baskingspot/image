@@ -238,8 +238,14 @@ processes.
   libjpeg-turbo's samples are read at their own precision (its 12- and
   16-bit entry points), scaled as this package scales them, and a gray
   image is decoded as gray and copied to RGB (lossless mode converts no
-  colors). Both corpus files and fuzzed inputs: 0 mismatches; the splits
-  are all Wuffs (its own edge upsampling and damaged-file handling).
+  colors). CMYK and YCCK images also as `cmyk8` and `cmyk16`: this package
+  with `cmyk = .raw` (the oracle's `Decoder` sets it for those formats
+  only) against libjpeg-turbo's JCS_CMYK output, scaled the same way, so
+  the inks, YCCK's color conversion, and the 12-bit and lossless
+  precisions are held directly, not through the naive RGB; other color
+  spaces skip them, and lossless YCCK both reject. Both corpus files and
+  fuzzed inputs: 0 mismatches; the splits are all Wuffs (its own edge
+  upsampling and damaged-file handling).
 - `djpeg` at every scale against this package on the corpus (libjpeg-turbo's
   and Wuffs's test images, the benchmark corpus, and the generated files):
   identical but for the truncated progressive files (block smoothing).
@@ -248,6 +254,9 @@ processes.
   scan per component; 12-bit Huffman and arithmetic, sequential and
   progressive; and lossless with every predictor, point transforms,
   precisions 2 to 16, subsampling, restarts, and one scan per component.
+  tjbench adds CMYK: YCCK baseline, with restarts, progressive,
+  arithmetic, 12-bit, and 12-bit arithmetic progressive, and lossless CMYK
+  at precisions 6, 8, 12, and 16.
 - The fuzz target generates files by walking the decoder's states: metadata
   segments, quantization and Huffman tables (flat or standard), restart
   intervals, sequential and progressive scripts with refinement, and

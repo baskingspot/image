@@ -15,7 +15,11 @@
 // It writes RGB for any image and gray for a grayscale one, 8- or 16-bit,
 // and RGB for CMYK and YCCK through its naive conversion (cmyk.h, as
 // djpeg's PPM writer does), each channel the ink's inverse times black's,
-// at the image's precision. Samples of other precisions than 8 bits (12,
+// at the image's precision. CMYK and YCCK images also decode to their inks
+// as cmyk8 and cmyk16: libjpeg-turbo's JCS_CMYK output, the stored samples
+// for CMYK and YCCK's converted, and inverted, from YCbCr; it converts no
+// other color space to inks, and in lossless mode not YCCK, so those are
+// skipped or rejected. Samples of other precisions than 8 bits (12,
 // and 2 to 16 lossless) are clamped to their precision, as unsigned 16-bit
 // values when they are wider than 8, and scaled to the output's, rounded;
 // 8-bit output from samples past 8 bits is the high byte of the 16-bit
@@ -108,8 +112,9 @@ static unsigned scale(unsigned v, unsigned prec, int wide) {
 
 static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format format,
                               uint64_t max_pixels, struct image *out) {
-  int wide = format == PF_RGB16 || format == PF_GRAY16;
-  if (format != PF_RGB8 && format != PF_GRAY8 && !wide) return STATUS_SKIPPED;
+  int inks = format == PF_CMYK8 || format == PF_CMYK16;
+  int wide = format == PF_RGB16 || format == PF_GRAY16 || format == PF_CMYK16;
+  if (format != PF_RGB8 && format != PF_GRAY8 && format != PF_CMYK8 && !wide) return STATUS_SKIPPED;
   struct jpeg_decompress_struct cinfo;
   struct strict err;
   void *row = NULL;
@@ -135,7 +140,7 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
   }
   int cmyk = cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK;
   int gray_out = format == PF_GRAY8 || format == PF_GRAY16;
-  if (gray_out && cinfo.num_components != 1) {
+  if ((gray_out && cinfo.num_components != 1) || (inks && !cmyk)) {
     result = STATUS_SKIPPED;
     goto done;
   }
@@ -153,7 +158,7 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
   out->pixels = malloc(out->len ? out->len : 1);
   row = malloc((size_t)cinfo.output_width * ch * 2 + 1);
   unsigned max = (1u << prec) - 1;
-  size_t out_ch = gray_out ? 1 : 3;
+  size_t out_ch = gray_out ? 1 : inks ? 4 : 3;
   while (cinfo.output_scanline < cinfo.output_height) {
     size_t y = cinfo.output_scanline;
     // libjpeg-turbo's sample types: 8 bits to 8, 12-bit (signed) to 12,
@@ -176,7 +181,7 @@ static enum status jpeg_turbo(const uint8_t *in, size_t len, enum pixel_format f
         p[c] = v > max ? max : v;
       }
       if (ch == 1) p[1] = p[2] = p[0];
-      if (cmyk) {
+      if (cmyk && !inks) {
         for (int c = 0; c < 3; c++) p[c] = (unsigned)((2 * (uint64_t)p[c] * p[3] + max) / (2 * max));
       }
       for (size_t c = 0; c < out_ch; c++) {
