@@ -86,6 +86,8 @@ webp-encode-lossy-best	WebpEncodeLossyBest	netpbm/raw-rgb8	4	own
 webp-encode-lossy-rgba	WebpEncodeLossyRGBA	tga/rgba	5	own
 jxl-decode	JxlDecode	jxl/lossy	8	own
 jxl-decode-lossless	JxlDecodeLossless	jxl/lossless	8	same
+jxl-jbrd	JxlJbrd	jxl_jbrd/baseline	8	same
+jxl-jbrd-progressive	JxlJbrdProgressive	jxl_jbrd/progressive	8	same
 webp-encode-z0	WebpEncodeZ0	webp_encode	5	own
 webp-encode-z1	WebpEncodeZ1	webp_encode	5	own
 webp-encode-z2	WebpEncodeZ2	webp_encode	5	own

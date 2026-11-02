@@ -1,0 +1,9 @@
+peak RSS (MiB)                image    wuffs     qoih      stb   libpng     spng   giflib   gifskilibjpeg-turbo   magick  libwebp  libtiff   libjxl image-rs     zunejxl-oxide       go
+jxl-jbrd                      547.1        -        -        -        -        -        -        -        -        -        -        -    558.1        -        -        -        -
+  icon                          3.0        -        -        -        -        -        -        -        -        -        -        -      8.2        -        -        -        -
+  1mp                          14.9        -        -        -        -        -        -        -        -        -        -        -     19.6        -        -        -        -
+  large                       546.9        -        -        -        -        -        -        -        -        -        -        -    558.0        -        -        -        -
+jxl-jbrd-progressive          547.1        -        -        -        -        -        -        -        -        -        -        -    554.6        -        -        -        -
+  icon                          3.0        -        -        -        -        -        -        -        -        -        -        -      8.2        -        -        -        -
+  1mp                          14.9        -        -        -        -        -        -        -        -        -        -        -     19.5        -        -        -        -
+  large                       546.9        -        -        -        -        -        -        -        -        -        -        -    554.5        -        -        -        -
