@@ -326,7 +326,11 @@ owning the files adding-a-format.md assigns to its format plus
   decodes gray-and-alpha as two components. The oracle skips only planar
   JPEG pages whose streams define different tables, and chunky pages of
   more than 4 samples. Group 4 and 2D Group 3 take b1 after a leading pass
-  as libtiff does.
+  as libtiff does. compress 364ef40 (masked table build, buffered header bits,
+  add-only Adler-32; results/tiff-deflate-20261102.md) brings TIFF Deflate
+  to 2.16 / 1.12 / 1.02× libtiff (icons / to 1 MP / larger) and PNG decode
+  to 1.30–1.58× Wuffs; photos stay at 0.79–0.81× libtiff, in compress's
+  fast decode loop.
 - **WebP decode performance pass** (landed; results/webp-perf-20261102.md):
   WebP decode beats libwebp in every size class. Lossless is 2.14×, 1.15×,
   1.11× (icons, ≤1 MP, >1 MP) and 1.10× on the 50 MP mosaic; lossy 1.77×,
