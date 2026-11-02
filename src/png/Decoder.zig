@@ -853,6 +853,10 @@ fn zlibError(zr: *const zlib.Reader, dr: *const DataReader) Error {
     };
 }
 
+/// The longest row `pixels` reads in place from the inflate window, which
+/// holds that much contiguously however the window has slid.
+const max_peek = window_len / 2;
+
 /// Inflates and unfilters a frame's rows into `region`, then checks that
 /// its data ends with its zlib stream.
 fn pixels(d: *Decoder, region: PixelBuffer, work: []u8, kind: u32, over: bool) Error!void {
@@ -881,13 +885,23 @@ fn pixels(d: *Decoder, region: PixelBuffer, work: []u8, kind: u32, over: bool) E
                 error.EndOfStream => error.NotEnoughData,
                 error.ReadFailed => zlibError(&zr, &dr),
             };
-            const row = if (direct) region.row(y) else cur[0..n];
-            in.readSliceAll(row) catch |e| return switch (e) {
-                error.EndOfStream => error.NotEnoughData,
-                error.ReadFailed => zlibError(&zr, &dr),
-            };
+            const row = if (direct) region.row(y)[0..n] else cur[0..n];
             const above = if (direct and y > 0) region.row(y - 1) else prev[0..n];
-            try filter.unfilter(f, row, above, bpp);
+            if (n <= max_peek) {
+                // Unfiltered straight out of the inflate window.
+                const filtered = in.peek(n) catch |e| return switch (e) {
+                    error.EndOfStream => error.NotEnoughData,
+                    error.ReadFailed => zlibError(&zr, &dr),
+                };
+                try filter.unfilter(f, row, filtered, above, bpp);
+                in.toss(n);
+            } else {
+                in.readSliceAll(row) catch |e| return switch (e) {
+                    error.EndOfStream => error.NotEnoughData,
+                    error.ReadFailed => zlibError(&zr, &dr),
+                };
+                try filter.unfilter(f, row, row, above, bpp);
+            }
             if (!direct) {
                 out.put(cur[0..n], p.y + y * p.dy, p.x, p.dx, pw);
                 std.mem.swap([]u8, &prev, &cur);
@@ -986,6 +1000,11 @@ const Out = struct {
         const row = o.region.row(y);
         var native_buf: [span * 8]u8 = undefined;
         var out_buf: [span * 16]u8 = undefined;
+        if (o.expand == .copy and !o.over and dx == 1) {
+            // A whole row in one conversion: each call has a fixed cost.
+            o.to_dst.run(row[x * dbpp ..], raw[0 .. n * nbpp], n);
+            return;
+        }
         var i: u32 = 0;
         while (i < n) {
             const m = @min(span, n - i);

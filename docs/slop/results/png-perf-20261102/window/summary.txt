@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before     base    wuffs     ±   <1    ~   slowest vs before
+PngDecode/icon                    17       75.3     1.00     1.38     0.96    1%    0   16   0.97 [0.96, 1.07] textures_pk-_0mod_button1-64x64.png
+PngDecode/1mp                     27      136.5     1.02     1.27     0.93    1%    0   21   0.97 [0.84, 1.17] textures_pk-_pkf_water1-128x128.png
+PngDecode/large                    8      118.5     1.01     1.36     0.97    2%    0    4   1.00 [1.00, 1.17] photo_wikipedia-001-1276x850.png
+all                               52      110.0     1.01     1.32     0.95          0   41

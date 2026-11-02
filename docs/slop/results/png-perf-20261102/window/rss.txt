@@ -1,0 +1,2 @@
+peak RSS (MiB)            image   before     base    wuffs
+png-decode                239.5    239.5    239.5    384.3

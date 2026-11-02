@@ -1,72 +1,76 @@
 //! Reversing PNG's row filters (PNG specification, section 9, filter method
-//! 0), in place: `cur` holds a row's filtered bytes and becomes its
-//! unfiltered bytes, given `prev`, the unfiltered row before it (zeros for
-//! a pass's first row).
+//! 0): `src` holds a row's filtered bytes and `cur` receives its unfiltered
+//! bytes, given `prev`, the unfiltered row before it (zeros for a pass's
+//! first row). `src` may be `cur`.
 
 const std = @import("std");
 const testing = std.testing;
 
 pub const Error = error{BadFilter};
 
-/// Unfilters `cur` with filter type `filter`. `bpp` is the bytes in a whole
-/// pixel, at least 1 (section 9.2's "a" is that many bytes back), and
-/// `cur` holds whole pixels. `prev` is at least as long as `cur`.
-pub fn unfilter(filter: u8, cur: []u8, prev: []const u8, bpp: usize) Error!void {
+/// Unfilters `src` into `cur` with filter type `filter`. `bpp` is the bytes
+/// in a whole pixel, at least 1 (section 9.2's "a" is that many bytes
+/// back), and `cur` holds whole pixels. `src` and `prev` are at least as
+/// long as `cur`; `src` is `cur` or does not overlap it.
+pub fn unfilter(filter: u8, cur: []u8, src: []const u8, prev: []const u8, bpp: usize) Error!void {
     std.debug.assert(prev.len >= cur.len);
+    std.debug.assert(src.len >= cur.len);
     switch (filter) {
-        0 => {},
+        0 => if (src.ptr != cur.ptr) @memcpy(cur, src[0..cur.len]),
         1 => switch (bpp) {
-            inline 1, 2, 3, 4, 6, 8 => |n| sub(n, cur),
+            inline 1, 2, 3, 4, 6, 8 => |n| sub(n, cur, src),
             else => unreachable,
         },
-        2 => up(cur, prev),
+        2 => up(cur, src, prev),
         3 => switch (bpp) {
-            inline 1, 2, 3, 4, 6, 8 => |n| average(n, cur, prev),
+            inline 1, 2, 3, 4, 6, 8 => |n| average(n, cur, src, prev),
             else => unreachable,
         },
         4 => switch (bpp) {
-            inline 1, 2, 3, 4, 6, 8 => |n| paeth(n, cur, prev),
+            inline 1, 2, 3, 4, 6, 8 => |n| paeth(n, cur, src, prev),
             else => unreachable,
         },
         else => return error.BadFilter,
     }
 }
 
-fn sub(comptime bpp: usize, cur: []u8) void {
-    if (bpp >= 2) return pixels(bpp, .sub, cur, cur);
+fn sub(comptime bpp: usize, cur: []u8, src: []const u8) void {
+    if (bpp >= 2) return pixels(bpp, .sub, cur, src, src);
+    const n = @min(bpp, cur.len);
+    for (cur[0..n], src[0..n]) |*x, b| x.* = b;
     var i: usize = bpp;
-    while (i < cur.len) : (i += 1) cur[i] +%= cur[i - bpp];
+    while (i < cur.len) : (i += 1) cur[i] = src[i] +% cur[i - bpp];
 }
 
-fn up(cur: []u8, prev: []const u8) void {
+fn up(cur: []u8, src: []const u8, prev: []const u8) void {
     const V = @Vector(32, u8);
     var i: usize = 0;
     while (i + 32 <= cur.len) : (i += 32) {
-        const a: V = cur[i..][0..32].*;
+        const a: V = src[i..][0..32].*;
         const b: V = prev[i..][0..32].*;
         cur[i..][0..32].* = a +% b;
     }
-    while (i < cur.len) : (i += 1) cur[i] +%= prev[i];
+    while (i < cur.len) : (i += 1) cur[i] = src[i] +% prev[i];
 }
 
-fn average(comptime bpp: usize, cur: []u8, prev: []const u8) void {
-    if (bpp >= 3) return pixels(bpp, .average, cur, prev);
+fn average(comptime bpp: usize, cur: []u8, src: []const u8, prev: []const u8) void {
+    if (bpp >= 3) return pixels(bpp, .average, cur, src, prev);
     const n = @min(bpp, cur.len);
-    for (cur[0..n], prev[0..n]) |*x, b| x.* +%= b >> 1;
+    for (cur[0..n], src[0..n], prev[0..n]) |*x, s, b| x.* = s +% (b >> 1);
     var i: usize = bpp;
     while (i < cur.len) : (i += 1) {
         const sum = @as(u16, cur[i - bpp]) + prev[i];
-        cur[i] +%= @intCast(sum >> 1);
+        cur[i] = src[i] +% @as(u8, @intCast(sum >> 1));
     }
 }
 
-fn paeth(comptime bpp: usize, cur: []u8, prev: []const u8) void {
-    if (bpp >= 2) return pixels(bpp, .paeth, cur, prev);
+fn paeth(comptime bpp: usize, cur: []u8, src: []const u8, prev: []const u8) void {
+    if (bpp >= 2) return pixels(bpp, .paeth, cur, src, prev);
     const n = @min(bpp, cur.len);
     // With no pixel to the left, a and c are 0 and the predictor is b.
-    for (cur[0..n], prev[0..n]) |*x, b| x.* +%= b;
+    for (cur[0..n], src[0..n], prev[0..n]) |*x, s, b| x.* = s +% b;
     var i: usize = bpp;
-    while (i < cur.len) : (i += 1) cur[i] +%= predict(cur[i - bpp], prev[i], prev[i - bpp]);
+    while (i < cur.len) : (i += 1) cur[i] = src[i] +% predict(cur[i - bpp], prev[i], prev[i - bpp]);
 }
 
 /// Sub, Average, and Paeth a whole pixel at a time: each byte of a pixel
@@ -76,7 +80,13 @@ fn paeth(comptime bpp: usize, cur: []u8, prev: []const u8) void {
 /// `@select`, which is section 9.4's predictor with its ties broken the
 /// same way. Measured faster than the byte loops for 2-byte pixels and up
 /// (Average from 3), and no faster for 1-byte pixels (docs/slop/png.md).
-fn pixels(comptime bpp: usize, comptime kind: enum { sub, average, paeth }, cur: []u8, prev: []const u8) void {
+fn pixels(
+    comptime bpp: usize,
+    comptime kind: enum { sub, average, paeth },
+    cur: []u8,
+    src: []const u8,
+    prev: []const u8,
+) void {
     // The lanes are the pixel's bytes, padded to a power of two; a pixel
     // moves between memory and the vector as an integer of its own width.
     const lanes = comptime std.math.ceilPowerOfTwoAssert(usize, bpp);
@@ -89,7 +99,7 @@ fn pixels(comptime bpp: usize, comptime kind: enum { sub, average, paeth }, cur:
     var c: V = @splat(0);
     var i: usize = 0;
     while (i < cur.len) : (i += bpp) {
-        const x: B = @bitCast(@as(Wide, std.mem.readInt(Int, cur[i..][0..bpp], .little)));
+        const x: B = @bitCast(@as(Wide, std.mem.readInt(Int, src[i..][0..bpp], .little)));
         const above: Wide = if (kind == .sub) 0 else std.mem.readInt(Int, prev[i..][0..bpp], .little);
         const b: V = @as(B, @bitCast(above));
         const p: V = switch (kind) {
@@ -158,8 +168,12 @@ test "unfilter matches the definitions" {
         const filter: u8 = @intCast(i / 6 % 5);
         @memcpy(want[0..len], row[0..len]);
         reference(filter, want[0..len], &prev, bpp);
-        try unfilter(filter, row[0..len], &prev, bpp);
+        // From another buffer, then in place.
+        var out: [200]u8 = undefined;
+        try unfilter(filter, out[0..len], row[0..len], &prev, bpp);
+        try testing.expectEqualSlices(u8, want[0..len], out[0..len]);
+        try unfilter(filter, row[0..len], row[0..len], &prev, bpp);
         try testing.expectEqualSlices(u8, want[0..len], row[0..len]);
     }
-    try testing.expectError(error.BadFilter, unfilter(5, &row, &prev, 1));
+    try testing.expectError(error.BadFilter, unfilter(5, &row, &row, &prev, 1));
 }
