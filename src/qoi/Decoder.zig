@@ -139,6 +139,15 @@ fn pixels(d: *Decoder, dst: PixelBuffer) Error!void {
         .rgb8 => .rgb,
         else => null,
     };
+    // Every pixel goes into the index at its hash, but a run repeats the
+    // pixel before it, which is there already, and so does an INDEX chunk
+    // (`span`). Only a run that starts the image repeats a pixel never
+    // stored.
+    if (@as(u64, h.width) * h.height != 0) {
+        if (d.reader.peekByte()) |b| {
+            if (b >= 0xc0 and b < 0xfe) s.index[hash(s.px)] = s.px;
+        } else |_| {}
+    }
     if (@as(u64, h.width) * h.height < small) {
         try d.pixelsAs(dst, &s, direct, true);
     } else {
@@ -205,26 +214,29 @@ inline fn put(out: []u8, i: usize, px: u32, comptime o: Out) void {
 }
 
 /// Writes `m` copies of `px` at pixel `i` of `out`, which holds `n`
-/// pixels. While 16 pixels fit, they go out as one store each, which may
-/// write past the run; the pixels after it overwrite those.
+/// pixels. While 8 pixels fit, they go out as one store each, which may
+/// write past the run; the pixels after it overwrite those. Eight measured
+/// faster than 16 or four 16s for any run
+/// (docs/slop/results/qoi-perf-20261102.md).
 inline fn fill(out: []u8, n: usize, i: usize, m: usize, px: u32, comptime o: Out) void {
     const bpp = if (o == .rgb) 3 else 4;
+    const per = 8;
     var k: usize = 0;
-    if (n - i >= 16) {
+    if (n - i >= per) {
         var p: [4]u8 = undefined;
         std.mem.writeInt(u32, &p, if (o == .rgbx) px | 0xff00_0000 else px, .little);
-        const block: [16 * bpp]u8 = if (o == .rgb)
+        const block: [per * bpp]u8 = if (o == .rgb)
             @shuffle(u8, @as(@Vector(4, u8), p), undefined, blk: {
-                var mask: [48]i32 = undefined;
+                var mask: [per * 3]i32 = undefined;
                 for (&mask, 0..) |*e, j| e.* = @intCast(j % 3);
                 break :blk mask;
             })
         else
-            @bitCast(@as(@Vector(16, u32), @splat(@bitCast(p))));
+            @bitCast(@as(@Vector(per, u32), @splat(@bitCast(p))));
         while (true) {
-            out[(i + k) * bpp ..][0 .. 16 * bpp].* = block;
-            k += 16;
-            if (k >= m or n - i - k < 16) break;
+            out[(i + k) * bpp ..][0 .. per * bpp].* = block;
+            k += per;
+            if (k >= m or n - i - k < per) break;
         }
     }
     while (k < m) : (k += 1) put(out, i + k, px, o);
@@ -271,11 +283,14 @@ inline fn addBytes(x: u32, y: u32) u32 {
 
 /// Decodes `out.len / bytes-per-pixel` pixels into `out`.
 ///
-/// Unless `branchy`, chunks other than runs decode without branching on
-/// their kind, through `ops`: on photos the kind is close to random, and a
-/// mispredicted branch per pixel costs more than the table lookups. Below
-/// 64 by 64 the branch per kind measured faster (docs/slop/results/
-/// wbmp-qoi-20261101.md).
+/// Unless `branchy`, chunks other than runs and INDEX decode without
+/// branching on their kind, through `ops`: on photos the kind is close to
+/// random, and a mispredicted branch per pixel costs more than the table
+/// lookups. Below 64 by 64 the branch per kind measured faster (docs/slop/
+/// results/wbmp-qoi-20261101.md). INDEX takes its own branch so that it
+/// skips the index store, whose address hangs off the pixel just loaded
+/// and which later index loads must follow; that measured up to 1.75× on
+/// index-heavy screenshots (docs/slop/results/qoi-perf-20261102.md).
 fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy: bool) Error!void {
     const bpp = if (o == .rgb) 3 else 4;
     const n = out.len / bpp;
@@ -305,7 +320,11 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy:
                 } else switch (@as(u2, @intCast(b >> 6))) {
                     0 => {
                         px = index[b];
+                        if (px == 0) index[0] = 0;
+                        put(out, i, px, o);
+                        i += 1;
                         p += 1;
+                        continue;
                     },
                     1 => {
                         px = addBytes(px, ops[b].delta);
@@ -319,7 +338,6 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy:
                         // A run of 1 to 62; 63 and 64 would be 0xfe and 0xff.
                         const count: usize = (b & 0x3f) + 1;
                         const m = @min(count, n - i);
-                        index[hash(px)] = px;
                         fill(out, n, i, m, px, o);
                         i += m;
                         s.run = @intCast(count - m);
@@ -328,11 +346,21 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy:
                     },
                 }
             } else {
+                if (b < 64) {
+                    // INDEX: the entry already sits at its own hash, so
+                    // the store after every pixel would rewrite it; only
+                    // an entry never written (zero, whose hash is 0) moves.
+                    px = index[b];
+                    if (px == 0) index[0] = 0;
+                    put(out, i, px, o);
+                    i += 1;
+                    p += 1;
+                    continue;
+                }
                 if (b >= 0xc0 and b < 0xfe) {
                     // A run of 1 to 62; 63 and 64 would be 0xfe and 0xff.
                     const count: usize = (b & 0x3f) + 1;
                     const m = @min(count, n - i);
-                    index[hash(px)] = px;
                     fill(out, n, i, m, px, o);
                     i += m;
                     s.run = @intCast(count - m);
@@ -415,6 +443,21 @@ test "the index holds every decoded pixel" {
     var out: [8]u8 = undefined;
     _ = try testDecode(file, .rgba8, &out);
     try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255, 0, 0, 0, 255 }, &out);
+}
+
+test "an INDEX chunk of an entry never written stores its zero pixel" {
+    // (0, 0, 0, 64) hashes to 0; INDEX 5 reads an empty entry, (0, 0, 0,
+    // 0), whose hash is also 0, so it replaces the first pixel there and
+    // INDEX 0 reads it back. The second file is 64 by 64, which decodes
+    // without a branch per chunk kind; runs fill the rest.
+    const chunks = "\xff\x00\x00\x00\x40" ++ "\x05" ++ "\x00";
+    const want = [_]u8{ 0, 0, 0, 64 } ++ [_]u8{0} ** 8;
+    var out: [64 * 64 * 4]u8 = undefined;
+    _ = try testDecode(testHeader(3, 1, 4) ++ chunks ++ end, .rgba8, out[0..12]);
+    try testing.expectEqualSlices(u8, &want, out[0..12]);
+    _ = try testDecode(testHeader(64, 64, 4) ++ chunks ++ "\xfd" ** 66 ++ "\xc0" ++ end, .rgba8, &out);
+    try testing.expectEqualSlices(u8, &want, out[0..12]);
+    try testing.expect(std.mem.allEqual(u8, out[12..], 0));
 }
 
 test "three channels: alpha is opaque whatever the chunks say" {

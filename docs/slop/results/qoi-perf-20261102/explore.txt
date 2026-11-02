@@ -1,0 +1,59 @@
+qrun.sh: interleaved serve timings (median of 3 rounds, 100 ms samples, core 3),
+microseconds per decode and speed over q0. q0 = origin/main 9caf0db.
+q1 = INDEX branches first in the table loop and skips the index store.
+q3 = q1 + four 16-pixel stores for any run when 64 pixels fit.
+q4 = q1 + two 16-pixel stores, then the loop.
+q5 = q1 + no index store for runs (but one before a run that starts the image) + INDEX skip in the branchy loop.
+q6b8, q6b4 = q5 with 8- and 4-pixel run stores. q6b8 shipped (q7, comments only).
+
+file                                    bench-q0      bench-q1bench-image-rs
+screenshot_game-3dbrick2-320x240.q    126.8 1.00     72.7 1.74     50.7 2.50
+test-testcard-256x256.qoi              65.6 1.00     48.3 1.36     44.0 1.49
+screenshot_game-3dcursedlabyrinth_    222.4 1.00    174.4 1.28    126.0 1.76
+icon_64-actions_address_book_new-6     11.0 1.00     10.0 1.11      6.5 1.70
+textures_pk-_0mod_button1-64x64.qo     18.4 1.00     13.9 1.32     10.2 1.81
+photo_kodak-kodim01-768x512.qoi      2460.9 1.00   2429.4 1.01   2382.6 1.03
+photo_wikipedia-001-1276x850.qoi     6480.7 1.00   6740.0 0.96   7146.1 0.91
+test-dice-800x600.qoi                 783.0 1.00    836.7 0.94    850.7 0.92
+screenshot_web-apple_com-1313x4755   8907.1 1.00   8251.0 1.08   9784.9 0.91
+icon_16-actions_address_book_new-1      0.6 1.00      0.6 1.03      0.7 0.91
+geomean speedup vs first: bench-q0=1.000 bench-q1=1.161 bench-image-rs=1.305
+
+file                                    bench-q0      bench-q1      bench-q3      bench-q4
+screenshot_game-3dbrick2-320x240.q    127.2 1.00     72.8 1.75    141.5 0.90     98.5 1.29
+test-testcard-256x256.qoi              63.4 1.00     51.7 1.22     48.9 1.30     47.2 1.34
+screenshot_game-3dcursedlabyrinth_    216.2 1.00    169.9 1.27    260.5 0.83    198.7 1.09
+icon_64-actions_address_book_new-6     11.0 1.00      9.7 1.13      9.6 1.14      9.5 1.15
+textures_pk-_0mod_button1-64x64.qo     17.2 1.00     12.6 1.36     22.7 0.76     16.8 1.03
+photo_kodak-kodim01-768x512.qoi      2532.0 1.00   2414.4 1.05   2826.9 0.90   2525.4 1.00
+photo_wikipedia-001-1276x850.qoi     6480.6 1.00   7041.2 0.92   8384.5 0.77   7430.7 0.87
+test-dice-800x600.qoi                 790.9 1.00    839.1 0.94    831.9 0.95    799.7 0.99
+screenshot_web-apple_com-1313x4755   9034.7 1.00   8536.9 1.06   8477.4 1.07   8293.1 1.09
+icon_16-actions_address_book_new-1      0.6 1.00      0.6 1.02      0.6 1.04      0.6 1.00
+geomean speedup vs first: bench-q0=1.000 bench-q1=1.152 bench-q3=0.952 bench-q4=1.077
+
+file                                    bench-q0      bench-q1      bench-q5
+screenshot_game-3dbrick2-320x240.q    125.8 1.00     71.9 1.75     69.1 1.82
+test-testcard-256x256.qoi              63.2 1.00     47.9 1.32     44.1 1.43
+screenshot_game-3dcursedlabyrinth_    216.6 1.00    169.1 1.28    155.2 1.40
+icon_64-actions_address_book_new-6     10.9 1.00      9.7 1.12      9.4 1.15
+textures_pk-_0mod_button1-64x64.qo     19.0 1.00     12.5 1.51     12.1 1.57
+photo_kodak-kodim01-768x512.qoi      2344.6 1.00   2411.4 0.97   2284.7 1.03
+photo_wikipedia-001-1276x850.qoi     6421.8 1.00   6695.0 0.96   6383.9 1.01
+test-dice-800x600.qoi                 774.5 1.00    834.4 0.93    810.8 0.96
+screenshot_web-apple_com-1313x4755   8896.0 1.00   8418.0 1.06   8515.8 1.04
+icon_16-actions_address_book_new-1      0.6 1.00      0.6 1.02      0.5 1.08
+geomean speedup vs first: bench-q0=1.000 bench-q1=1.167 bench-q5=1.220
+
+file                                    bench-q0      bench-q5    bench-q6b8    bench-q6b4
+screenshot_game-3dbrick2-320x240.q    129.5 1.00     72.8 1.78     62.3 2.08     61.4 2.11
+test-testcard-256x256.qoi              63.0 1.00     45.3 1.39     43.9 1.44     44.7 1.41
+screenshot_game-3dcursedlabyrinth_    217.6 1.00    158.3 1.37    143.3 1.52    143.5 1.52
+icon_64-actions_address_book_new-6     10.9 1.00      9.6 1.14      9.3 1.18      9.3 1.17
+textures_pk-_0mod_button1-64x64.qo     17.5 1.00     12.5 1.40     10.4 1.69      9.9 1.77
+photo_kodak-kodim01-768x512.qoi      2370.1 1.00   2325.3 1.02   2239.4 1.06   2250.5 1.05
+photo_wikipedia-001-1276x850.qoi     6609.0 1.00   6472.9 1.02   6277.1 1.05   6261.9 1.06
+test-dice-800x600.qoi                 789.2 1.00    814.8 0.97    784.9 1.01    807.0 0.98
+screenshot_web-apple_com-1313x4755   9263.9 1.00   8832.1 1.05   8309.3 1.11   8607.7 1.08
+icon_16-actions_address_book_new-1      0.6 1.00      0.5 1.10      0.5 1.14      0.5 1.11
+geomean speedup vs first: bench-q0=1.000 bench-q5=1.202 bench-q6b8=1.291 bench-q6b4=1.284

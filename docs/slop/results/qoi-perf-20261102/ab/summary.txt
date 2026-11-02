@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before    wuffs     qoih image-rs     zune     ±   <1    ~   slowest vs before
+QoiDecode/icon                    13      480.9     1.20     1.83     1.38     0.99     3.61    4%    2    0   0.92 [0.89, 0.95] icon_32-actions_contact_new-32x32.qoi
+QoiDecode/1mp                     23      510.3     1.20     1.83     1.78     1.14     2.84    3%    1    1   0.94 [0.93, 0.99] photo_wikipedia-002-1260x806.qoi
+QoiDecode/large                    8      331.1     1.11     1.64     1.61     1.18     2.33    4%    0    1   1.03 [1.01, 1.14] textures_plants-plant_02-1024x1316.qoi
+QoiDecodeBGRA/icon                13      395.8     1.22     1.47        -        -        -    5%    0    1   1.05 [0.95, 1.07] icon_32-actions_bookmark_new-32x32.qoi
+QoiDecodeBGRA/1mp                 23      443.4     1.19     1.58        -        -        -    3%    1    0   0.96 [0.94, 0.97] photo_wikipedia-002-1260x806.qoi
+QoiDecodeBGRA/large                8      305.8     1.10     1.51        -        -        -    2%    0    1   1.03 [0.99, 1.20] textures_plants-plant_02-1024x1316.qoi
+all                               88      431.0     1.18     1.66     1.62     1.10     2.94          4    4
