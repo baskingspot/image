@@ -1,0 +1,30 @@
+diff --git a/src/qoi/Decoder.zig b/src/qoi/Decoder.zig
+index 3feb139..287d82e 100644
+--- a/src/qoi/Decoder.zig
++++ b/src/qoi/Decoder.zig
+@@ -292,11 +292,15 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out) Error!void {
+     const n = out.len / bpp;
+     var i: usize = 0;
+     var px = s.px;
+-    const index = &s.index;
++    // Local copies, which stores to `out` cannot alias.
++    var index = s.index;
++    defer s.index = index;
+     // The rest of a run from the last span.
+     const carried = @min(s.run, n);
+     while (i < carried) : (i += 1) put(out, i, px, o);
+     s.run -= @intCast(carried);
++    var run = s.run;
++    defer s.run = run;
+     while (i < n) {
+         // Every chunk is at most 5 bytes and gives at least one pixel, so
+         // `c` chunks surely fit in what is buffered and in `out`, and the
+@@ -328,7 +332,7 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out) Error!void {
+                 fill(out, n, i, m, px, o);
+                 i += m;
+                 c = @min(c, n - i);
+-                s.run = @intCast(count - m);
++                run = @intCast(count - m);
+                 p += 1;
+                 continue;
+             }
