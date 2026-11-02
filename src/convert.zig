@@ -32,8 +32,9 @@
 //!   Inks to inks pass through, not by way of color.
 //!
 //! The pairs decoders meet most, the byte swizzles, adding and dropping
-//! alpha, premultiplying, gray to color, and 8 to 16 bits and back, have
-//! SIMD paths that give the same bytes as the general path.
+//! alpha, premultiplying, gray to color, and 8-bit, 16-bit, and float
+//! samples to one another in the same layout, have SIMD paths that give
+//! the same bytes as the general path.
 
 const std = @import("std");
 const testing = std.testing;
@@ -447,6 +448,16 @@ fn fast(dst: PixelFormat, src: PixelFormat) ?Converter.Kernel {
         dst.isPremultiplied() == src.isPremultiplied();
     if (same_layout and dst.sample() == .u8 and src.sample() == .u16) return narrowAll;
     if (same_layout and dst.sample() == .u16 and src.sample() == .u8) return widenAll;
+    if (same_layout and src.sample() == .f32) return switch (dst.sample()) {
+        .u8 => FloatAll(u8, false).run,
+        .u16 => FloatAll(u16, false).run,
+        .f32 => null,
+    };
+    if (same_layout and dst.sample() == .f32) return switch (src.sample()) {
+        .u8 => FloatAll(u8, true).run,
+        .u16 => FloatAll(u16, true).run,
+        .f32 => null,
+    };
     return null;
 }
 
@@ -833,6 +844,52 @@ fn widenAll(dst: []u8, src: []const u8, n: usize) void {
     }
 }
 
+/// Float samples to 8 or 16 bits (`to_float` false) or back, same layout:
+/// `quantize` or `c / max` on every sample, as the general path does them.
+fn FloatAll(comptime T: type, comptime to_float: bool) type {
+    return struct {
+        const lanes = 16;
+        const max: @Vector(lanes, f32) = @splat(std.math.maxInt(T));
+        const t = @sizeOf(T);
+
+        fn run(dst: []u8, src: []const u8, n: usize) void {
+            _ = n;
+            const count = if (to_float) dst.len / 4 else src.len / 4;
+            var i: usize = 0;
+            while (i + lanes <= count) : (i += lanes) step(dst, src, i);
+            if (i == count) return;
+            // The tail as one more vector ending at the last sample, as in
+            // `blocks`.
+            if (i != 0 and disjoint(dst, src)) return step(dst, src, count - lanes);
+            const e = builtin.cpu.arch.endian();
+            while (i < count) : (i += 1) {
+                if (to_float) {
+                    const v: f32 = @floatFromInt(std.mem.readInt(T, src[t * i ..][0..t], e));
+                    std.mem.writeInt(u32, dst[4 * i ..][0..4], @bitCast(v / max[0]), e);
+                } else {
+                    const v: f32 = @bitCast(std.mem.readInt(u32, src[4 * i ..][0..4], e));
+                    std.mem.writeInt(T, dst[t * i ..][0..t], @intCast(quantize(v, max[0])), e);
+                }
+            }
+        }
+
+        inline fn step(dst: []u8, src: []const u8, i: usize) void {
+            if (to_float) {
+                const v: @Vector(lanes, T) = @bitCast(src[t * i ..][0 .. t * lanes].*);
+                const f: @Vector(lanes, f32) = @floatFromInt(v);
+                dst[4 * i ..][0 .. 4 * lanes].* = @bitCast(f / max);
+            } else {
+                // `quantize`: NaN and nothing above 0 to 0, 1 and up to max.
+                const v: @Vector(lanes, f32) = @bitCast(src[4 * i ..][0 .. 4 * lanes].*);
+                const zero: @Vector(lanes, f32) = @splat(0);
+                const c = @min(@select(f32, v > zero, v, zero), @as(@Vector(lanes, f32), @splat(1)));
+                const q: @Vector(lanes, T) = @intFromFloat(@round(c * max));
+                dst[t * i ..][0 .. t * lanes].* = @bitCast(q);
+            }
+        }
+    };
+}
+
 fn fill(random: std.Random, bytes: []u8, f: PixelFormat) void {
     random.bytes(bytes);
     if (f.sample() != .f32) return;
@@ -1039,7 +1096,7 @@ test "float samples" {
     convert(&out, .rgba_f32_premul, std.mem.asBytes(&hdr), .rgba_f32, 1);
     try testing.expectEqual(@as(f32, 2), std.mem.bytesAsValue([4]f32, out[0..16])[0]);
     // RGB and gray float: alpha dropped, Rec. 601 luma, and rounding to
-    // bytes.
+    // bytes through both the SIMD path (16 samples) and the general one.
     var rgb: [3]f32 = undefined;
     convert(std.mem.asBytes(&rgb), .rgb_f32, &[4]u8{ 255, 51, 0, 7 }, .rgba8, 1);
     try testing.expectEqual([3]f32{ 1, 0.2, 0 }, rgb);

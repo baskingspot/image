@@ -10,7 +10,7 @@ All notable changes to image are recorded here. The format follows
 - `image.PixelFormat`, twenty interleaved formats from `gray8` to `rgba_f32_premul`, and `image.PixelBuffer`, the caller's pixel memory with a stride.
 - `image.convert`: conversion and swizzle between any two pixel formats, with SIMD for the common pairs; `convert.Converter` picks the kernel once for many rows.
 - `image.PixelFormat.cmyk8` and `cmyk16`: CMYK stored inverted, as Adobe's JPEGs store it (the maximum is no ink); `image.convert` turns them into color by libjpeg-turbo's naive conversion (SIMD from `cmyk8`) and color into them by its inverse.
-- `image.PixelFormat.rgb_f32` and `gray_f32`, float formats beside `rgba_f32`; `image.convert` converts them to and from every format.
+- `image.PixelFormat.rgb_f32` and `gray_f32`, float formats beside `rgba_f32`; `image.convert` converts them to and from every format, with SIMD between float and 8- or 16-bit samples in the same layout (5–16× the general path for float to bytes).
 - `image.Metadata.primaries` (red, green, blue, and white xy, in place of the removed `Metadata.chromaticities` and `image.Chromaticities`; PNG's cHRM fills it, and `png.EncodeOptions.primaries` replaces `chromaticities` to write it), `Metadata.intensity_target`, `Metadata.jpeg_reconstruction` (the JPEG XL file carries a `jbrd` box), and `image.Transfer.bt709`, `dci`, `pq`, and `hlg`; a plain gamma stays in `Metadata.gamma`.
 - `image.Config`, `image.Frame`, `image.Limits`, `image.DecodeOptions`, `image.Metadata`, and `image.DecodeError`, shared by every decoder; `image.exif.orientation` reads EXIF orientation.
 - `image.detect` names a file's `image.Format` from its first `image.detect_prefix_len` bytes, for every phase-1 format.
