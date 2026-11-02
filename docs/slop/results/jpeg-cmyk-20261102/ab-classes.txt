@@ -1,0 +1,4 @@
+op class rows before_MP/s after_MP/s ratio
+JpegDecodeCmyk 1mp 23 123.4 201.4 1.63
+JpegDecodeCmyk icon 13 76.2 85.2 1.12
+JpegDecodeCmyk large 8 121.3 191.2 1.58

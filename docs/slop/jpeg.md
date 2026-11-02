@@ -134,16 +134,19 @@ processes.
   or the IDs spell R, G, B; four are CMYK, or YCCK for Adobe transform 2. An
   Adobe transform past 2 is `BadMarker`. `Options.color` overrides the guess
   for a caller that knows better (TIFF's photometric interpretation).
-- **CMYK and YCCK.** `PixelFormat` has no CMYK, so by default they decode to
-  RGB by libjpeg-turbo's naive conversion (each channel is the ink's
-  inverted sample times black's, over the maximum, rounded), the same as its
-  `JCS_EXT_RGB` output from a CMYK file, and native is `rgb8`. With
-  `Options.cmyk = .raw` they decode to the stored inks, C, M, Y, K in the
-  R, G, B, A channels of `rgba8` (inverted, as Adobe writes them), for a
-  caller with a color-management system. **Request:** a shared `cmyk8`
-  pixel format (and `cmyk16` for 12-bit and TIFF), so that raw inks have
-  their own name and `convert` can do the naive conversion for every
-  format; `.raw` would then report `cmyk8` as native.
+- **CMYK and YCCK** (plan.md decision 15). By default they decode to RGB
+  by libjpeg-turbo's naive conversion (each channel is the ink's inverted
+  sample times black's, over the maximum, rounded), as djpeg converts its
+  CMYK output, and native is `rgb8`. With `Options.cmyk = .raw` they decode
+  to the inks, native `cmyk8` (`cmyk16` past 8 bits, scaled like every
+  wide sample): the stored samples for CMYK, inverted as Adobe writes them,
+  and for YCCK the YCbCr converted to RGB and inverted, as libjpeg-turbo
+  returns them; another destination format converts from `cmyk8` through
+  `image.convert`. At 8 bits both go through a `cmyk8` row
+  (`sample.inks`, 16 pixels at a time) and the default converts it with
+  `image.convert`'s SIMD kernel: 1.6× the per-pixel loop it replaced
+  above icon sizes, 1.1× on icons (results/jpeg-cmyk-20261102.md). Past 8 bits the conversion stays at the
+  image's precision, which libjpeg-turbo rounds at, not at 16 bits.
 - **Metadata** is reported, never applied. JFIF density (dots per inch or
   per centimeter, the latter as per meter). EXIF: the blob, and the
   orientation from its first 4 KiB, through `src/exif.zig`. ICC: the
@@ -153,7 +156,7 @@ processes.
   of order, their counts disagree, or one is missing. XMP: the first XMP
   APP1 segment. Each blob goes to the blob sink as it passes.
 - **Samples past 8 bits, and lossless ones below.** Native is 16-bit
-  (`gray16`, `rgb16`, `rgba16`) past 8 bits and 8-bit otherwise. Color
+  (`gray16`, `rgb16`, `cmyk16`) past 8 bits and 8-bit otherwise. Color
   conversion runs at the image's precision, as libjpeg-turbo's does, then
   each sample is scaled to the native format, rounded:
   `(v · 65535 + m/2) / m` for maximum `m`, and `(v · 255 + m/2) / m` below 8

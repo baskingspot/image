@@ -1,7 +1,7 @@
 //! The JPEG fuzz target: the decoder properties in harness.zig, at full
-//! size and, chosen by the input, at a reduced scale, on mutated corpus
-//! files and generated ones. The generator writes a JPEG the way the
-//! decoder reads one: it walks the decoder's states, sequential,
+//! size and, chosen by the input, at a reduced scale and with CMYK as its
+//! inks, on mutated corpus files and generated ones. The generator writes
+//! a JPEG the way the decoder reads one: it walks the decoder's states, sequential,
 //! progressive, or lossless, chooses each symbol at random from those the
 //! decoder can read next, and writes its Huffman code and bits, so the
 //! files reach every marker, sampling layout, scan type, precision, and
@@ -22,21 +22,28 @@ pub fn check(input: []const u8, choice: u64) !void {
     // The same properties at a reduced scale, which takes its own IDCTs
     // and upsampling paths.
     switch ((choice >> 32) % 3) {
-        0 => try harness.checkDecoder(Scaled(.half), input, choice),
-        1 => try harness.checkDecoder(Scaled(.quarter), input, choice),
-        else => try harness.checkDecoder(Scaled(.eighth), input, choice),
+        0 => try harness.checkDecoder(With(.half, .rgb), input, choice),
+        1 => try harness.checkDecoder(With(.quarter, .rgb), input, choice),
+        else => try harness.checkDecoder(With(.eighth, .rgb), input, choice),
     }
+    // CMYK and YCCK as their inks, native `cmyk8` or `cmyk16`.
+    if (choice >> 40 & 1 == 1) try harness.checkDecoder(With(.full, .raw), input, choice);
 }
 
-/// `image.jpeg.Decoder` with `Options.scale` set.
-fn Scaled(comptime scale: image.jpeg.Decoder.Scale) type {
+/// `image.jpeg.Decoder` with `Options.scale` and `Options.cmyk` set.
+fn With(comptime scale: image.jpeg.Decoder.Scale, comptime cmyk: image.jpeg.Decoder.Cmyk) type {
     return struct {
         d: image.jpeg.Decoder,
 
         const Self = @This();
         const D = image.jpeg.Decoder;
         pub fn init(reader: *std.Io.Reader, options: image.DecodeOptions) Self {
-            const o: D.Options = .{ .limits = options.limits, .blob_sink = options.blob_sink, .scale = scale };
+            const o: D.Options = .{
+                .limits = options.limits,
+                .blob_sink = options.blob_sink,
+                .scale = scale,
+                .cmyk = cmyk,
+            };
             return .{ .d = .init(reader, o) };
         }
         pub fn decodeConfig(s: *Self) D.Error!image.Config {

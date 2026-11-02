@@ -209,6 +209,48 @@ pub fn yccToRgb(out: []u8, y: []const u8, cb: []const u8, cr: []const u8, n: usi
     }
 }
 
+/// `n` pixels of four rows interleaved as `cmyk8` inks. For YCCK the first
+/// three are YCbCr, converted to RGB and inverted, as libjpeg-turbo
+/// converts them.
+pub fn inks(
+    out: []u8,
+    c0: []const u8,
+    c1: []const u8,
+    c2: []const u8,
+    k: []const u8,
+    n: usize,
+    comptime ycck: bool,
+) void {
+    const lanes = 16;
+    const V = @Vector(lanes, i32);
+    const B = @Vector(lanes, u8);
+    var i: usize = 0;
+    while (i + lanes <= n) : (i += lanes) {
+        var p: [3]B = .{ c0[i..][0..lanes].*, c1[i..][0..lanes].*, c2[i..][0..lanes].* };
+        if (ycck) {
+            const yv: V = p[0];
+            const b: V = @as(V, p[1]) - @as(V, @splat(128));
+            const r: V = @as(V, p[2]) - @as(V, @splat(128));
+            const half: V = @splat(32768);
+            const rgb: [3]V = .{
+                yv + ((@as(V, @splat(fix_1_402)) * r + half) >> @splat(16)),
+                yv + ((@as(V, @splat(-fix_0_34414)) * b + half - @as(V, @splat(fix_0_71414)) * r) >> @splat(16)),
+                yv + ((@as(V, @splat(fix_1_772)) * b + half) >> @splat(16)),
+            };
+            for (&p, rgb) |*e, v| e.* = ~@as(B, @intCast(@min(@max(v, @as(V, @splat(0))), @as(V, @splat(255)))));
+        }
+        out[i * 4 ..][0 .. 4 * lanes].* = std.simd.interlace(.{ p[0], p[1], p[2], @as(B, k[i..][0..lanes].*) });
+    }
+    while (i < n) : (i += 1) {
+        var p: [3]u8 = .{ c0[i], c1[i], c2[i] };
+        if (ycck) {
+            const rgb = ycc(8, p[0], p[1], p[2]);
+            p = .{ @intCast(255 - rgb[0]), @intCast(255 - rgb[1]), @intCast(255 - rgb[2]) };
+        }
+        out[i * 4 ..][0..4].* = .{ p[0], p[1], p[2], k[i] };
+    }
+}
+
 /// `n` pixels of 12-bit YCbCr rows to interleaved RGB16: each sample
 /// clamped to 12 bits, converted as `ycc(12, ...)`, and scaled to 16 bits,
 /// rounded.
@@ -245,14 +287,6 @@ pub fn yccToRgb16(out: []u8, y: []const u16, cb: []const u16, cr: []const u16, n
 inline fn scale12(v: @Vector(16, u32)) @Vector(16, u16) {
     const U = @Vector(16, u32);
     return @intCast((v * @as(U, @splat(65535)) + @as(U, @splat(2047))) / @as(U, @splat(4095)));
-}
-
-/// libjpeg-turbo's naive CMYK to RGB for inks stored inverted, as Adobe
-/// writes them: each channel is the ink's sample times black's, over the
-/// maximum, rounded.
-pub inline fn cmyk(comptime bits: u8, c: u32, k: u32) u32 {
-    const max = (1 << bits) - 1;
-    return (2 * c * k + max) / (2 * max);
 }
 
 test "fancy upsampling rounds as the reference does" {
@@ -364,9 +398,25 @@ test "12-bit ycc vector and scalar paths agree" {
     try testing.expectEqual(65535, std.mem.readInt(u16, out[0..2], .native));
 }
 
-test "cmyk" {
-    try testing.expectEqual(255, cmyk(8, 255, 255));
-    try testing.expectEqual(0, cmyk(8, 0, 255));
-    try testing.expectEqual(64, cmyk(8, 128, 127));
-    try testing.expectEqual(4095, cmyk(12, 4095, 4095));
+test "inks vector and scalar paths agree" {
+    // 37 pixels: two vectors and a scalar tail.
+    var prng: std.Random.DefaultPrng = .init(4);
+    const rand = prng.random();
+    for (0..200) |_| {
+        var planes: [4][37]u8 = undefined;
+        for (&planes) |*p| rand.bytes(p);
+        var out: [37 * 4]u8 = undefined;
+        inks(&out, &planes[0], &planes[1], &planes[2], &planes[3], 37, false);
+        for (0..37) |i| {
+            const want: [4]u8 = .{ planes[0][i], planes[1][i], planes[2][i], planes[3][i] };
+            try testing.expectEqualSlices(u8, &want, out[i * 4 ..][0..4]);
+        }
+        inks(&out, &planes[0], &planes[1], &planes[2], &planes[3], 37, true);
+        for (0..37) |i| {
+            const rgb = ycc(8, planes[0][i], planes[1][i], planes[2][i]);
+            var want: [4]u8 = .{ 0, 0, 0, planes[3][i] };
+            for (want[0..3], rgb) |*w, v| w.* = @intCast(255 - v);
+            try testing.expectEqualSlices(u8, &want, out[i * 4 ..][0..4]);
+        }
+    }
 }

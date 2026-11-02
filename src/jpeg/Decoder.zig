@@ -92,10 +92,10 @@ pub const Cmyk = enum {
     /// RGB by libjpeg-turbo's naive conversion (each channel is the ink's
     /// stored sample times black's, over the maximum); native is RGB.
     rgb,
-    /// The stored inks, C, M, Y, and K in the R, G, B, and A channels of an
-    /// RGBA pixel, as Adobe stores them (inverted: 0 is full ink). Native
-    /// is `rgba8` (`rgba16` past 8 bits), and other formats convert from it
-    /// as if it were RGBA.
+    /// The inks as stored, inverted as Adobe stores them (0 is full ink),
+    /// and YCCK's converted from YCbCr as libjpeg-turbo converts them.
+    /// Native is `cmyk8` (`cmyk16` past 8 bits, scaled), and other formats
+    /// convert from it as `image.convert` does.
     raw,
 };
 
@@ -261,6 +261,7 @@ const Geometry = struct {
     planes: usize,
     rows: usize,
     native_row: usize,
+    inks: usize,
     work_len: usize,
 };
 
@@ -319,8 +320,8 @@ pub fn init(reader: *Io.Reader, options: Options) Decoder {
 }
 
 /// Reads the markers through the first scan's header. The native format
-/// is `gray8` for one component and `rgb8` for three or four (`rgba8`
-/// with `Options.cmyk = .raw`), or `gray16`, `rgb16`, and `rgba16` for
+/// is `gray8` for one component and `rgb8` for three or four (`cmyk8`
+/// with `Options.cmyk = .raw`), or `gray16`, `rgb16`, and `cmyk16` for
 /// samples past 8 bits. Calling it again returns the same config.
 pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     if (d.err) |e| return e;
@@ -770,7 +771,7 @@ fn setup(d: *Decoder) Error!void {
     g.native = switch (g.color) {
         .gray => if (wide) .gray16 else .gray8,
         .ycc, .rgb => if (wide) .rgb16 else .rgb8,
-        .cmyk, .ycck => if (d.options.cmyk != .raw) (if (wide) .rgb16 else .rgb8) else if (wide) .rgba16 else .rgba8,
+        .cmyk, .ycck => if (d.options.cmyk != .raw) (if (wide) .rgb16 else .rgb8) else if (wide) .cmyk16 else .cmyk8,
     };
     const sb: u64 = if (wide) 2 else 1;
     g.context = false;
@@ -851,6 +852,9 @@ fn setup(d: *Decoder) Error!void {
     off += n;
     g.native_row = @intCast(off);
     off += @as(u64, g.out_w) * g.native.bytesPerPixel();
+    // 8-bit inks converted to RGB go through a row of `cmyk8`.
+    g.inks = @intCast(off);
+    if (g.native == .rgb8 and (g.color == .cmyk or g.color == .ycck)) off += @as(u64, g.out_w) * 4;
     // Room to align the start.
     off += 64;
     try d.options.limits.checkWork(off);
@@ -1011,6 +1015,7 @@ const Work = struct {
     planes: []u8,
     rows: []u8,
     native_row: []u8,
+    inks: []u8,
 };
 
 fn workMemory(d: *const Decoder, work: []u8) Work {
@@ -1023,7 +1028,8 @@ fn workMemory(d: *const Decoder, work: []u8) Work {
         .coefs = @alignCast(std.mem.bytesAsSlice(i16, w[g.coefs..g.planes])),
         .planes = w[g.planes..g.rows],
         .rows = w[g.rows..g.native_row],
-        .native_row = w[g.native_row..],
+        .native_row = w[g.native_row..g.inks],
+        .inks = w[g.inks..],
     };
 }
 
@@ -1507,6 +1513,8 @@ fn Output(comptime S: type) type {
         dst: PixelBuffer,
         w: Work,
         conv: ?Converter,
+        /// 8-bit inks to RGB, libjpeg-turbo's naive conversion.
+        from_inks: Converter,
 
         const Self = @This();
 
@@ -1517,6 +1525,7 @@ fn Output(comptime S: type) type {
                 .dst = dst,
                 .w = w,
                 .conv = if (dst.format == native) null else Converter.init(dst.format, native),
+                .from_inks = .init(.rgb8, .cmyk8),
             };
         }
 
@@ -1582,22 +1591,15 @@ fn Output(comptime S: type) type {
                 .rgb => for (0..n) |x| {
                     target[3 * x ..][0..3].* = .{ rows[0][x], rows[1][x], rows[2][x] };
                 },
-                .cmyk, .ycck => for (0..n) |x| {
-                    var p: [4]u8 = .{ rows[0][x], rows[1][x], rows[2][x], rows[3][x] };
-                    if (g.color == .ycck) {
-                        // YCC to RGB, inverted, as the inks.
-                        const rgb = sample.ycc(8, p[0], p[1], p[2]);
-                        p[0..3].* = .{ @intCast(255 - rgb[0]), @intCast(255 - rgb[1]), @intCast(255 - rgb[2]) };
+                .cmyk, .ycck => {
+                    // The inks as `cmyk8`, then to RGB by `image.convert`
+                    // unless they are what the caller asked for.
+                    const raw = d.options.cmyk == .raw;
+                    const inks = if (raw) target else o.w.inks;
+                    switch (g.color == .ycck) {
+                        inline else => |ycck| sample.inks(inks, rows[0], rows[1], rows[2], rows[3], n, ycck),
                     }
-                    if (d.options.cmyk == .raw) {
-                        target[4 * x ..][0..4].* = p;
-                    } else {
-                        target[3 * x ..][0..3].* = .{
-                            @intCast(sample.cmyk(8, p[0], p[3])),
-                            @intCast(sample.cmyk(8, p[1], p[3])),
-                            @intCast(sample.cmyk(8, p[2], p[3])),
-                        };
-                    }
+                    if (!raw) o.from_inks.run(target, inks, n);
                 },
             }
             if (o.conv) |conv| conv.run(o.dst.row(y), o.w.native_row, n);
@@ -1711,5 +1713,37 @@ test "a tiny baseline file" {
         const work = try testing.allocator.alloc(u8, c.work_len);
         defer testing.allocator.free(work);
         try testing.expectError(error.Truncated, d.decodeFrame(try PixelBuffer.init(&out, .gray8, 8, 8), work));
+    }
+}
+
+test "CMYK and YCCK as inks and as RGB" {
+    // 8×8, four flat blocks, DC quantized by 64: each component's DC
+    // difference +1, -1, 0, +1 makes its samples 136, 120, 128, 136.
+    const head = "\xff\xd8" ++
+        "\xff\xdb\x00\x43\x00\x40" ++ "\x01" ** 63 ++
+        "\xff\xc0\x00\x14\x08\x00\x08\x00\x08\x04\x01\x11\x00\x02\x11\x00\x03\x11\x00\x04\x11\x00";
+    const scan = "\xff\xda\x00\x0e\x04\x01\x00\x02\x00\x03\x00\x04\x00\x00\x3f\x00" ++
+        // 010 1 1010, 010 0 1010, 00 1010, 010 1 1010, padded with ones.
+        "\x5a\x4a\x29\x6b\xff\xd9";
+    const Case = struct { transform: u8, inks: [4]u8, rgb: [3]u8 };
+    const cases = [_]Case{
+        // Each RGB channel is round(ink × black / 255).
+        .{ .transform = 0, .inks = .{ 136, 120, 128, 136 }, .rgb = .{ 73, 64, 68 } },
+        // YCbCr (136, 120, 128) is RGB (136, 139, 122), inverted as inks.
+        .{ .transform = 2, .inks = .{ 119, 116, 133, 136 }, .rgb = .{ 63, 62, 71 } },
+    };
+    for (cases) |c| {
+        const file = head ++ "\xff\xee\x00\x0eAdobe\x00\x64\x00\x00\x00\x00" ++ [_]u8{c.transform} ++ scan;
+        var inks: [64 * 4]u8 = undefined;
+        const raw = try testDecode(file, .cmyk8, .{ .cmyk = .raw }, &inks);
+        try testing.expectEqual(PixelFormat.cmyk8, raw.native);
+        for (0..64) |i| try testing.expectEqualSlices(u8, &c.inks, inks[i * 4 ..][0..4]);
+        var rgb: [64 * 3]u8 = undefined;
+        const config = try testDecode(file, .rgb8, .{}, &rgb);
+        try testing.expectEqual(PixelFormat.rgb8, config.native);
+        for (0..64) |i| try testing.expectEqualSlices(u8, &c.rgb, rgb[i * 3 ..][0..3]);
+        // The inks converted by the caller's format match.
+        _ = try testDecode(file, .rgb8, .{ .cmyk = .raw }, &rgb);
+        for (0..64) |i| try testing.expectEqualSlices(u8, &c.rgb, rgb[i * 3 ..][0..3]);
     }
 }
