@@ -550,7 +550,9 @@ orb asks for a change to them, or for text in this file, in its report.
    size bar. Measured (results/jpeg-encode-20261102.md): at equal PSNR,
    mozjpeg's trellis is no smaller than our optimized baseline (+0.6% to
    +1.9%); at equal SSIM it is 6.6% smaller, and mozjpeg's full profile 12.2%
-   smaller than our progressive, at 8–14× less speed. Awaiting the owner.
+   smaller than our progressive, at 8–14× less speed. Decided by the owner
+   (decision 30): no trellis by default; an opt-in size mode measured by
+   SSIM or butteraugli may come after phase 1.
 4. **JPEG XL lossy encoding.** VarDCT encoding is as large as the decoder.
    Decide after lossless encode lands whether it stays in phase 1.
 5. **JPEG XL's JPEG reconstruction** (`jbrd`, the original JPEG's exact
@@ -674,6 +676,18 @@ orb asks for a change to them, or for text in this file, in its report.
     `Metadata.primaries`; `Metadata.intensity_target`) and the `rgb_f32` and
     `gray_f32` pixel formats now. The extra-channel output API, f16, and
     non-coalesced blend modes wait for a caller.
+
+30. **JPEG trellis. Decided by the owner:** none by default (see decision 3's
+    measurement); an opt-in size mode may follow phase 1.
+31. **JPEG optimized tables. Decided by the owner:** `EncodeOptions.optimize`
+    defaults to false, as cjpeg and TurboJPEG do, so default output matches
+    libjpeg-turbo byte for byte.
+32. **compress's block scratch. Decided by the owner:** it lives in
+    `Writer.Buffer`, not `Writer`, which `init` returns by value (in `Writer`
+    it ran the arm-linux build out of memory).
+33. **Plain gamma. Decided by the owner:** it stays in `Metadata.gamma`;
+    `transfer` null with `gamma` set means that power law, so a PNG with
+    sRGB and gAMA keeps both.
 
 ## Harness requests
 
