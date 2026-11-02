@@ -10,6 +10,7 @@
 //! Private to PNG until `compress` exports its CRC-32 (docs/slop/png.md).
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 
 const poly: u32 = 0xEDB8_8320;
@@ -33,6 +34,66 @@ pub const init: u32 = 0xffff_ffff;
 
 /// Advances the register `crc` over `bytes`.
 pub fn update(crc: u32, bytes: []const u8) u32 {
+    if (comptime has_clmul) {
+        if (bytes.len >= 64) return folded(crc, bytes);
+    }
+    return sliced(crc, bytes);
+}
+
+const has_clmul = builtin.cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(builtin.cpu.features, .pclmul);
+
+const V = @Vector(2, u64);
+
+/// Carry-less multiplication of one 64-bit half of `a` by one of `b`:
+/// `imm` 0x00 takes both low halves, 0x11 both high ones.
+inline fn clmul(a: V, b: V, comptime imm: u8) V {
+    return asm ("pclmulqdq $" ++ std.fmt.comptimePrint("{d}", .{imm}) ++ ", %[b], %[a]"
+        : [a] "=x" (-> V),
+        : [_] "0" (a),
+          [b] "x" (b),
+    );
+}
+
+inline fn load(bytes: *const [16]u8) V {
+    return .{ std.mem.readInt(u64, bytes[0..8], .little), std.mem.readInt(u64, bytes[8..16], .little) };
+}
+
+/// Folding with carry-less multiplication ("Fast CRC Computation for
+/// Generic Polynomials Using PCLMULQDQ Instruction", Intel, 2009): four
+/// 128-bit lanes each multiplied forward by x^512 mod P and added to the
+/// next 64 bytes, then folded into one lane by x^128 mod P. A lane is
+/// congruent to the bytes it replaces, so the table finishes the CRC over
+/// its 16 bytes and the tail. The constants are those powers of x for the
+/// reflected polynomial, as zlib's and Chromium's SIMD CRC-32 use them.
+fn folded(crc: u32, bytes: []const u8) u32 {
+    const k1k2: V = .{ 0x154442bd4, 0x1c6e41596 };
+    const k3k4: V = .{ 0x1751997d0, 0x0ccaa009e };
+    var rest = bytes;
+    var x: [4]V = undefined;
+    for (&x, 0..) |*lane, i| lane.* = load(rest[i * 16 ..][0..16]);
+    x[0] ^= V{ crc, 0 };
+    rest = rest[64..];
+    while (rest.len >= 64) {
+        for (&x, 0..) |*lane, i| {
+            lane.* = clmul(lane.*, k1k2, 0x00) ^ clmul(lane.*, k1k2, 0x11) ^ load(rest[i * 16 ..][0..16]);
+        }
+        rest = rest[64..];
+    }
+    var acc = x[0];
+    for (x[1..]) |lane| acc = clmul(acc, k3k4, 0x00) ^ clmul(acc, k3k4, 0x11) ^ lane;
+    while (rest.len >= 16) {
+        acc = clmul(acc, k3k4, 0x00) ^ clmul(acc, k3k4, 0x11) ^ load(rest[0..16]);
+        rest = rest[16..];
+    }
+    var lane: [16]u8 = undefined;
+    std.mem.writeInt(u64, lane[0..8], acc[0], .little);
+    std.mem.writeInt(u64, lane[8..16], acc[1], .little);
+    return sliced(sliced(0, &lane), rest);
+}
+
+/// Slice-by-16.
+fn sliced(crc: u32, bytes: []const u8) u32 {
     var c = crc;
     var rest = bytes;
     while (rest.len >= 16) {
@@ -63,7 +124,7 @@ test "crc32 against std and the check value" {
     try testing.expectEqual(0xCBF4_3926, final(update(init, "123456789")));
     // The IEND chunk's CRC over its type.
     try testing.expectEqual(0xAE42_6082, final(update(init, "IEND")));
-    var buf: [300]u8 = undefined;
+    var buf: [1000]u8 = undefined;
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     prng.random().bytes(&buf);
     for (0..buf.len) |n| {
