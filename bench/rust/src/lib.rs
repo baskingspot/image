@@ -13,6 +13,8 @@ mod image_gif;
 #[cfg(feature = "image-rs")]
 mod image_ico;
 #[cfg(feature = "image-rs")]
+mod image_jpeg;
+#[cfg(feature = "image-rs")]
 mod image_netpbm;
 #[cfg(feature = "image-rs")]
 mod image_png;
@@ -22,6 +24,8 @@ mod image_qoi;
 mod image_tga;
 #[cfg(feature = "zune")]
 mod zune_bmp;
+#[cfg(feature = "zune")]
+mod zune_jpeg;
 #[cfg(feature = "zune")]
 mod zune_netpbm;
 #[cfg(feature = "zune")]
@@ -71,6 +75,8 @@ pub extern "C" fn bench_init() {
         image_tga::OPS,
         #[cfg(feature = "image-rs")]
         image_netpbm::OPS,
+        #[cfg(feature = "image-rs")]
+        image_jpeg::OPS,
         #[cfg(feature = "zune")]
         zune_bmp::OPS,
         #[cfg(feature = "zune")]
@@ -79,6 +85,8 @@ pub extern "C" fn bench_init() {
         zune_qoi::OPS,
         #[cfg(feature = "zune")]
         zune_netpbm::OPS,
+        #[cfg(feature = "zune")]
+        zune_jpeg::OPS,
     ];
     let calls = trampolines!(
         0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31

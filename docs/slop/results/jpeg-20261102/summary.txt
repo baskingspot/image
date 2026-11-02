@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s    wuffs      stb libjpeg-turbo image-rs     zune       go     ±   <1    ~   slowest vs wuffs
+JpegDecode/icon                   13      116.6     1.99     1.91     5.08     2.63     1.88     3.84    3%    0    0   1.34 [1.25, 1.43] icon_16-actions_bookmark_new-16x16.jpg
+JpegDecode/1mp                    23      326.3     3.32     2.46     1.19     1.20     1.21     7.72    5%    0    0   2.14 [1.97, 2.66] photo_kodak-kodim01-768x512.jpg
+JpegDecode/large                   8      330.1     3.40     2.68     1.03     1.17     1.16     7.40    8%    0    0   2.56 [2.14, 3.23] photo_wikipedia-001-1276x850.jpg
+JpegDecodeProgressive/icon        13       58.1     1.35     1.78     3.02     2.13     2.06     2.71    4%    1    3   0.89 [0.80, 1.09] icon_16-actions_contact_new-16x16.jpg
+JpegDecodeProgressive/1mp         23      122.8     2.13     1.71     1.15     1.12     1.11     4.18    9%    0    0   1.57 [1.45, 1.86] photo_kodak-kodim01-768x512.jpg
+JpegDecodeProgressive/large        8      127.5     2.13     1.81     1.13     1.12     1.15     3.87    7%    0    0   1.84 [1.59, 2.02] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.jpg
+JpegDecode444/icon                13      103.2     1.88     1.99     5.40     2.63     1.91     5.00    6%    0    0   1.29 [1.18, 1.41] icon_16-actions_contact_new-16x16.jpg
+JpegDecode444/1mp                 23      254.5     2.75     2.30     1.35     1.24     1.25     8.17    7%    0    0   1.79 [1.65, 2.41] photo_kodak-kodim02-768x512.jpg
+JpegDecode444/large                8      248.3     2.82     2.59     1.18     1.23     1.25     8.02   12%    0    0   2.12 [1.94, 2.57] photo_wikipedia-001-1276x850.jpg
+all                              132      166.8     2.36     2.09     1.75     1.47     1.37     5.42          1    3

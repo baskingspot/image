@@ -9,6 +9,7 @@ pub const bmp = @import("bmp.zig");
 pub const convert = @import("convert.zig");
 pub const ico = @import("ico.zig");
 pub const gif = @import("gif.zig");
+pub const jpeg = @import("jpeg.zig");
 pub const png = @import("png.zig");
 pub const qoi = @import("qoi.zig");
 pub const tga = @import("tga.zig");

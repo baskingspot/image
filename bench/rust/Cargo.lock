@@ -21,6 +21,7 @@ dependencies = [
  "image",
  "zune-bmp",
  "zune-core",
+ "zune-jpeg",
  "zune-png",
  "zune-ppm",
  "zune-qoi",
@@ -109,6 +110,8 @@ dependencies = [
  "num-traits",
  "png",
  "qoi",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -228,6 +231,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73ab332fe2f6680068f3582b16a24f90ad7096d5d39b974d1c0aff0125116f02"
 dependencies = [
  "simd-adler32",
+]
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]

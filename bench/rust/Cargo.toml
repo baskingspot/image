@@ -15,15 +15,16 @@ crate-type = ["staticlib"]
 
 [features]
 image-rs = ["dep:image"]
-zune = ["dep:zune-core", "dep:zune-qoi", "dep:zune-png", "dep:zune-bmp", "dep:zune-ppm"]
+zune = ["dep:zune-core", "dep:zune-qoi", "dep:zune-png", "dep:zune-bmp", "dep:zune-ppm", "dep:zune-jpeg"]
 
 [dependencies]
-image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "gif", "bmp", "ico", "tga", "pnm"], optional = true }
+image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "gif", "bmp", "ico", "tga", "pnm", "jpeg"], optional = true }
 zune-core = { version = "=0.5.3", optional = true }
 zune-qoi = { version = "=0.5.2", optional = true }
 zune-png = { version = "=0.5.2", optional = true }
 zune-bmp = { version = "=0.5.2", optional = true }
 zune-ppm = { version = "=0.5.1", optional = true }
+zune-jpeg = { version = "=0.5.15", optional = true }
 
 [profile.release]
 codegen-units = 1

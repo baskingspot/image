@@ -8,3 +8,4 @@ stb	-
 libpng	libpng
 spng	spng
 giflib	-lgif
+libjpeg-turbo	libjpeg

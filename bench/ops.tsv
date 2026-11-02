@@ -41,3 +41,6 @@ netpbm-encode-pgm	NetpbmEncodePGM	netpbm/raw-gray8	1	own
 netpbm-encode-pam	NetpbmEncodePAM	netpbm/raw-rgba8	5	own
 netpbm-encode-ppm16	NetpbmEncodePPM16	netpbm/raw-rgb16	7	own
 netpbm-encode-plain	NetpbmEncodePlain	netpbm/raw-rgb8	13	own
+jpeg-decode	JpegDecode	jpeg/baseline	3	own
+jpeg-decode-progressive	JpegDecodeProgressive	jpeg/progressive	3	own
+jpeg-decode-444	JpegDecode444	jpeg/444	3	own
