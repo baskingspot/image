@@ -1,0 +1,17 @@
+# ab.py, A = one pass on exact frames, B = dither dead zone 1; ratio B/A (throughput)
+# R=7
+gif-encode-anim/1mp            2 0.975
+gif-encode-anim/icon           1 1.024
+gif-encode-anim/large          1 0.950
+gif-encode/1mp                 5 1.050
+gif-encode/icon                2 1.027
+gif-encode/large               4 1.008
+all                           15 1.017
+# R=13
+gif-encode-anim/1mp            2 0.986
+gif-encode-anim/icon           1 1.002
+gif-encode-anim/large          1 0.968
+gif-encode/1mp                 5 1.049
+gif-encode/icon                2 1.014
+gif-encode/large               4 0.980
+all                           15 1.008

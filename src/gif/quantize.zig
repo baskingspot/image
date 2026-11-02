@@ -603,12 +603,18 @@ pub const Lookup = struct {
 
 /// The most error a pixel passes on, per channel.
 const max_error = 16;
+/// How close a pixel's color is to its entry, per channel, to pass on no
+/// error.
+const dead_zone = 1;
 
 /// Floyd-Steinberg error diffusion over rows of RGBA, serpentine: even
 /// rows left to right, odd rows right to left. A transparent pixel takes
 /// no error and passes none on, and a pixel passes on at most `max_error`
 /// per channel, which keeps error that builds up where the palette is
-/// sparse from reaching a far color (stray dots of it). `errors` holds two
+/// sparse from reaching a far color (stray dots of it). A pixel whose own
+/// color is within `dead_zone` of its entry on every channel passes none
+/// on either: an area of a color the palette nearly has stays one entry,
+/// not a pattern of two, which LZW stores in fewer bytes. `errors` holds two
 /// rows of `width + 2` pixels' errors, in sixteenths, a lane per channel.
 pub const Ditherer = struct {
     cur: [][4]i16,
@@ -660,7 +666,10 @@ pub const Ditherer = struct {
             out[x] = i;
             const q = palette.colors[i];
             const p: V = .{ q[0], q[1], q[2], 0 };
-            const err = std.math.clamp(c - p, @as(V, @splat(-max_error)), @as(V, @splat(max_error)));
+            const err = if (@reduce(.Max, @abs(px - p)) <= dead_zone)
+                @as(V, @splat(0))
+            else
+                std.math.clamp(c - p, @as(V, @splat(-max_error)), @as(V, @splat(max_error)));
             carry = err * @as(V, @splat(7));
             // Below behind, below, and below ahead; the row has a pixel of
             // padding at each end.
@@ -771,5 +780,31 @@ test "dithering never reaches a far color, however long the error builds up" {
     for (0..64) |_| {
         d.row(l, &p, &rgba, &clear, 0, &out);
         for (out) |i| try testing.expectEqual(1, i);
+    }
+}
+
+test "an area within a unit of a palette color dithers to that color alone" {
+    const gpa = testing.allocator;
+    const l = try gpa.create(Lookup);
+    defer gpa.destroy(l);
+    // Flat gray 101 between grays 100 and 102: diffusing the unit of error
+    // each pixel leaves would mix the two; within the dead zone, it is one.
+    var p: Palette = .{ .len = 3 };
+    p.colors[0] = .{ 100, 100, 100 };
+    p.colors[1] = .{ 102, 102, 102 };
+    p.colors[2] = .{ 255, 255, 255 };
+    l.init(&p);
+    const width = 64;
+    var errors: [2 * (width + 2)][4]i16 = undefined;
+    var d: Ditherer = .init(&errors, width);
+    const rgba: [width * 4]u8 = @splat(101);
+    const clear: [width]bool = @splat(false);
+    var out: [width]u8 = undefined;
+    d.row(l, &p, &rgba, &clear, 0, &out);
+    const first = out[0];
+    try testing.expect(first < 2);
+    for (0..16) |_| {
+        d.row(l, &p, &rgba, &clear, 0, &out);
+        for (out) |i| try testing.expectEqual(first, i);
     }
 }

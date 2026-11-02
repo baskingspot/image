@@ -248,6 +248,16 @@ pixels, position, duration in flicks, and disposal), allocation-free with
   0.9666 to 0.9715 (limits 8 to 64 measured; 16 has the best blurred PSNR).
   The lookup maps from the 6-bit cell's center, so a pixel's color is off
   by at most 1.5 a channel before its nearest entry is found.
+- **Dead zone.** A pixel whose own color is within 1 a channel of the
+  entry it maps to passes on no error, so an area of a color the palette
+  nearly has stays one entry instead of a pattern of two neighbors, which
+  LZW stores in fewer bytes. On decision 6's corpus: 1.3% fewer bytes
+  (2–6% on screenshots), PSNR +0.36 dB, SSIM +0.003, blurred PSNR −0.09
+  dB, at the same speed. The other selective schemes measured trade bytes
+  for blurred PSNR at about the rate of dithering less overall (a larger
+  dead zone, a weaker diffusion), or save next to nothing (less diffusion
+  across edges, 0.2–0.4%): the bytes dithering costs are in the smooth
+  areas it is for (results/gif-encode2-20261102.md).
 
 ### Checks
 

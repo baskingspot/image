@@ -1,0 +1,37 @@
+# Quality corpus (16 images, docs/slop/results/gif-encode-20261102.md, decision 6), Wu, refine 0. Means of PSNR, blurred PSNR (sigma 1), and SSIM; bytes summed. Scored by score.sh from gif-encode-20261102/.
+# fs: bounded Floyd-Steinberg as on main. deadN: a pixel passes on no error when the error it would pass on is within N a channel. ownN: when its own color is within N of its entry. edgeTkK: error times K/16 where the row neighbors differ by more than T. strK: error times K/16 everywhere. none: no dithering.
+config       PSNR blurred   SSIM      bytes
+fs          39.01   51.16 0.9714  7,040,569
+dead1       39.03   51.13 0.9716  7,028,809
+edge64k0    39.16   50.84 0.9716  7,024,795
+edge32k8    39.26   50.93 0.9718  7,024,137
+edge32k0    39.35   50.46 0.9719  7,014,920
+edge16k8    39.45   50.73 0.9723  7,011,807
+own1        39.37   51.07 0.9742  6,949,968
+dead2       39.19   50.73 0.9728  6,905,734
+str12       40.10   49.83 0.9788  6,753,325
+own2        39.79   50.19 0.9775  6,670,745
+str8        40.70   49.02 0.9823  6,460,677
+own3        40.14   49.15 0.9803  6,368,710
+dead4       39.89   48.78 0.9785  6,315,765
+own4        40.40   48.33 0.9823  6,150,491
+own8        40.84   47.38 0.9851  5,945,741
+none        41.11   46.87 0.9860  5,874,489
+
+# Per image, own1 (the change) and own2 against fs
+photo_kodak-kodim01                own1: PSNR +0.26 blurred +0.04 SSIM +0.0009 bytes -0.1% | own2: PSNR +0.70 blurred -0.75 bytes -1.5%
+photo_kodak-kodim02                own1: PSNR +0.60 blurred -0.10 SSIM +0.0033 bytes -0.6% | own2: PSNR +1.12 blurred -1.61 bytes -2.9%
+photo_kodak-kodim03                own1: PSNR +0.43 blurred -0.01 SSIM +0.0059 bytes -1.1% | own2: PSNR +0.88 blurred -0.63 bytes -6.8%
+photo_tecnick-RGB_OR_1200x1200_001 own1: PSNR +0.30 blurred -0.04 SSIM +0.0030 bytes -0.4% | own2: PSNR +0.73 blurred -0.56 bytes -6.3%
+photo_tecnick-RGB_OR_1200x1200_002 own1: PSNR +0.61 blurred -0.46 SSIM +0.0046 bytes -2.8% | own2: PSNR +1.34 blurred -2.42 bytes -10.5%
+photo_wikipedia-001                own1: PSNR +0.64 blurred -0.04 SSIM +0.0048 bytes -0.5% | own2: PSNR +1.29 blurred -1.27 bytes -4.7%
+photo_wikipedia-002                own1: PSNR +0.28 blurred +0.11 SSIM +0.0015 bytes -0.1% | own2: PSNR +0.73 blurred -0.31 bytes -1.4%
+photo_wikipedia-003                own1: PSNR +0.21 blurred +0.09 SSIM +0.0033 bytes -0.5% | own2: PSNR +0.62 blurred -0.40 bytes -4.5%
+screenshot_game-20XX_Menu_picture  own1: PSNR +0.40 blurred -0.68 SSIM +0.0006 bytes -5.9% | own2: PSNR +0.82 blurred -2.94 bytes -11.9%
+screenshot_web-amazon_com          own1: PSNR +0.13 blurred +0.02 SSIM +0.0021 bytes -3.3% | own2: PSNR +0.25 blurred -0.08 bytes -5.2%
+screenshot_web-apple_com           own1: PSNR +0.36 blurred -0.11 SSIM +0.0010 bytes -4.9% | own2: PSNR +0.60 blurred -0.62 bytes -9.9%
+screenshot_web-cnn_com             own1: PSNR +0.09 blurred +0.00 SSIM +0.0005 bytes -1.6% | own2: PSNR +0.18 blurred -0.05 bytes -2.7%
+test-dice                          own1: PSNR +0.35 blurred -0.14 SSIM +0.0016 bytes -4.7% | own2: PSNR +0.63 blurred -0.84 bytes -9.7%
+test-kodim10                       own1: PSNR +0.39 blurred +0.12 SSIM +0.0029 bytes -0.1% | own2: PSNR +0.94 blurred -0.66 bytes -2.4%
+test-kodim23                       own1: PSNR +0.09 blurred +0.02 SSIM +0.0025 bytes -0.4% | own2: PSNR +0.30 blurred -0.09 bytes -2.6%
+test-wikipedia_008                 own1: PSNR +0.68 blurred -0.27 SSIM +0.0049 bytes -2.3% | own2: PSNR +1.36 blurred -2.22 bytes -8.8%
