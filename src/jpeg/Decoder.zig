@@ -1525,7 +1525,8 @@ fn Output(comptime S: type) type {
                 .dst = dst,
                 .w = w,
                 .conv = if (dst.format == native) null else Converter.init(dst.format, native),
-                .from_inks = .init(.rgb8, .cmyk8),
+                // Only CMYK and YCCK read it; choosing a kernel costs icons.
+                .from_inks = if (d.geo.color == .cmyk or d.geo.color == .ycck) .init(.rgb8, .cmyk8) else undefined,
             };
         }
 

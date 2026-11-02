@@ -1,0 +1,37 @@
+                                                         │ /tmp/abt-old.txt │           /tmp/abt-new.txt           │
+                                                         │      sec/op      │    sec/op     vs base                │
+JpegDecode/icon_16-actions_address_book_new-16x16.jpg          3.919µ ± 19%   3.672µ ± 15%        ~ (p=0.912 n=10)
+JpegDecode/icon_16-actions_appointment_new-16x16.jpg           3.876µ ± 18%   3.710µ ± 15%        ~ (p=0.353 n=10)
+JpegDecode/icon_16-actions_bookmark_new-16x16.jpg              3.922µ ± 18%   3.596µ ± 13%        ~ (p=0.280 n=10)
+JpegDecode/icon_16-actions_contact_new-16x16.jpg               3.762µ ± 13%   3.330µ ± 17%        ~ (p=0.190 n=10)
+JpegDecode/icon_32-actions_address_book_new-32x32.jpg          6.817µ ± 10%   6.006µ ± 14%  -11.89% (p=0.035 n=10)
+JpegDecode/icon_32-actions_appointment_new-32x32.jpg           7.052µ ± 14%   6.718µ ± 14%        ~ (p=0.436 n=10)
+JpegDecode/icon_32-actions_bookmark_new-32x32.jpg              6.809µ ± 16%   6.479µ ±  9%        ~ (p=0.315 n=10)
+JpegDecode/icon_32-actions_contact_new-32x32.jpg               6.813µ ± 13%   6.779µ ±  9%        ~ (p=0.796 n=10)
+JpegDecode/icon_64-actions_address_book_new-64x64.jpg          15.85µ ± 13%   16.07µ ± 14%        ~ (p=0.853 n=10)
+JpegDecode/icon_64-actions_appointment_new-64x64.jpg           16.05µ ± 13%   14.99µ ± 11%        ~ (p=0.315 n=10)
+JpegDecode/icon_64-actions_bookmark_new-64x64.jpg              13.62µ ± 11%   12.94µ ± 11%        ~ (p=0.353 n=10)
+JpegDecode/icon_64-actions_contact_new-64x64.jpg               14.83µ ± 17%   14.25µ ± 14%        ~ (p=0.190 n=10)
+JpegDecode/icon_512-actions_address_book_new-512x512.jpg       575.0µ ± 15%   572.7µ ± 16%        ~ (p=0.853 n=10)
+JpegDecode/icon_512-actions_appointment_new-512x512.jpg        590.8µ ± 16%   595.7µ ± 16%        ~ (p=0.971 n=10)
+JpegDecode/icon_512-actions_bookmark_new-512x512.jpg           479.4µ ± 14%   485.9µ ± 14%        ~ (p=0.796 n=10)
+geomean                                                        17.43µ         16.67µ         -4.40%
+
+                                                         │ /tmp/abt-old.txt │          /tmp/abt-new.txt           │
+                                                         │       MP/s       │    MP/s      vs base                │
+JpegDecode/icon_16-actions_address_book_new-16x16.jpg           65.35 ± 24%   69.72 ± 18%        ~ (p=0.912 n=10)
+JpegDecode/icon_16-actions_appointment_new-16x16.jpg            66.06 ± 23%   69.01 ± 18%        ~ (p=0.353 n=10)
+JpegDecode/icon_16-actions_bookmark_new-16x16.jpg               65.30 ± 21%   71.19 ± 15%        ~ (p=0.271 n=10)
+JpegDecode/icon_16-actions_contact_new-16x16.jpg                68.06 ± 15%   76.88 ± 14%        ~ (p=0.190 n=10)
+JpegDecode/icon_32-actions_address_book_new-32x32.jpg           150.2 ± 12%   170.5 ± 12%  +13.49% (p=0.035 n=10)
+JpegDecode/icon_32-actions_appointment_new-32x32.jpg            145.2 ± 16%   152.6 ± 16%        ~ (p=0.436 n=10)
+JpegDecode/icon_32-actions_bookmark_new-32x32.jpg               150.4 ± 20%   158.4 ± 10%        ~ (p=0.315 n=10)
+JpegDecode/icon_32-actions_contact_new-32x32.jpg                150.3 ± 15%   151.1 ± 10%        ~ (p=0.796 n=10)
+JpegDecode/icon_64-actions_address_book_new-64x64.jpg           258.4 ± 16%   254.9 ± 17%        ~ (p=0.853 n=10)
+JpegDecode/icon_64-actions_appointment_new-64x64.jpg            255.3 ± 15%   273.3 ± 12%        ~ (p=0.315 n=10)
+JpegDecode/icon_64-actions_bookmark_new-64x64.jpg               300.8 ± 13%   317.3 ± 12%        ~ (p=0.353 n=10)
+JpegDecode/icon_64-actions_contact_new-64x64.jpg                276.2 ± 20%   287.5 ± 17%        ~ (p=0.190 n=10)
+JpegDecode/icon_512-actions_address_book_new-512x512.jpg        456.0 ± 17%   457.7 ± 18%        ~ (p=0.853 n=10)
+JpegDecode/icon_512-actions_appointment_new-512x512.jpg         443.8 ± 19%   440.2 ± 19%        ~ (p=0.971 n=10)
+JpegDecode/icon_512-actions_bookmark_new-512x512.jpg            546.8 ± 17%   539.8 ± 16%        ~ (p=0.796 n=10)
+geomean                                                         178.1         186.3         +4.64%

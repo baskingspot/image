@@ -1,0 +1,30 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, 4 threads
+image: ReleaseFast, native; C arms: cc -O3 -march=native; rust: target-cpu=native; go: GOAMD64=v3
+buffers: input 0 bytes past a page, output 2048; 50 ms a sample, 10 rounds
+wuffs       88 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+qoih         0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+stb         88 rows, 88 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+libpng       0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+spng         0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+giflib       0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+libjpeg-turbo   88 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+magick       0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+libwebp      0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+image-rs    88 rows, 88 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+zune        88 rows, 88 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+go          88 rows, 88 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp image-rs     zune       go
+jpeg-decode               152.0    224.3        -    369.3        -        -        -    152.5        -        -    158.6    153.2    384.1
+jpeg-decode-cmyk          157.5    277.2        -    422.7        -        -        -    157.4        -        -    169.2    158.8    842.6
+
+benchstat: zig-out/bench-compare/benchstat.txt
+
+image/arm, geomean              rows image MP/s    wuffs      stb libjpeg-turbo image-rs     zune       go     ±   <1    ~   slowest vs wuffs
+JpegDecode/icon                   13      148.2     1.84     1.85     5.66     2.49     1.77     3.59    2%    0    0   1.25 [1.11, 1.32] icon_16-actions_address_book_new-16x16.jpg
+JpegDecode/1mp                    23      412.3     2.89     2.23     1.18     1.16     1.14     7.01    3%    0    0   2.01 [1.94, 2.07] photo_kodak-kodim01-768x512.jpg
+JpegDecode/large                   8      422.4     2.96     2.52     1.03     1.14     1.12     6.80    2%    0    0   2.33 [2.13, 2.50] photo_wikipedia-001-1276x850.jpg
+JpegDecodeCmyk/icon               13       84.6     1.45     1.46     3.72     1.91     1.42     5.41    3%    0    1   1.04 [1.00, 1.11] icon_16-actions_appointment_new-16x16.jpg
+JpegDecodeCmyk/1mp                23      189.8     1.94     1.70     1.35     0.98     0.96    10.06    2%    0    0   1.52 [1.47, 1.61] photo_kodak-kodim01-768x512.jpg
+JpegDecodeCmyk/large               8      189.2     1.99     1.95     1.26     0.95     0.96     9.64    4%    0    0   1.47 [1.34, 1.68] photo_wikipedia-001-1276x850.jpg
+all                               88      213.9     2.13     1.90     1.81     1.31     1.18     6.89          0    1
