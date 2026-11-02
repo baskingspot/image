@@ -132,8 +132,7 @@ height)` saying how much work memory to pass, and `image.EncodeError` as
   `test/fuzz` harness is a model. Decided by the owner: fuzzing is not a push
   gate. `just ci` runs each target once over its seeds (in `just test`), an
   orb runs `just fuzz` before it pushes a format, and
-  `.github/workflows/fuzz.yml` fuzzes daily and by hand (`just
-fuzz-scheduled`), failing with the inputs as an artifact.
+  `.github/workflows/fuzz.yml` fuzzes daily and by hand (`just fuzz-scheduled`, 240 seconds per target; `just fuzz N/target` gives every target N seconds), failing with the inputs as an artifact.
 
 ## Benchmarks
 
@@ -189,12 +188,12 @@ owning the files adding-a-format.md assigns to its format plus
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
   orb until `wave1-png-strict` lands.
-- **Harness pass** (branch `wave2-harness`): the harness cores
-  (`test/fuzz/harness.zig`, `test/fuzz/main.zig`, `test/oracle/compare.zig`,
-  `test/oracle/oracle.c`/`.h`, `bench/c/arm.c`, `bench/summary.awk`),
-  `build.zig`, and the justfile, for the requests under Harness requests. It
-  keeps the registry contract in adding-a-format.md unchanged, since every
-  format orb is adding lines to it.
+- **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
+  one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
+  codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
+  encoded as Smith reads them, `N/target` fuzz budgets, the shared
+  `magick_decode`, fuzz modules import compress, and a parallel, cached
+  oracle that cut warm `just ci` from 241 s to 59 s.
 - **Performance pass** (branch `wave2-perf`): `src/convert.zig`, `src/tga/`,
   and `src/netpbm/` now; `src/png/` (decoder) once `wave1-png-strict` lands
   and `src/qoi/` once `wave1-wbmp-qoi` lands; inflate in baskingspot/compress
@@ -317,20 +316,10 @@ orb asks for a change to them, or for text in this file, in its report.
 Changes the format orbs asked for in files the orchestrating thread owns,
 not yet made:
 
-- `bench-compare` and `bench/c/arm.c`: let an arm skip a row it fails.
-- `test/oracle/compare.zig`'s `loadCorpus` fails on files over 64 MiB; skip
-  them, so the fuzz and oracle corpora can include `bench/corpus-gen`.
-- `test/fuzz/harness.zig` `Result.eql`: in Zig 0.16 Debug, comparing
-  `?anyerror` fields through pointers returns false for equal values (TGA
-  skips its `zigFuzz` test in Debug until it is fixed).
-- `test/fuzz/main.zig`: `zigFuzz` seeds are used raw, but Smith reads a
-  length-prefixed input and a choice, so QOI's seeds are mangled.
-- `just fuzz` splits its time across every target, so each gets less as
-  formats land; the scheduled run may want a per-target budget instead.
 - `image.convert`'s kernels cost about 25 ns per call in their tails, half a
-  166-pixel row; narrow 24- and 32-bit BMPs run 0.69× Wuffs from it.
-- A shared MagickWand helper in the oracle core (ico.c borrows bmp.c's).
-- Let fuzz modules import compress (test/fuzz/png.zig has its own zlib
-  writer), and have compress export CRC-32 so `src/png/crc32.zig` can go.
+  166-pixel row; narrow 24- and 32-bit BMPs run 0.69× Wuffs from it
+  (performance pass).
+- compress exporting CRC-32, so `src/png/crc32.zig` can go (a
+  baskingspot/compress change).
 - A generic hook on `image.Decoder` for metadata that follows the frames
-  (TGA's footer, PNG's chunks after IDAT).
+  (TGA's footer, PNG's chunks after IDAT), once `wave1-seeker` lands.
