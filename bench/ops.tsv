@@ -75,3 +75,13 @@ webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own
 jxl-decode	JxlDecode	jxl/lossy	8	own
 jxl-decode-lossless	JxlDecodeLossless	jxl/lossless	8	same
+webp-encode-z0	WebpEncodeZ0	webp_encode	5	own
+webp-encode-z1	WebpEncodeZ1	webp_encode	5	own
+webp-encode-z2	WebpEncodeZ2	webp_encode	5	own
+webp-encode-z3	WebpEncodeZ3	webp_encode	5	own
+webp-encode-z4	WebpEncodeZ4	webp_encode	5	own
+webp-encode-z5	WebpEncodeZ5	webp_encode	5	own
+webp-encode-z6	WebpEncodeZ6	webp_encode	5	own
+webp-encode-z7	WebpEncodeZ7	webp_encode	5	own
+webp-encode-z8	WebpEncodeZ8	webp_encode	5	own
+webp-encode-z9	WebpEncodeZ9	webp_encode	5	own
