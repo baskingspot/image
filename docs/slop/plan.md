@@ -179,7 +179,10 @@ Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
 `docs/slop/<fmt>.md`, with one line per registry:
 
-- **JPEG decode** (branch `wave2-jpeg`): `src/jpeg/`.
+- **JPEG decode** (branch `wave2-jpeg`): `src/jpeg/`. Stage 1, baseline and
+  progressive Huffman 8-bit, landed at `a12ff24`; stage 2 (arithmetic,
+  12-bit, lossless) follows on the same branch. TIFF detects its interface
+  with `@hasField(image.jpeg.Decoder.Options, "tables")`.
 - **WebP decode** (branch `wave3-webp`): `src/webp/`.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
   It uses `image.Seeker` (landed), and decodes
@@ -279,9 +282,18 @@ orb asks for a change to them, or for text in this file, in its report.
   is not applied. The encoder defaults to PGM, PPM, or PAM (for alpha) at
   maxval 255 or 65535, and float sources to a 16-bit RGB_ALPHA PAM, since
   `checkEncoder` uses default options.
-- **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
-  `src/wbmp/`, the QOI encoder, and their harness files; it also owns
-  `src/qoi/` for the decoder follow-ups wave 0 measured.
+- **WBMP decode and encode, QOI encode, and the QOI decoder follow-ups**
+  (landed at `d61c1c7`; wbmp.md, qoi.md, results/wbmp-qoi-20261101.md): QOI
+  decode 1.47–1.54× Wuffs and 0.79–1.03× the `qoi` crate; QOI encode
+  byte-identical to qoi.h at 1.5× its speed; WBMP 48–114× Wuffs. WBMP is
+  strict: type is the single octet 0, the fixed header 0, dimensions at most
+  5 octets in u32, zero width or height allowed (as Wuffs); native gray8.
+  The encoder thresholds image.convert's gray at 128. QOI decode keeps a
+  branchy loop below 64×64 and a 256-entry table loop above. An encoder that
+  needs no work memory returns 0 from `workLen`; both wave 1 encoders do.
+- **PNG LaxDiffers fix** (landed at `33cca5f`): the fuzz check compared
+  `?anyerror` values, the Zig 0.16 Debug miscompile again; it compares error
+  codes now. Compare optional errors only through `errorCode`.
 - **Decoder contract** (branch `wave2-metadata-hook`, the BMP/ICO orb):
   `finalConfig` (decision 10), `decodeFrameConfig` (decision 11), and
   `Blob.len` as `?u64` (decision 13, with the harness's sinks) in
@@ -290,8 +302,10 @@ orb asks for a change to them, or for text in this file, in its report.
   `src/tga/` and `src/png/`.
 - **GIF follow-ups** (branch `wave2-gif-options`, the GIF orb): `src/gif/`
   for decision 12.
-- **Netpbm oracle determinism** (branch `wave2-netpbm-oracle`, the Netpbm
-  orb): `test/oracle/netpbm.c` and `netpbm.zig`.
+- **Netpbm oracle determinism** (landed at `c94a296`): a data race, not an
+  oracle library. `comparable()` cached our decode in globals shared by the
+  oracle's worker threads; they are `threadlocal` now. Wrappers that keep
+  state must keep it per thread (GIF's saved canvas is the other one).
 - **Seeker** (landed at `6ee1d9f`): `image.Seeker` in `src/decode.zig`,
   `DecodeOptions.seeker`, passed through by `image.Decoder` to formats whose
   `Options` have the field.
@@ -315,7 +329,11 @@ orb asks for a change to them, or for text in this file, in its report.
    bytes.
 2. **JPEG IDCT and upsampling.** libjpeg-turbo's integer IDCT and fancy
    upsampling decide whether our pixels can match it exactly. Default: match
-   libjpeg-turbo's output bit for bit, so it is a strict oracle.
+   libjpeg-turbo's output bit for bit, so it is a strict oracle. Landed with
+   JPEG stage 1 (results/jpeg-20261102.md): libjpeg-turbo's islow IDCT,
+   fancy upsampling, and YCbCr to RGB, bit for bit, at 1.03–1.35× its
+   throughput on photos over 1 MP and 3–5× on icons, with peak RSS at or
+   below it. No trade was needed.
 3. **JPEG encoder quality.** libjpeg-turbo is the speed bar and mozjpeg the
    size bar. Whether to add trellis quantization is measured after the
    baseline encoder works.
@@ -378,3 +396,18 @@ not yet made:
   (performance pass).
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
+- `harness.checkEncoder`: a hook mapping the source to its expected decode
+  (quantizing and lossy encoders: WBMP now, GIF and JPEG later), a public
+  `Drip`, and sides above 64; then wbmp_encode drops its private copy.
+- `src/encode.zig`: take the source as a const pixel view.
+- An encode op in the oracle protocol (qoi_encode passes its file as a
+  one-row gray8 image), and adding-a-format.md saying oracle modules must be
+  thread-safe.
+- One convention for bench encode inputs' size (BMP assumes square; QOI and
+  WBMP read a 12-byte header of little-endian u32 width, height, channels).
+- `just oracle-build` writing `zig-out/bin/image-oracle` in place, which
+  fails a running `just oracle` with ETXTBSY; write and rename.
+- A bench row rotating through many distinct icons, so the branch predictor
+  cannot memorize one tiny file.
+- A shared `cmyk8` and `cmyk16` pixel format, so JPEG's and TIFF's raw inks
+  are native and `image.convert` does the naive RGB (JPEG request).
