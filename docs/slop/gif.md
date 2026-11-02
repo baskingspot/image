@@ -106,11 +106,23 @@ specifications leave room, and why. Results: `results/gif-20261101.md`.
   frame: `Config.loop_count` is the count plus one plays (0 forever), or
   1 when there is none, as browsers play such a file once (decision 12;
   a first version reported null). One after the first
-  frame is skipped, since the config is already returned. ICC (`ICCRGBG1012`)
-  and XMP (`XMP DataXMP`) application extensions are skipped, not passed to
-  the blob sink: a blob is announced with its length, and a GIF extension's
-  length is known only at its end. Reporting them needs a blob with an
-  unknown length (a harness request).
+  frame is skipped, since the config is already returned.
+- **ICC and XMP.** `ICCRGBG1012` and `XMP DataXMP` application extensions
+  are blobs (decision 13): each piece goes to the blob sink as it is read,
+  with `Blob.len` null until the last, and the finished blob lands in
+  `Config.metadata` when it comes before the first frame, or in
+  `applyTrailer` (so `image.Decoder.finalConfig`, decision 10) after it.
+  The first of each kind wins, wherever it comes; later ones are skipped
+  and never reach the sink. ICC's payload is the sub-blocks' data and its
+  offset is the first data byte; a profile with no sub-blocks is a 0-byte
+  blob. XMP's payload is every byte after the identifier block, length
+  bytes and terminator included, less the last 258, the magic trailer
+  (1, then 255 down to 0, then the terminator) that makes the packet's
+  bytes parse as sub-blocks; those 258 are held back and not checked, and
+  the offset is the first byte after the identifier block. An XMP
+  extension shorter than 258 bytes is no packet and gives no blob. A file
+  cut short inside either leaves pieces in the sink with no last piece and
+  no blob in the metadata.
 - **Color tables.** A frame uses its local table when it has one and the
   global table otherwise. A frame with neither, or an index past the table
   it uses, is opaque black, as in Wuffs. The transparent index may be past

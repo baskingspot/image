@@ -67,13 +67,59 @@ const Run = struct {
     }
 };
 
+/// Checks the pieces a decoder passes its blob sink against `BlobSink`'s
+/// rules: each blob arrives in order from byte 0, its length known by its
+/// last piece, and nothing follows that piece. A second blob of a kind
+/// is a fault too, since GIF reports only the first, and GIF has no Exif.
+/// Indexed by `Blob.Kind`.
+const Sink = struct {
+    blobs: [3]?image.Blob = @splat(null),
+    at: [3]u64 = @splat(0),
+    ended: [3]bool = @splat(false),
+    bad: bool = false,
+
+    fn write(context: *anyopaque, blob: image.Blob, at: u64, bytes: []const u8) void {
+        const s: *Sink = @ptrCast(@alignCast(context));
+        const k = @intFromEnum(blob.kind);
+        if (blob.kind == .exif or s.ended[k] or at != s.at[k]) return s.fail();
+        if (s.blobs[k]) |b| if (b.offset != blob.offset) return s.fail();
+        if (blob.len) |n| if (at + bytes.len > n) return s.fail();
+        s.blobs[k] = blob;
+        s.at[k] += bytes.len;
+        s.ended[k] = blob.endsAt(at, bytes.len);
+    }
+
+    fn fail(s: *Sink) void {
+        s.bad = true;
+    }
+
+    /// The metadata a decode reports agrees with what the sink was sent:
+    /// a blob there is one the sink saw end, with the same offset and
+    /// length, and each blob the sink saw end is there.
+    fn agrees(s: *const Sink, metadata: image.Metadata) bool {
+        if (s.bad) return false;
+        for ([3]?image.Blob{ metadata.icc, metadata.exif, metadata.xmp }, 0..) |m, k| {
+            if (m) |b| {
+                if (!s.ended[k] or b.len != s.at[k] or b.offset != s.blobs[k].?.offset) return false;
+            } else if (s.ended[k]) return false;
+        }
+        return true;
+    }
+};
+
 /// Decodes every frame of `input`, checking that `decodeFrameConfig`
-/// reports each frame `decodeFrame` then returns.
+/// reports each frame `decodeFrame` then returns, and that the blobs the
+/// sink gets agree with the metadata reported.
 fn run(input: []const u8, lax: bool) !Run {
     var result: Run = .{};
     var r: std.Io.Reader = .fixed(input);
-    var d: image.gif.Decoder = .init(&r, .{ .limits = harness.limits, .ignore_too_much_data = lax });
-    const c = d.decodeConfig() catch |e| {
+    var sink: Sink = .{};
+    var d: image.gif.Decoder = .init(&r, .{
+        .limits = harness.limits,
+        .ignore_too_much_data = lax,
+        .blob_sink = .{ .context = &sink, .write = Sink.write },
+    });
+    var c = d.decodeConfig() catch |e| {
         result.err = e;
         return result;
     };
@@ -83,16 +129,18 @@ fn run(input: []const u8, lax: bool) !Run {
     while (result.count < result.frames.len) : (result.count += 1) {
         const peek = d.decodeFrameConfig() catch |e| {
             result.err = e;
-            return result;
+            break;
         };
         const frame = d.decodeFrame(dst, work[0..c.work_len]) catch |e| {
             result.err = e;
-            return result;
+            break;
         };
         if (!std.meta.eql(peek, frame)) return error.FrameConfigDiffers;
-        result.frames[result.count] = frame orelse return result;
+        result.frames[result.count] = frame orelse break;
         result.hashes[result.count] = std.hash.Wyhash.hash(0, pixels[0..len]);
     }
+    d.applyTrailer(&c);
+    if (!sink.agrees(c.metadata)) return error.BlobsDisagree;
     return result;
 }
 
@@ -236,6 +284,27 @@ fn lzwData(random: std.Random, min_bits: u4, pixel_count: u64) []u8 {
     return b.flush();
 }
 
+/// An ICC profile in random sub-blocks, or an XMP packet with its
+/// trailer, sometimes cut short of it.
+fn metadataExtension(o: *Out, random: std.Random) void {
+    var data: [600]u8 = undefined;
+    const n = random.uintAtMost(usize, data.len);
+    random.bytes(data[0..n]);
+    if (random.boolean()) {
+        o.put("\x21\xff\x0bICCRGBG1012");
+        return o.subBlocks(random, data[0..n]);
+    }
+    o.put("\x21\xff\x0bXMP DataXMP");
+    // Text bytes, which as sub-block lengths land in the trailer.
+    for (data[0..n]) |*b| b.* = 0x20 + b.* % 0x5f;
+    o.put(data[0..n]);
+    var trailer: [258]u8 = undefined;
+    trailer[0] = 1;
+    for (trailer[1..257], 0..) |*b, i| b.* = @intCast(255 - i);
+    trailer[257] = 0;
+    o.put(if (random.uintLessThan(u8, 8) == 0) trailer[random.uintLessThan(usize, 257)..] else &trailer);
+}
+
 fn colorTable(o: *Out, random: std.Random, size_bits: u3) void {
     const n = @as(usize, 2) << size_bits;
     var c: [768]u8 = undefined;
@@ -262,7 +331,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
     const frames = 1 + random.uintLessThan(u8, if (random.boolean()) 2 else 6);
     for (0..frames) |_| {
         // Extensions before the frame, in a random order.
-        for (0..random.uintLessThan(u8, 4)) |_| switch (random.uintLessThan(u8, 8)) {
+        for (0..random.uintLessThan(u8, 4)) |_| switch (random.uintLessThan(u8, 9)) {
             0, 1, 2 => {
                 const size: u8 = if (random.uintLessThan(u8, 32) == 0) random.uintLessThan(u8, 8) else 4;
                 o.put(&.{ 0x21, 0xf9, size });
@@ -275,7 +344,10 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
                 o.put(g[0..size]);
                 o.byte(0);
             },
-            3 => {
+            3 => if (random.uintLessThan(u8, 8) == 0) {
+                // No sub-blocks: Wuffs misreads this (test/oracle/gif.zig).
+                o.put("\x21\xff\x0bNETSCAPE2.0\x00");
+            } else {
                 o.put("\x21\xff\x0bNETSCAPE2.0\x03\x01");
                 o.u16le(random.uintLessThan(u16, 4));
                 o.byte(0);
@@ -288,10 +360,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
                 o.put("\x21\x01\x0c" ++ "\x00" ** 12);
                 o.subBlocks(random, "text");
             },
-            6 => {
-                o.put("\x21\xff\x0bXMP DataXMP");
-                o.subBlocks(random, "<x:xmpmeta/>");
-            },
+            6, 7 => metadataExtension(&o, random),
             else => {
                 o.put(&.{ 0x21, random.int(u8) });
                 o.subBlocks(random, "unknown");
@@ -319,6 +388,8 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
         o.byte(if (random.uintLessThan(u8, 64) == 0) random.int(u8) else min_bits);
         o.subBlocks(random, lzwData(random, min_bits, @as(u64, fw) * fh));
     }
+    // Metadata after the frames, for `applyTrailer`.
+    if (random.uintLessThan(u8, 4) == 0) metadataExtension(&o, random);
     switch (random.uintLessThan(u8, 32)) {
         0 => {},
         1 => o.byte(random.int(u8)),

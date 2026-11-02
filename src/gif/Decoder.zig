@@ -7,8 +7,10 @@
 //! Format: GIF87a and GIF89a (W3C, 1987 and 1990), with the NETSCAPE2.0 (or
 //! ANIMEXTS1.0) application extension's loop count. Global and local color
 //! tables, interlacing, and the graphic control extension's transparent
-//! index, delay, and disposal. Comments, plain text, and other application
-//! extensions are skipped.
+//! index, delay, and disposal. ICC profiles (ICCRGBG1012) and XMP packets
+//! (XMP DataXMP) go to `Options.blob_sink` and `Config.metadata`, or, after
+//! the first frame, `applyTrailer`. Comments, plain text, and other
+//! application extensions are skipped.
 //!
 //! Frames follow the APNG model (docs/slop/gif.md): `decodeFrame` writes
 //! each frame into its region of the caller's canvas, which must hold the
@@ -87,6 +89,12 @@ pending: ?Pending = null,
 local: [256][4]u8 = undefined,
 /// Frames decoded.
 frames: u32 = 0,
+/// Bytes consumed from `reader`: where blobs start.
+pos: u64 = 0,
+/// The ICC profile and XMP packet before the first frame, in the config.
+metadata: decode.Metadata = .{},
+/// Those after it, for `applyTrailer`.
+late: decode.Metadata = .{},
 
 const State = enum {
     start,
@@ -155,7 +163,15 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
         .loop_count = d.loop_count orelse 1,
         .work_len = work_len,
         .background = d.background,
+        .metadata = d.metadata,
     };
+}
+
+/// Sets the ICC profile and XMP packet found after the first frame, when
+/// none came before it, for `image.Decoder.finalConfig`.
+pub fn applyTrailer(d: *const Decoder, config: *decode.Config) void {
+    if (config.metadata.icc == null) config.metadata.icc = d.late.icc;
+    if (config.metadata.xmp == null) config.metadata.xmp = d.late.xmp;
 }
 
 /// Reads up to the next frame's pixels and returns the frame that
@@ -193,16 +209,23 @@ fn mapRead(e: Io.Reader.Error) Error {
     };
 }
 
+// Reading. Every byte goes through these, which count `pos`.
+
 fn take(d: *Decoder, comptime n: usize) Error!*[n]u8 {
-    return d.reader.takeArray(n) catch |e| mapRead(e);
+    const b = d.reader.takeArray(n) catch |e| return mapRead(e);
+    d.pos += n;
+    return b;
 }
 
 fn takeByte(d: *Decoder) Error!u8 {
-    return d.reader.takeByte() catch |e| mapRead(e);
+    const b = d.reader.takeByte() catch |e| return mapRead(e);
+    d.pos += 1;
+    return b;
 }
 
 fn readSlice(d: *Decoder, buf: []u8) Error!void {
-    return d.reader.readSliceAll(buf) catch |e| mapRead(e);
+    d.reader.readSliceAll(buf) catch |e| return mapRead(e);
+    d.pos += buf.len;
 }
 
 fn readHead(d: *Decoder) Error!void {
@@ -248,6 +271,7 @@ fn skipSubBlocks(d: *Decoder) Error!void {
         const n = try d.takeByte();
         if (n == 0) return;
         d.reader.discardAll(n) catch |e| return mapRead(e);
+        d.pos += n;
     }
 }
 
@@ -327,10 +351,84 @@ fn readExtension(d: *Decoder) Error!void {
                     }
                 }
             }
+            if (n == 11 and std.mem.eql(u8, id[0..11], "ICCRGBG1012")) return d.readIcc();
+            if (n == 11 and std.mem.eql(u8, id[0..11], "XMP DataXMP")) return d.readXmp();
         },
         else => {},
     }
     try d.skipSubBlocks();
+}
+
+/// Where a blob found now is recorded: the config's metadata before the
+/// first frame, `late` after it. Null when one of its kind came already,
+/// since the first wins.
+fn blobSlot(d: *Decoder, kind: decode.Blob.Kind) ?*?decode.Blob {
+    const now = if (d.frames == 0) &d.metadata else &d.late;
+    const slot, const before = switch (kind) {
+        .icc => .{ &now.icc, d.metadata.icc != null or d.late.icc != null },
+        .xmp => .{ &now.xmp, d.metadata.xmp != null or d.late.xmp != null },
+        .exif => unreachable,
+    };
+    return if (before) null else slot;
+}
+
+/// An ICC profile's sub-blocks, after the ICCRGBG1012 identifier: the
+/// profile is their data. Each sub-block goes to the blob sink once the
+/// next length byte says whether it is the last.
+fn readIcc(d: *Decoder) Error!void {
+    const slot = d.blobSlot(.icc) orelse return d.skipSubBlocks();
+    var blob: decode.Blob = .{ .kind = .icc, .offset = d.pos + 1, .len = null };
+    var buf: [255]u8 = undefined;
+    var at: u64 = 0;
+    var n = try d.takeByte();
+    if (n == 0) blob.len = 0;
+    while (n != 0) {
+        try d.readSlice(buf[0..n]);
+        const next = try d.takeByte();
+        if (next == 0) blob.len = at + n;
+        if (d.options.blob_sink) |s| s.put(blob, at, buf[0..n]);
+        at += n;
+        n = next;
+    }
+    if (at == 0) if (d.options.blob_sink) |s| s.put(blob, 0, &.{});
+    slot.* = blob;
+}
+
+/// The XMP application extension's trailer: 1, then 255 down to 0, then
+/// the block terminator.
+const xmp_trailer_len = 258;
+
+/// An XMP packet's sub-blocks, after the XMP DataXMP identifier. The
+/// packet is every byte to the end of the extension, length bytes
+/// included, since XMP writers let the length bytes fall inside the text,
+/// less the last 258: the "magic trailer" that makes those length bytes
+/// add up. Those are held back, so the sink gets only the packet. An
+/// extension shorter than the trailer has no packet and is skipped.
+fn readXmp(d: *Decoder) Error!void {
+    const slot = d.blobSlot(.xmp) orelse return d.skipSubBlocks();
+    var blob: decode.Blob = .{ .kind = .xmp, .offset = d.pos, .len = null };
+    var hold: [xmp_trailer_len + 256]u8 = undefined;
+    var held: usize = 0;
+    var at: u64 = 0;
+    while (true) {
+        const n = try d.takeByte();
+        hold[held] = n;
+        try d.readSlice(hold[held + 1 ..][0..n]);
+        held += 1 + @as(usize, n);
+        if (n == 0) break;
+        if (held > xmp_trailer_len) {
+            const k = held - xmp_trailer_len;
+            if (d.options.blob_sink) |s| s.put(blob, at, hold[0..k]);
+            at += k;
+            @memmove(hold[0..xmp_trailer_len], hold[k..held]);
+            held = xmp_trailer_len;
+        }
+    }
+    if (held < xmp_trailer_len) return;
+    const k = held - xmp_trailer_len;
+    blob.len = at + k;
+    if (d.options.blob_sink) |s| s.put(blob, at, hold[0..k]);
+    slot.* = blob;
 }
 
 /// The frame `p` will be once drawn: its region clipped to the canvas.
@@ -954,6 +1052,99 @@ test "too much LZW data: TooMuchData, or dropped with ignore_too_much_data" {
             try testing.expectEqualSlices(u8, &(first ++ .{ 0, 0, 0, 0 } ** 3), &out);
         }
     }
+}
+
+test "ICC and XMP blobs, before and after the frames, through any reader" {
+    const a = testing.allocator;
+    const work = try a.alloc(u8, work_len);
+    defer a.free(work);
+    const colors = [2][3]u8{ .{ 1, 1, 1 }, .{ 2, 2, 2 } };
+    var profile: [600]u8 = undefined;
+    for (&profile, 0..) |*b, i| b.* = @truncate(i * 7);
+    // An XMP packet whose bytes, read as sub-blocks of 5, 255, 3, and 16,
+    // land in the trailer.
+    const packet = "\x05<?xpa\xff" ++ ("-" ** 255) ++ "\x03cke\x10t begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>";
+    var trailer: [xmp_trailer_len]u8 = undefined;
+    trailer[0] = 1;
+    for (trailer[1..257], 0..) |*b, i| b.* = @intCast(255 - i);
+    trailer[257] = 0;
+    const Sink = struct {
+        const Self = @This();
+        icc: [700]u8 = undefined,
+        xmp: [700]u8 = undefined,
+        ends: [3]u64 = @splat(0),
+        last: [3]bool = @splat(false),
+        /// Checks the pieces come in order, with a length only on the last.
+        fn write(context: *anyopaque, blob: decode.Blob, at: u64, bytes: []const u8) void {
+            const s: *Self = @ptrCast(@alignCast(context));
+            const k = @intFromEnum(blob.kind);
+            std.debug.assert(at == s.ends[k]);
+            std.debug.assert(!s.last[k]);
+            const to: []u8 = if (blob.kind == .icc) &s.icc else &s.xmp;
+            @memcpy(to[@intCast(at)..][0..bytes.len], bytes);
+            s.ends[k] += bytes.len;
+            s.last[k] = blob.endsAt(at, bytes.len);
+            std.debug.assert(s.last[k] == (blob.len != null));
+        }
+    };
+    for ([_]bool{ false, true }) |after| {
+        var t: TestGif = .{};
+        defer t.deinit();
+        try t.head(2, 1, &colors);
+        if (after) try t.frame(0, 0, 2, 1, &.{ 0, 1 }, .{ .min_bits = 2 });
+        // The profile in sub-blocks of 255, 255, and 90 bytes; a second
+        // profile, which the first outranks.
+        try t.put("\x21\xff\x0bICCRGBG1012");
+        const icc_at = t.bytes.items.len + 1;
+        var at: usize = 0;
+        while (at < profile.len) : (at += 255) {
+            const n = @min(255, profile.len - at);
+            try t.put(&.{@intCast(n)});
+            try t.put(profile[at..][0..n]);
+        }
+        try t.put("\x00\x21\xff\x0bICCRGBG1012\x02xx\x00");
+        try t.put("\x21\xff\x0bXMP DataXMP");
+        const xmp_at = t.bytes.items.len;
+        try t.put(packet);
+        try t.put(&trailer);
+        if (!after) try t.frame(0, 0, 2, 1, &.{ 0, 1 }, .{ .min_bits = 2 });
+        try t.put("\x3b");
+        const icc: decode.Blob = .{ .kind = .icc, .offset = icc_at, .len = profile.len };
+        const xmp: decode.Blob = .{ .kind = .xmp, .offset = xmp_at, .len = packet.len };
+        for ([_]usize{ 1, 5, t.bytes.items.len }) |step| {
+            var trickle: Trickle = undefined;
+            trickle.init(t.bytes.items, step);
+            var sink: Sink = .{};
+            var d: Decoder = .init(&trickle.reader, .{ .blob_sink = .{ .context = &sink, .write = Sink.write } });
+            const config = try d.decodeConfig();
+            const before: decode.Metadata = if (after) .{} else .{ .icc = icc, .xmp = xmp };
+            try testing.expectEqual(before, config.metadata);
+            var out: [8]u8 = undefined;
+            const dst = try PixelBuffer.init(&out, .rgba8, 2, 1);
+            while (try d.decodeFrame(dst, work)) |_| {}
+            try testing.expectEqual(before, (try d.decodeConfig()).metadata);
+            var final = config;
+            d.applyTrailer(&final);
+            try testing.expectEqual(decode.Metadata{ .icc = icc, .xmp = xmp }, final.metadata);
+            try testing.expectEqualSlices(u8, &profile, sink.icc[0..profile.len]);
+            try testing.expectEqualSlices(u8, packet, sink.xmp[0..packet.len]);
+            try testing.expectEqual([3]u64{ profile.len, 0, packet.len }, sink.ends);
+            try testing.expectEqual([3]bool{ true, false, true }, sink.last);
+        }
+    }
+    // An XMP extension shorter than its trailer has no packet; an empty
+    // profile is a blob of 0 bytes.
+    var t: TestGif = .{};
+    defer t.deinit();
+    try t.head(2, 1, &colors);
+    try t.put("\x21\xff\x0bXMP DataXMP\x03abc\x00\x21\xff\x0bICCRGBG1012\x00");
+    try t.frame(0, 0, 2, 1, &.{ 0, 1 }, .{ .min_bits = 2 });
+    try t.put("\x3b");
+    var r: Io.Reader = .fixed(t.bytes.items);
+    var d: Decoder = .init(&r, .{});
+    const icc_at = std.mem.find(u8, t.bytes.items, "1012").? + 4 + 1;
+    const empty: decode.Blob = .{ .kind = .icc, .offset = icc_at, .len = 0 };
+    try testing.expectEqual(decode.Metadata{ .icc = empty }, (try d.decodeConfig()).metadata);
 }
 
 test "errors, and they stick" {
