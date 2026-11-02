@@ -74,16 +74,6 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
     return input;
 }
 
-/// Work memory, one buffer per thread, reused for every input. compare.zig
-/// takes each input's `work_len` from an arena that holds a whole batch and
-/// keeps its capacity: blocks of a VP8L image's worst case (its prefix
-/// tables alone can span 26 MiB, of which a stream touches little) spread
-/// each batch's pixels over gigabytes, and the pages they touch pile up
-/// batch after batch until the oracle runs out of memory. So `Decoder`
-/// asks compare.zig for no work memory and decodes in this buffer.
-threadlocal var own_work: []u8 = &.{};
-const own_work_len = 64 << 20;
-
 /// The region under a frame disposed to the background, kept in case it was
 /// the last; compare.zig's pixel limit is 1 << 22, at up to 4 bytes a
 /// pixel. One per thread, since compare.zig compares on every core.
@@ -94,8 +84,6 @@ threadlocal var saved: [(1 << 22) * 4]u8 = undefined;
 /// it after the last frame.
 pub const Decoder = struct {
     d: image.webp.Decoder,
-    /// `own_work`, when the decoder's work fits it.
-    work: ?[]u8 = null,
 
     pub const Options = image.webp.Decoder.Options;
 
@@ -104,17 +92,10 @@ pub const Decoder = struct {
     }
 
     pub fn decodeConfig(c: *Decoder) image.webp.Decoder.Error!image.Config {
-        var config = try c.d.decodeConfig();
-        if (config.work_len <= own_work_len) {
-            if (own_work.len == 0) own_work = std.heap.page_allocator.alloc(u8, own_work_len) catch return config;
-            c.work = own_work[0..config.work_len];
-            config.work_len = 0;
-        }
-        return config;
+        return c.d.decodeConfig();
     }
 
-    pub fn decodeFrame(c: *Decoder, dst: image.PixelBuffer, arena_work: []u8) image.webp.Decoder.Error!?image.Frame {
-        const work = c.work orelse arena_work;
+    pub fn decodeFrame(c: *Decoder, dst: image.PixelBuffer, work: []u8) image.webp.Decoder.Error!?image.Frame {
         var last = (try c.d.decodeFrame(dst, work)) orelse return null;
         const bpp = dst.format.bytesPerPixel();
         while (true) {

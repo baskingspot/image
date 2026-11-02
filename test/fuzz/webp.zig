@@ -14,12 +14,11 @@ pub const name = "webp";
 
 /// Seed directories, relative to the repository root (corpus/README.md),
 /// and the extensions of the files in them to take. Of bench/corpus-gen/webp
-/// only the small lossy files and the animations: the lossless photos and
-/// the 50-megapixel mosaic cut inputs per second and, mutated in batches on
-/// every core, run the oracle out of memory.
+/// all but the 50-megapixel mosaic, which is past every limit here.
 pub const corpus = [_][]const u8{
     "corpus/fetched",
     "corpus/vendor",
+    "bench/corpus-gen/webp/lossless",
     "bench/corpus-gen/webp/lossy",
     "bench/corpus-gen/webp/anim",
 };
