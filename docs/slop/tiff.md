@@ -236,7 +236,7 @@ reads JPEG data in stored order whatever FillOrder says.
   tiff-raw expands with this package's rules, and the samples path would
   need its own 12-bit layout.
 - As libtiff checks: a stream's components must be the samples per pixel
-  (1 per plane), libjpeg reading 1, 3, or 4; its precision must be
+  (1 per plane), 1 to 4; its precision must be
   BitsPerSample (8 or 12); its first component's sampling must be
   YCbCrSubSampling for chunky YCbCr and 1 by 1 otherwise, the others 1
   by 1. A stream wider or taller than its strip or tile is `error.BadJpeg`,
@@ -254,21 +254,28 @@ reads JPEG data in stored order whatever FillOrder says.
   JPEGFixupTags does; work memory then covers any of those samplings. Any
   YCbCrSubSampling is accepted for JPEG data, which libjpeg checks against
   the streams (1 to 4, at most 10 blocks a unit).
-- `image.jpeg` has no public accessor for the frame's components,
-  precision, and sampling after `decodeConfig`; the checks read its `ncomp`,
-  `precision`, and `comps` fields. A `Decoder.frameParams()` returning
-  `FrameParams` would make that a contract (asked of the JPEG owner).
-- Not followed: libjpeg keeps a table that one strip's stream defines for
-  the strips after it, and this decoder starts each strip from JPEGTables
-  alone; a file that relies on that fails here (the oracle skips pages
-  whose streams define different tables, conditioning, or restart
-  intervals). libjpeg reads JPEGTables
-  as a stream header, skipping RSTn and TEM and taking SOFn and DNL, which
-  `image.jpeg`'s tables reader refuses (`error.BadJpeg`); the oracle skips
-  such tables, and the JPEG owner is asked to follow libjpeg there. A
-  libtiff that cannot find the first frame header by its own marker scan
-  (a DAC segment before it, say) keeps 2 by 2 where this decoder takes the
-  frame's sampling.
+- The checks read the frame through `jpeg.Decoder.frameParams()` after
+  `decodeConfig`.
+- Tables carry from stream to stream within a page, as libjpeg under
+  libtiff keeps them: JPEGTables primes the first stream
+  (`Options.tables`), and each later stream starts from the DQT and DHT
+  tables the one before it left (`keptTables()`, `Options.prior`). libjpeg
+  resets DAC and DRI at every SOI, so those do not carry, not even from
+  JPEGTables. The streams are read in libtiff's RGBA interface's order:
+  row by row of strips or tiles, and for planar data every plane of one
+  before the next. tiff-raw reads planar streams plane by plane, so the
+  oracle skips planar pages whose streams define different tables. A new
+  page starts from its own JPEGTables, as libtiff sets up a new codec per
+  directory.
+- JPEGTables is read as libjpeg reads a tables-only stream (SOFn checked
+  loosely and dropped, DNL, RSTn, and TEM skipped); SOF5 to 7, SOF13 to
+  15, and JPG are `error.Unsupported`, as libjpeg fails them.
+- Chunky gray with an extra sample is a two-component stream, which
+  `image.jpeg` hands out unconverted, as libjpeg's JCS_UNKNOWN does; more
+  than 4 components are `error.Unsupported` (libjpeg reads up to 10).
+- Not followed: a libtiff that cannot find the first frame header by its
+  own marker scan (a DAC segment before it, say) keeps 2 by 2 where this
+  decoder takes the frame's sampling.
 
 ## Testing
 

@@ -219,16 +219,15 @@ static int deflate_overruns(TIFF *tif) {
 // JPEG data (compression 7) is libjpeg-turbo's, under libtiff. libtiff hands
 // libjpeg a whole strip or tile at once, on which its Huffman decoder takes
 // a fast path that decodes a code its table lacks without a warning, and it
-// passes libjpeg's warnings on as its own and reads on. So each strip or
-// tile is first decoded strictly, as test/oracle/jpeg.c decodes a JPEG
-// file: after JPEGTables, 256 bytes at a time, with any warning an error
-// but the three that cannot change the pixels. A stream that fails is
-// corrupt, and rejects; one with more than one scan (progressive, or not
-// interleaved) skips, since this decoder does not read those, as does a
-// chunky page of other than 1, 3, or 4 samples, one whose JPEGTables
-// image.jpeg reads more strictly than libjpeg (tables_odd), and one whose
-// streams define different tables (stream_defines). SIMD is off for the
-// whole oracle (jpeg.c).
+// passes libjpeg's warnings on as its own and reads on. So the strips or
+// tiles are first decoded strictly, as test/oracle/jpeg.c decodes a JPEG
+// file: by one decompressor after JPEGTables, 256 bytes at a time, with any
+// warning an error but the three that cannot change the pixels. A stream
+// that fails is corrupt, and rejects; one with more than one scan
+// (progressive, or not interleaved) skips, since this decoder does not read
+// those, as does a chunky page of more than 4 samples and a planar one
+// whose streams define different tables (stream_defines). SIMD is off for
+// the whole oracle (jpeg.c).
 struct jstrict {
   struct jpeg_error_mgr pub;
   jmp_buf jump;
@@ -287,29 +286,10 @@ static void jchunked_set(struct jchunked *src, const uint8_t *data, size_t len) 
   src->pub.next_input_byte = NULL;
 }
 
-// Whether a JPEGTables stream has a marker libjpeg reads there but
-// image.jpeg's tables reader refuses: libjpeg reads it as a stream header,
-// skipping RSTn and TEM and taking SOFn and DNL, where image.jpeg takes
-// only DQT, DHT, DAC, DRI, COM, and APPn before EOI.
-static int tables_odd(const uint8_t *t, uint32_t len) {
-  if (len < 2 || t[0] != 0xff || t[1] != 0xd8) return 0;
-  uint32_t i = 2;
-  for (;;) {
-    while (i < len && t[i] != 0xff) i++;
-    while (i < len && t[i] == 0xff) i++;
-    if (i >= len) return 0;
-    uint8_t m = t[i++];
-    if (m == 0xd9) return 0;
-    if (!(m == 0xdb || m == 0xc4 || m == 0xcc || m == 0xdd || m == 0xfe || (m >= 0xe0 && m <= 0xef))) return 1;
-    if (i + 2 > len) return 0;
-    i += (uint32_t)t[i] << 8 | t[i + 1];
-  }
-}
-
-// The tables, conditioning, and restart interval a strip or tile's own
-// stream defines before its scan, as bits: DQT 0-3, DHT DC 0-3 and AC 0-3,
-// DAC DC 0-3 and AC 0-3, and DRI. libjpeg keeps what one strip's stream
-// defines for the strips after it; image.jpeg starts each from JPEGTables.
+// The tables a strip or tile's own stream defines before its scan, as
+// bits: DQT 0-3, DHT DC 0-3 and AC 0-3. libjpeg keeps them for the streams
+// after it (DAC and DRI it resets at each SOI), so which a stream uses
+// depends on the order the streams are read in.
 static uint32_t stream_defines(const uint8_t *b, size_t len) {
   uint32_t bits = 0;
   size_t i = 0;
@@ -337,12 +317,6 @@ static uint32_t stream_defines(const uint8_t *b, size_t len) {
           k += 17 + count;
         }
         break;
-      case 0xcc:
-        for (; k + 2 <= end; k += 2) bits |= 1u << (12 + (b[k] >> 4 ? 4 : 0) + (b[k] & 3));
-        break;
-      case 0xdd:
-        bits |= 1u << 20;
-        break;
     }
     i += n;
   }
@@ -350,6 +324,8 @@ static uint32_t stream_defines(const uint8_t *b, size_t len) {
 
 // 0 if every strip or tile of a JPEG page decodes strictly (or the page is
 // not JPEG), 1 if one is corrupt, 2 if the page is one of those skipped.
+// One decompressor reads every stream in turn after JPEGTables, as libtiff
+// has it, so tables carry from stream to stream.
 static int jpeg_strict(TIFF *tif) {
   uint16_t c = COMPRESSION_NONE, photometric = 0, planar = PLANARCONFIG_CONTIG, spp = 1;
   TIFFGetFieldDefaulted(tif, TIFFTAG_COMPRESSION, &c);
@@ -357,80 +333,82 @@ static int jpeg_strict(TIFF *tif) {
   TIFFGetField(tif, TIFFTAG_PHOTOMETRIC, &photometric);
   TIFFGetFieldDefaulted(tif, TIFFTAG_PLANARCONFIG, &planar);
   TIFFGetFieldDefaulted(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
-  // libjpeg reads 1 to 10 components; image.jpeg 1, 3, or 4.
-  if (planar == PLANARCONFIG_CONTIG && spp != 1 && spp != 3 && spp != 4) return 2;
+  // libjpeg reads 1 to 10 components; image.jpeg 1 to 4.
+  if (planar == PLANARCONFIG_CONTIG && spp > 4) return 2;
   uint32_t tables_len = 0;
   void *tables = NULL;
   TIFFGetField(tif, TIFFTAG_JPEGTABLES, &tables_len, &tables);
-  if (tables && tables_odd(tables, tables_len)) return 2;
   int tiled = TIFFIsTiled(tif);
   uint32_t n = tiled ? TIFFNumberOfTiles(tif) : TIFFNumberOfStrips(tif);
-  int result = 0, was_failed = failed;
-  uint32_t defined_any = 0, defined_all = ~0u;
+  int was_failed = failed;
+  volatile int result = 0;
+  volatile uint32_t defined_any = 0, defined_all = ~0u;
+  uint8_t *volatile raw = NULL;
+  struct jpeg_decompress_struct cinfo;
+  struct jstrict err;
+  struct jchunked src = {{0}};
+  cinfo.err = jpeg_std_error(&err.pub);
+  err.pub.error_exit = jstrict_exit;
+  err.pub.emit_message = jstrict_emit;
+  jpeg_create_decompress(&cinfo);
+  src.pub.init_source = jchunked_init;
+  src.pub.fill_input_buffer = jchunked_fill;
+  src.pub.skip_input_data = jchunked_skip;
+  src.pub.resync_to_restart = jpeg_resync_to_restart;
+  src.pub.term_source = jchunked_term;
+  cinfo.src = &src.pub;
+  if (setjmp(err.jump)) {
+    result = 1;
+    goto out;
+  }
+  if (tables && tables_len > 0) {
+    jchunked_set(&src, tables, tables_len);
+    jpeg_read_header(&cinfo, FALSE);
+  }
   for (uint32_t i = 0; i < n && result == 0; i++) {
     uint64_t raw_len = TIFFGetStrileByteCount(tif, i);
     if (raw_len == 0 || raw_len > (1u << 28)) continue;
-    uint8_t *raw = malloc((size_t)raw_len);
+    raw = malloc((size_t)raw_len);
     tmsize_t got = tiled ? TIFFReadRawTile(tif, i, raw, (tmsize_t)raw_len) : TIFFReadRawStrip(tif, i, raw, (tmsize_t)raw_len);
-    if (got <= 0) {
-      free(raw);
-      continue;
-    }
-    uint32_t defined = stream_defines(raw, (size_t)got);
-    defined_any |= defined;
-    defined_all &= defined;
-    struct jpeg_decompress_struct cinfo;
-    struct jstrict err;
-    struct jchunked src = {{0}};
-    JSAMPARRAY row = NULL;
-    cinfo.err = jpeg_std_error(&err.pub);
-    err.pub.error_exit = jstrict_exit;
-    err.pub.emit_message = jstrict_emit;
-    if (setjmp(err.jump)) {
-      result = 1;
-      jpeg_destroy_decompress(&cinfo);
-      free(raw);
-      break;
-    }
-    jpeg_create_decompress(&cinfo);
-    src.pub.init_source = jchunked_init;
-    src.pub.fill_input_buffer = jchunked_fill;
-    src.pub.skip_input_data = jchunked_skip;
-    src.pub.resync_to_restart = jpeg_resync_to_restart;
-    src.pub.term_source = jchunked_term;
-    cinfo.src = &src.pub;
-    if (tables && tables_len > 0) {
-      jchunked_set(&src, tables, tables_len);
-      jpeg_read_header(&cinfo, FALSE);
-    }
-    jchunked_set(&src, raw, (size_t)got);
-    jpeg_read_header(&cinfo, TRUE);
-    if (cinfo.progressive_mode || jpeg_has_multiple_scans(&cinfo)) {
-      result = 2;
-    } else {
-      // As libtiff sets them.
-      if (planar == PLANARCONFIG_CONTIG && photometric == PHOTOMETRIC_YCBCR) {
-        cinfo.jpeg_color_space = JCS_YCbCr;
-        cinfo.out_color_space = JCS_RGB;
+    if (got > 0) {
+      uint32_t defined = stream_defines(raw, (size_t)got);
+      defined_any |= defined;
+      defined_all &= defined;
+      jchunked_set(&src, raw, (size_t)got);
+      jpeg_read_header(&cinfo, TRUE);
+      if (cinfo.progressive_mode || jpeg_has_multiple_scans(&cinfo)) {
+        result = 2;
+        jpeg_abort_decompress(&cinfo);
       } else {
-        cinfo.jpeg_color_space = JCS_UNKNOWN;
-        cinfo.out_color_space = JCS_UNKNOWN;
+        // As libtiff sets them.
+        if (planar == PLANARCONFIG_CONTIG && photometric == PHOTOMETRIC_YCBCR) {
+          cinfo.jpeg_color_space = JCS_YCbCr;
+          cinfo.out_color_space = JCS_RGB;
+        } else {
+          cinfo.jpeg_color_space = JCS_UNKNOWN;
+          cinfo.out_color_space = JCS_UNKNOWN;
+        }
+        jpeg_start_decompress(&cinfo);
+        JSAMPARRAY row = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,
+                                                    cinfo.output_width * cinfo.output_components * 2, 1);
+        while (cinfo.output_scanline < cinfo.output_height) {
+          if (cinfo.data_precision == 12) jpeg12_read_scanlines(&cinfo, (J12SAMPARRAY)row, 1);
+          else if (cinfo.data_precision > 8) jpeg16_read_scanlines(&cinfo, (J16SAMPARRAY)row, 1);
+          else jpeg_read_scanlines(&cinfo, row, 1);
+        }
+        jpeg_finish_decompress(&cinfo);
       }
-      jpeg_start_decompress(&cinfo);
-      row = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,
-                                       cinfo.output_width * cinfo.output_components * 2, 1);
-      while (cinfo.output_scanline < cinfo.output_height) {
-        if (cinfo.data_precision == 12) jpeg12_read_scanlines(&cinfo, (J12SAMPARRAY)row, 1);
-        else if (cinfo.data_precision > 8) jpeg16_read_scanlines(&cinfo, (J16SAMPARRAY)row, 1);
-        else jpeg_read_scanlines(&cinfo, row, 1);
-      }
-      jpeg_finish_decompress(&cinfo);
     }
-    jpeg_destroy_decompress(&cinfo);
     free(raw);
+    raw = NULL;
   }
-  // What one stream defines and another does not, libjpeg may carry over.
-  if (result == 0 && (defined_any & ~defined_all)) result = 2;
+out:
+  free(raw);
+  jpeg_destroy_decompress(&cinfo);
+  // Planar streams are read plane by plane here and by tiff-raw, and a row
+  // of strips at a time by libtiff's RGBA interface and this decoder; what
+  // one stream defines and another does not then carries differently.
+  if (result == 0 && planar == PLANARCONFIG_SEPARATE && (defined_any & ~defined_all)) result = 2;
   failed = was_failed;
   return result;
 }
