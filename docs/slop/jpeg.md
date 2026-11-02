@@ -49,8 +49,15 @@ processes.
   2^16) into a second buffer, which keeps the row above, and scaled by the
   point transform into the sample rows. A single-scan image streams; one of
   several scans keeps every component's samples (2 bytes each past 8 bits).
+  Each row decodes through a register copy of the bit reader, checked for
+  overrun once a row (zeros past the end, at most 32 bits a value), with a
+  path for scans whose components are all 1×1.
 - 12-bit samples run the same pipeline on `u16` sample rows: the IDCT in 64
-  bits, upsampling and conversion generic over the sample type.
+  bits, upsampling generic over the sample type. The output stage is
+  specialized by color space and by the 12- and 16-bit precisions so its
+  divisions are by constants, and 12-bit YCbCr converts and scales 16
+  pixels at a time (`sample.yccToRgb16`): together 2.4× on 12-bit and 1.7×
+  on lossless (results/jpeg-stage2-20261102.md).
 - `huffman.zig`: the bit reader refills up to eight bytes at a time when
   none is 0xFF (a SWAR test), inline in the decode loop, and byte by byte
   around stuffing and markers. Tables have a 9-bit lookahead; AC tables also

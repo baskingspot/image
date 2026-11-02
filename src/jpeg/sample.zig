@@ -209,6 +209,44 @@ pub fn yccToRgb(out: []u8, y: []const u8, cb: []const u8, cr: []const u8, n: usi
     }
 }
 
+/// `n` pixels of 12-bit YCbCr rows to interleaved RGB16: each sample
+/// clamped to 12 bits, converted as `ycc(12, ...)`, and scaled to 16 bits,
+/// rounded.
+pub fn yccToRgb16(out: []u8, y: []const u16, cb: []const u16, cr: []const u16, n: usize) void {
+    const lanes = 16;
+    const V = @Vector(lanes, i32);
+    const H = @Vector(lanes, u16);
+    const max: V = @splat(4095);
+    const zero: V = @splat(0);
+    var i: usize = 0;
+    while (i + lanes <= n) : (i += lanes) {
+        const yv = @min(@as(V, @as(H, y[i..][0..lanes].*)), max);
+        const b = @min(@as(V, @as(H, cb[i..][0..lanes].*)), max) - @as(V, @splat(2048));
+        const r = @min(@as(V, @as(H, cr[i..][0..lanes].*)), max) - @as(V, @splat(2048));
+        const half: V = @splat(32768);
+        const rr = yv + ((@as(V, @splat(fix_1_402)) * r + half) >> @splat(16));
+        const gg = yv + ((@as(V, @splat(-fix_0_34414)) * b + half - @as(V, @splat(fix_0_71414)) * r) >> @splat(16));
+        const bb = yv + ((@as(V, @splat(fix_1_772)) * b + half) >> @splat(16));
+        const r16 = scale12(@intCast(@min(@max(rr, zero), max)));
+        const g16 = scale12(@intCast(@min(@max(gg, zero), max)));
+        const b16 = scale12(@intCast(@min(@max(bb, zero), max)));
+        out[i * 6 ..][0 .. 6 * lanes].* = @bitCast(std.simd.interlace(.{ r16, g16, b16 }));
+    }
+    while (i < n) : (i += 1) {
+        const p = ycc(12, @min(y[i], 4095), @min(cb[i], 4095), @min(cr[i], 4095));
+        for (p, 0..) |v, k| {
+            const q: u16 = @intCast((@as(u32, @intCast(v)) * 65535 + 2047) / 4095);
+            std.mem.writeInt(u16, out[(i * 3 + k) * 2 ..][0..2], q, .native);
+        }
+    }
+}
+
+/// 12-bit samples scaled to 16 bits, rounded.
+inline fn scale12(v: @Vector(16, u32)) @Vector(16, u16) {
+    const U = @Vector(16, u32);
+    return @intCast((v * @as(U, @splat(65535)) + @as(U, @splat(2047))) / @as(U, @splat(4095)));
+}
+
 /// libjpeg-turbo's naive CMYK to RGB for inks stored inverted, as Adobe
 /// writes them: each channel is the ink's sample times black's, over the
 /// maximum, rounded.
@@ -298,6 +336,32 @@ test "ycc vector and scalar paths agree" {
     // Gray stays gray; pure red's chroma.
     try testing.expectEqual([3]i32{ 100, 100, 100 }, ycc(8, 100, 128, 128));
     try testing.expectEqual([3]i32{ 254, 0, 0 }, ycc(8, 76, 85, 255));
+}
+
+test "12-bit ycc vector and scalar paths agree" {
+    // 37 pixels: two vectors and a scalar tail, with samples past 12 bits,
+    // which are clamped first.
+    var prng: std.Random.DefaultPrng = .init(12);
+    const rand = prng.random();
+    for (0..500) |_| {
+        var planes: [3][37]u16 = undefined;
+        for (&planes) |*p| for (p) |*v| {
+            v.* = if (rand.uintLessThan(u8, 16) == 0) rand.int(u16) else rand.uintLessThan(u16, 4096);
+        };
+        var out: [37 * 6]u8 = undefined;
+        yccToRgb16(&out, &planes[0], &planes[1], &planes[2], 37);
+        for (0..37) |i| {
+            const p = ycc(12, @min(planes[0][i], 4095), @min(planes[1][i], 4095), @min(planes[2][i], 4095));
+            for (p, 0..) |v, k| {
+                const want: u16 = @intCast(@divTrunc(v * 65535 + 2047, 4095));
+                try testing.expectEqual(want, std.mem.readInt(u16, out[(i * 3 + k) * 2 ..][0..2], .native));
+            }
+        }
+    }
+    // Full scale is 65535.
+    var out: [6]u8 = undefined;
+    yccToRgb16(&out, &.{4095}, &.{2048}, &.{2048}, 1);
+    try testing.expectEqual(65535, std.mem.readInt(u16, out[0..2], .native));
 }
 
 test "cmyk" {

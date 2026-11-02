@@ -1,0 +1,7 @@
+op class rows before_MP/s after_MP/s ratio
+JpegDecode12bit 1mp 23 78.4 186.7 2.38
+JpegDecode12bit icon 13 57.5 95.4 1.66
+JpegDecode12bit large 8 77.9 183.5 2.36
+JpegDecodeLossless 1mp 23 39.3 66.9 1.7
+JpegDecodeLossless icon 13 39.8 79.5 2.0
+JpegDecodeLossless large 8 36.5 61.3 1.68

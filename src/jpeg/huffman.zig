@@ -407,12 +407,9 @@ pub fn sequential(reader: *BitReader, dc: *const Table, ac: *const Table, pred: 
 }
 
 /// H.2.1: a lossless difference, modulo 2^16. Its category is at most 16,
-/// and 16 is 32768 with no bits after it.
-pub fn difference(reader: *BitReader, t: *const Table) Error!u16 {
-    // A copy that never escapes, so it lives in registers.
-    var copy = reader.*;
-    defer reader.* = copy;
-    const br = &copy;
+/// and 16 is 32768 with no bits after it. Inline, so that a caller that
+/// decodes a row through its own copy of the reader keeps it in registers.
+pub inline fn difference(br: *BitReader, t: *const Table) Error!u16 {
     try br.need();
     const s = try br.decode(t);
     if (s == 16) return 32768;

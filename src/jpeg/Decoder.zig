@@ -1291,11 +1291,13 @@ fn losslessScan(d: *Decoder, comptime S: type, w: Work, out: ?*Output(S)) Error!
                     }
                     rs.togo -= @intCast(per_row);
                 }
-                const diffs = vals[c.coef + j * c.bw ..][0..c.wb];
-                for (diffs) |*v| {
-                    v.* = try huffman.difference(&br, t);
-                    try checkOverrun(&br);
-                }
+                // A row at a time through a copy that stays in registers,
+                // checked for overrun after it: past the data's end the
+                // reader reads zeros, at most 32 bits a value.
+                var r = br;
+                defer br = r;
+                for (vals[c.coef + j * c.bw ..][0..c.wb]) |*v| v.* = try huffman.difference(&r, t);
+                try checkOverrun(&r);
             }
         } else {
             if (rs.interval != 0) {
@@ -1306,17 +1308,38 @@ fn losslessScan(d: *Decoder, comptime S: type, w: Work, out: ?*Output(S)) Error!
                 }
                 rs.togo -= @intCast(per_row);
             }
-            for (0..g.mcus_x) |mx| {
+            var r = br;
+            defer br = r;
+            var unit = true;
+            for (s.comp[0..s.n]) |ci| unit = unit and d.comps[ci].h == 1 and d.comps[ci].v == 1;
+            if (unit) {
+                // Every component sampled once an MCU, the usual case: a
+                // value of each in turn, specialized by their count.
+                var rows: [4][]u16 = undefined;
+                var tabs: [4]*const huffman.Table = undefined;
+                for (s.comp[0..s.n], 0..) |ci, k| {
+                    const c = &d.comps[ci];
+                    rows[k] = vals[c.coef..][0..g.mcus_x];
+                    tabs[k] = &w.tables[c.dc];
+                }
+                switch (s.n) {
+                    inline 2...4 => |n| for (0..g.mcus_x) |mx| {
+                        inline for (0..n) |k| rows[k][mx] = try huffman.difference(&r, tabs[k]);
+                    },
+                    else => unreachable,
+                }
+            } else for (0..g.mcus_x) |mx| {
                 for (s.comp[0..s.n]) |ci| {
                     const c = &d.comps[ci];
                     const t = &w.tables[c.dc];
                     for (0..c.v) |j| {
                         const diffs = vals[c.coef + j * c.bw + mx * c.h ..][0..c.h];
-                        for (diffs) |*v| v.* = try huffman.difference(&br, t);
+                        for (diffs) |*v| v.* = try huffman.difference(&r, t);
                     }
                 }
-                try checkOverrun(&br);
             }
+            // Once a row, as above.
+            try checkOverrun(&r);
         }
         for (s.comp[0..s.n]) |ci| {
             const c = &d.comps[ci];
@@ -1587,15 +1610,42 @@ fn Output(comptime S: type) type {
         /// rounded: 16 bits past 8, else 8.
         fn scaled(o: *const Self, target: []u8, rows: [4][]const S, n: usize) void {
             const d = o.d;
-            const g = d.geo;
-            const max = (@as(u32, 1) << @intCast(d.precision)) - 1;
-            const wide = d.precision > 8;
+            if (S == u16 and d.geo.color == .ycc) return sample.yccToRgb16(target, rows[0], rows[1], rows[2], n);
+            // Specialized by color, by the common precisions, so that the
+            // divisions are by constants, and by channel count.
+            switch (d.geo.color) {
+                inline else => |color| switch (d.precision) {
+                    inline 12, 16 => |p| if (S == u16) o.scaledAs(color, p, target, rows, n),
+                    else => o.scaledAs(color, null, target, rows, n),
+                },
+            }
+        }
+
+        /// `scaled` for one color, at precision `known` or else the
+        /// image's.
+        fn scaledAs(
+            o: *const Self,
+            comptime color: Color,
+            comptime known: ?u8,
+            target: []u8,
+            rows: [4][]const S,
+            n: usize,
+        ) void {
+            const d = o.d;
+            const max: u32 = (@as(u32, 1) << @intCast(known orelse d.precision)) - 1;
+            // 16-bit samples are exactly the precisions past 8.
+            const wide = S == u16;
             const out_max: u32 = if (wide) 65535 else 255;
-            const ch = g.native.bytesPerPixel() / @as(usize, if (wide) 2 else 1);
+            const comps = switch (color) {
+                .gray => 1,
+                .ycc, .rgb => 3,
+                .cmyk, .ycck => 4,
+            };
+            const raw = d.options.cmyk == .raw;
             for (0..n) |x| {
                 var p: [4]u32 = undefined;
-                for (rows[0..d.ncomp], 0..) |r, k| p[k] = @min(r[x], max);
-                switch (g.color) {
+                inline for (0..comps) |k| p[k] = @min(rows[k][x], max);
+                switch (color) {
                     .gray, .rgb => {},
                     // Only the DCT has these, so only at 12 bits.
                     .ycc => {
@@ -1603,15 +1653,18 @@ fn Output(comptime S: type) type {
                         p[0..3].* = .{ @intCast(v[0]), @intCast(v[1]), @intCast(v[2]) };
                     },
                     .cmyk, .ycck => {
-                        if (g.color == .ycck) {
+                        if (color == .ycck) {
                             const v = sample.ycc(12, @intCast(p[0]), @intCast(p[1]), @intCast(p[2]));
                             for (p[0..3], v) |*e, y| e.* = max - @as(u32, @intCast(y));
                         }
-                        if (d.options.cmyk != .raw) {
+                        if (!raw) {
                             for (p[0..3]) |*v| v.* = @intCast((2 * @as(u64, v.*) * p[3] + max) / (2 * max));
                         }
                     },
                 }
+                // Gray has one channel, the others three, or four for raw
+                // inks.
+                const ch: usize = if (comps == 4 and raw) 4 else @min(comps, 3);
                 for (p[0..ch], 0..) |v, k| {
                     const q = (v * out_max + max / 2) / max;
                     if (wide) {
