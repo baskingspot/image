@@ -5,13 +5,23 @@
 //! agree when the files are the same bytes. A file over the comparison's
 //! pixel limit in bytes is a rejection on both sides.
 //!
-//! Left out of the comparison: the inputs in `den_mismatches`, until
-//! `decodeJpeg` checks the DCT8 table's denominator. libjxl refuses to
-//! rebuild a JPEG unless the frame's DCT8 quantization table is raw with
-//! denominator 1/(8 * 255), the one a JPEG's table implies; `decodeJpeg`
-//! takes any raw table, so we rebuild these mutated transcodes and libjxl
-//! does not. The check belongs in src/jxl/vardct.zig, the JPEG XL orb's
-//! file; the list is the oracle run's findings at seed 1, by SHA-256.
+//! Left out of the comparison, until `Decoder.decodeJpeg`
+//! (src/jxl/vardct.zig, the JPEG XL orb's file) reads the coefficients as
+//! libjxl's JPEG path does:
+//!
+//! - Inputs we refuse with `error.NotJpeg`. libjxl rebuilds some of them:
+//!   an LF group with extra precision has its DC divided by 2^precision,
+//!   truncated, where `decodeJpeg` refuses any extra precision, and libjxl
+//!   clamps DC to ±2047 where `decodeJpeg` refuses a value past i16. The
+//!   rest (modular, XYB, or animated frames, and the like) libjxl refuses
+//!   too, so leaving them out loses only agreement on a refusal.
+//! - The inputs in `den_mismatches`. libjxl refuses to rebuild a JPEG
+//!   unless the frame's DCT8 quantization table is raw with denominator
+//!   1/(8 * 255), the one a JPEG's table implies; `decodeJpeg` takes any
+//!   raw table, so we rebuild these mutated transcodes and libjxl does not.
+//!   Nothing outside the codestream decoder can see the denominator, so
+//!   until it checks, the list holds the oracle's findings at seed 1, by
+//!   SHA-256.
 
 const std = @import("std");
 const image = @import("image");
@@ -63,7 +73,14 @@ pub const Decoder = struct {
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
     _ = op;
     _ = format;
-    return !denMismatch(input);
+    return !denMismatch(input) and !notJpeg(input);
+}
+
+fn notJpeg(input: []const u8) bool {
+    const d: Decoder = .{ .input = input, .max_len = std.math.maxInt(u64) };
+    var counter: std.Io.Writer.Discarding = .init(&.{});
+    d.rebuild(&counter.writer) catch |e| return e == error.NotJpeg;
+    return false;
 }
 
 const den_mismatches = [_]*const [64]u8{

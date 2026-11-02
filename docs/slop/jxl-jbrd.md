@@ -122,7 +122,16 @@ CMYK files, so those have no transcode.
   JPEG's table implies; `Decoder.decodeJpeg` takes any raw table. The check
   belongs in `src/jxl/vardct.zig` (the JPEG XL orb's file), where
   `raw_dct8` is set. Until it lands, the oracle leaves out the three
-  mutated transcodes it found at seed 1, by hash.
+  mutated transcodes it found at seed 1, by hash: nothing outside the
+  codestream decoder can see the denominator.
+- libjxl rebuilds an LF group with extra precision, its DC divided by
+  2^precision and truncated toward zero, and clamps every DC to ±2047
+  (`dec_modular.cc`'s `extra_precision`, `compressed_dc.cc`'s `DequantDC`,
+  `dec_group.cc`'s JPEG path); `decodeJpeg` refuses any extra precision
+  with `NotJpeg`, and a DC past i16 too. Both belong in `vardct.zig`'s
+  `onLf`. Until then the oracle leaves out every input we refuse with
+  `NotJpeg`; most of those libjxl refuses as well (in CI's run, 6,905 of
+  20,079 inputs), so only agreement on a refusal is lost.
 
 ## Corpus
 
