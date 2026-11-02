@@ -84,7 +84,7 @@ pub fn optimal(freq: *const [256]u64) Spec {
         }
     }
     // A code can be up to 256 bits long before adjustment.
-    var bits: [n + 1]u32 = @splat(0);
+    var bits: [n + 1]u16 = @splat(0);
     for (size) |s| if (s != 0) {
         bits[s] += 1;
     };
@@ -166,12 +166,20 @@ pub const BitWriter = struct {
             const word = (f.s.acc << @intCast(f.s.free)) | (@as(u64, v) >> @intCast(over));
             f.s.acc = v;
             f.s.free = 64 - over;
-            const c = ~word;
-            if ((c -% 0x0101010101010101) & ~c & 0x8080808080808080 == 0) {
+            // The test for a 0xff byte is a vector compare, whose constant
+            // takes a vector register rather than two general ones.
+            const bytes: @Vector(8, u8) = @bitCast(word);
+            if (!@reduce(.Or, bytes == @as(@Vector(8, u8), @splat(0xff)))) {
                 std.mem.writeInt(u64, f.buf[f.len..][0..8], word, .big);
                 f.len += 8;
             } else {
-                inline for (0..8) |i| f.byte(@truncate(word >> (56 - 8 * i)));
+                // Rare, so a loop: unrolled, or called, it would take
+                // registers from the loop around `put`.
+                var w = word;
+                for (0..8) |_| {
+                    f.byte(@truncate(w >> 56));
+                    w <<= 8;
+                }
             }
         }
 

@@ -357,10 +357,27 @@ Measured against libjpeg-turbo with its SIMD on, on one core
   that dominated small images (a 16×16 progressive file went from 0.07× to
   1.7× libjpeg-turbo).
 
+The performance pass (`results/jpeg-encode-perf-20261102.md`) took
+baseline color over 1 MP from 0.93× to 1.18× libjpeg-turbo (4:2:0) and from
+0.98× to 1.26× (4:4:4), every class at or above it:
+
+- No 512-bit instructions: the benchmark's Ice Lake host lowers its clock
+  after any (plan.md). LLVM made them from 16-lane u16 high multiplies
+  (widened to 32-bit lanes; now `simd.mulhu`, `vpmulhuw ymm` in assembly),
+  64-lane compares (now four of 16 lanes), and 32-bit counts narrowed to
+  bytes. Check `objdump` for zmm in `jpeg.*` after changing a kernel.
+- The coder's table pointers are hoisted out of the block loop, and the
+  0xff test of a full word is a vector compare, so the loop's state stays
+  in registers.
+- `fill` prefetches the source row 4 rows ahead: a source larger than the
+  caches came in at 3.4 GB/s, where one core streams 12, and a 16 MP photo
+  encodes a third faster.
+
 Tried and dropped: splitting a block's coding into a pass that makes
 (code, length) words and a pass that writes them, to free registers (the
 same speed); 32-bit DCT lanes with array transposes (slower than the
-16-bit pair DCT).
+16-bit pair DCT); each coefficient's category and value bits computed in
+vectors for the whole block before the loop (within 2%).
 
 ### Testing the encoder
 

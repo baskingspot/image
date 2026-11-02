@@ -337,6 +337,7 @@ const Encoder = struct {
         for (0..rows) |r| {
             const sy = @min(iy * rows + @as(u32, @intCast(r)), e.src.height - 1);
             var px: []const u8 = e.src.row(sy);
+            prefetchRow(e.src, sy + prefetch_rows);
             if (!native) {
                 const n = if (e.gray) width else width * 3;
                 conv.run(e.row[0..n], px, width);
@@ -677,12 +678,24 @@ fn Coder(comptime gather: bool) type {
             if (!gather) s.bw.end(o);
         }
 
+        /// Where a table's symbols go: their counts, or their codes.
+        const Table = if (gather) *[256]u64 else *const Codes;
+
+        inline fn table(s: *Self, comptime class: u1, t: u1) Table {
+            return if (gather) &s.counts[class][t] else &s.codes[class][t];
+        }
+
         inline fn symbol(s: *Self, o: *Out, comptime class: u1, t: u1, sym: u8) void {
+            put(o, s.table(class, t), sym, 0, 0);
+        }
+
+        /// Symbol `sym` of `tab`, then the `n` bits of a DC difference or
+        /// AC value `v` it announces (F.1.2.1), together.
+        inline fn put(o: *Out, tab: Table, sym: u8, v: i32, n: u6) void {
             if (gather) {
-                s.counts[class][t][sym] += 1;
+                tab[sym] += 1;
             } else {
-                const codes = &s.codes[class][t];
-                o.put(codes.code[sym], codes.size[sym]);
+                o.put(@as(u32, tab.code[sym]) << @intCast(n) | low(v, n), tab.size[sym] + @as(u32, n));
             }
         }
 
@@ -694,15 +707,9 @@ fn Coder(comptime gather: bool) type {
             return @intCast(32 - @clz(@abs(v)));
         }
 
-        /// A symbol, then the `n` bits of a DC difference or AC value
-        /// `v` it announces (F.1.2.1), together.
+        /// `put` to table `t` of `class`.
         inline fn code(s: *Self, o: *Out, comptime class: u1, t: u1, sym: u8, v: i32, n: u6) void {
-            if (gather) {
-                s.counts[class][t][sym] += 1;
-            } else {
-                const codes = &s.codes[class][t];
-                o.put(@as(u32, codes.code[sym]) << @intCast(n) | low(v, n), codes.size[sym] + @as(u32, n));
-            }
+            put(o, s.table(class, t), sym, v, n);
         }
 
         /// The `n` bits that stand for `v` after its category (F.1.2.1).
@@ -711,30 +718,59 @@ fn Coder(comptime gather: bool) type {
         }
 
         /// Which coefficients of `b` are not 0, bit `k` for the one at
-        /// zigzag position `k`: the natural order's bits, each byte moved
-        /// to its zigzag positions by a table.
+        /// zigzag position `k`.
         fn nonzero(b: *const Block) u64 {
-            const v: @Vector(64, i16) = b.*;
-            return zigzagMask(v != @as(@Vector(64, i16), @splat(0)));
+            var bits: u64 = 0;
+            inline for (0..4) |i| {
+                const v: @Vector(16, i16) = b[16 * i ..][0..16].*;
+                bits |= @as(u64, flags16(v != @as(@Vector(16, i16), @splat(0)))) << (16 * i);
+            }
+            return zigzagMask(bits);
         }
 
-        /// The flags of a block in natural order as bits in zigzag order.
-        inline fn zigzagMask(flags: @Vector(64, bool)) u64 {
+        /// The flags of sixteen coefficients in natural order as bits.
+        /// Sixteen lanes of 16 bits keep the compare in 256-bit registers:
+        /// on the benchmark's Ice Lake host any 512-bit instruction lowers
+        /// the clock (docs/slop/plan.md).
+        inline fn flags16(flags: @Vector(16, bool)) u16 {
             // A bool vector packs element 0 into the low bit on a
             // little-endian target and into the high bit on a big-endian
             // one.
-            const raw: u64 = @bitCast(flags);
-            const bits = if (builtin.cpu.arch.endian() == .little) raw else @bitReverse(raw);
+            const raw: u16 = @bitCast(flags);
+            return if (builtin.cpu.arch.endian() == .little) raw else @bitReverse(raw);
+        }
+
+        /// Bits in natural order moved to their zigzag positions, a byte
+        /// at a time by table.
+        inline fn zigzagMask(bits: u64) u64 {
             var m: u64 = 0;
             inline for (0..8) |i| m |= to_zigzag[i][@as(u8, @truncate(bits >> (8 * i)))];
             return m;
         }
 
-        /// The coefficients' magnitudes after the point transform, which
-        /// divides by 2^al rounding toward zero.
-        inline fn shifted(b: *const Block, al: u4) [64]u16 {
-            const v: @Vector(64, i16) = b.*;
-            return @abs(v) >> @splat(al);
+        const Magnitudes = struct {
+            /// Each coefficient's magnitude after the point transform,
+            /// which divides by 2^al rounding toward zero.
+            abs: [64]u16,
+            /// Which are not 0, and which are 1, in zigzag order.
+            nonzero: u64,
+            one: u64,
+        };
+
+        inline fn magnitudes(b: *const Block, al: u4) Magnitudes {
+            var m: Magnitudes = undefined;
+            var nz: u64 = 0;
+            var one: u64 = 0;
+            inline for (0..4) |i| {
+                const v: @Vector(16, i16) = b[16 * i ..][0..16].*;
+                const a = @abs(v) >> @splat(al);
+                m.abs[16 * i ..][0..16].* = a;
+                nz |= @as(u64, flags16(a != @as(@Vector(16, u16), @splat(0)))) << (16 * i);
+                one |= @as(u64, flags16(a == @as(@Vector(16, u16), @splat(1)))) << (16 * i);
+            }
+            m.nonzero = zigzagMask(nz);
+            m.one = zigzagMask(one);
+            return m;
         }
 
         /// Bits `ss` to `se` set.
@@ -745,10 +781,12 @@ fn Coder(comptime gather: bool) type {
         fn sequential(s: *Self, b: *const Block, t: u1, pred: *i32) Io.Writer.Error!void {
             var o = try s.begin();
             defer s.end(&o);
+            const dc = s.table(0, t);
+            const ac = s.table(1, t);
             const diff = @as(i32, b[0]) - pred.*;
             pred.* = b[0];
             const n = magnitude(diff);
-            s.code(&o, 0, t, n, diff, n);
+            put(&o, dc, n, diff, n);
             // The AC coefficients' zero runs, from the gaps between the
             // nonzero ones; clearing the lowest bit keeps the loop's
             // dependency on `mask` to one instruction.
@@ -759,12 +797,12 @@ fn Coder(comptime gather: bool) type {
                 mask &= mask - 1;
                 var r = k - last - 1;
                 last = k;
-                while (r > 15) : (r -= 16) s.symbol(&o, 1, t, 0xf0);
+                while (r > 15) : (r -= 16) put(&o, ac, 0xf0, 0, 0);
                 const c = b[natural[k]];
                 const m = magnitude(c);
-                s.code(&o, 1, t, @intCast(r << 4 | m), c, m);
+                put(&o, ac, @intCast(r << 4 | m), c, m);
             }
-            if (last != 63) s.symbol(&o, 1, t, 0);
+            if (last != 63) put(&o, ac, 0, 0, 0);
         }
 
         fn block(s: *Self, scan: *const Scan, c: u8, b: *const Block) Io.Writer.Error!void {
@@ -791,9 +829,9 @@ fn Coder(comptime gather: bool) type {
         }
 
         fn acFirst(s: *Self, o: *Out, scan: *const Scan, t: u1, b: *const Block) void {
-            const abs = shifted(b, scan.al);
-            const zero: @Vector(64, u16) = @splat(0);
-            var mask = zigzagMask(@as(@Vector(64, u16), abs) != zero) & band(scan);
+            const mags = magnitudes(b, scan.al);
+            const abs = &mags.abs;
+            var mask = mags.nonzero & band(scan);
             var last: u32 = @as(u32, scan.ss) -% 1;
             while (mask != 0) {
                 const k: u32 = @ctz(mask);
@@ -813,11 +851,11 @@ fn Coder(comptime gather: bool) type {
         }
 
         fn acRefine(s: *Self, o: *Out, scan: *const Scan, t: u1, b: *const Block) void {
-            const abs = shifted(b, scan.al);
+            const mags = magnitudes(b, scan.al);
+            const abs = &mags.abs;
             const in_band = band(scan);
-            const v: @Vector(64, u16) = abs;
-            var mask = zigzagMask(v != @as(@Vector(64, u16), @splat(0))) & in_band;
-            const newly = zigzagMask(v == @as(@Vector(64, u16), @splat(1))) & in_band;
+            var mask = mags.nonzero & in_band;
+            const newly = mags.one & in_band;
             // The last coefficient that becomes nonzero in this scan.
             const eob: u32 = if (newly == 0) 0 else 63 - @clz(newly);
             // Zeros since the last newly nonzero coefficient: one already
@@ -885,6 +923,21 @@ fn Coder(comptime gather: bool) type {
             s.endRun(&o, t);
         }
     };
+}
+
+/// How many rows ahead of the row being converted `fill` asks for the
+/// source. A source larger than the caches comes from memory, and the
+/// conversion alone does not keep enough reads in flight: on a 16 MP photo
+/// this was a third faster (results/jpeg-encode-perf-20261102.md), with
+/// 2 to 8 rows all alike.
+const prefetch_rows = 4;
+
+/// Asks the cache for row `y` of `src`, if there is one.
+fn prefetchRow(src: PixelBuffer, y: u32) void {
+    if (y >= src.height) return;
+    const r = src.row(y);
+    var i: usize = 0;
+    while (i < r.len) : (i += 64) @prefetch(r.ptr + i, .{ .locality = 3 });
 }
 
 /// RGB to JFIF's YCbCr (T.871 section 7) in 16-bit fixed point, Cb and

@@ -95,7 +95,6 @@ pub fn forwardPair(
     const c = pass(transpose16(pass(transpose16(x), .rows)), .columns);
     // Quantized, row by row of each block.
     const U16 = @Vector(16, u16);
-    const W = @Vector(16, u32);
     var q: [2][8]@Vector(8, i16) = undefined;
     inline for (0..8) |v| {
         const H = @Vector(8, u16);
@@ -103,8 +102,7 @@ pub fn forwardPair(
         const mul: U16 = std.simd.join(@as(H, div.mul[v * 8 ..][0..8].*), @as(H, div.mul[v * 8 ..][0..8].*));
         const post: U16 = std.simd.join(@as(H, div.post[v * 8 ..][0..8].*), @as(H, div.post[v * 8 ..][0..8].*));
         const n: U16 = @abs(c[v]) + half;
-        const t: U16 = @truncate((@as(W, n) * @as(W, mul)) >> @splat(16));
-        const r: Y = @bitCast(@as(U16, @truncate((@as(W, t) * @as(W, post)) >> @splat(16))));
+        const r: Y = @bitCast(simd.mulhu(simd.mulhu(n, mul), post));
         const signed = @select(i16, c[v] < @as(Y, @splat(0)), -r, r);
         const halves: [2]@Vector(8, i16) = @bitCast(signed);
         q[0][v] = halves[0];

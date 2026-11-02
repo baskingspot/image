@@ -111,6 +111,21 @@ pub inline fn mulhrs(a: Y, comptime m: i16) Y {
     return @truncate((p + @as(W, @splat(1 << 14))) >> @splat(15));
 }
 
+/// The high 16 bits of each unsigned product of `a` and `b` (x86's
+/// pmulhuw).
+pub inline fn mulhu(a: @Vector(16, u16), b: @Vector(16, u16)) @Vector(16, u16) {
+    if (has_avx2) {
+        // LLVM widens to 32-bit lanes, which takes 512-bit registers.
+        return asm ("vpmulhuw %[b], %[a], %[r]"
+            : [r] "=x" (-> @Vector(16, u16)),
+            : [a] "x" (a),
+              [b] "x" (b),
+        );
+    }
+    const W = @Vector(16, u32);
+    return @truncate((@as(W, a) * @as(W, b)) >> @splat(16));
+}
+
 test "the instructions and their fallbacks agree" {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
@@ -124,11 +139,19 @@ test "the instructions and their fallbacks agree" {
         const p: [8]i32 = madd(a, 1234, -32768);
         const pv: [8]i32 = maddv(a, @splat(1234));
         const h: [16]i16 = mulhrs(a, -12345);
+        var ua: [16]u16 = undefined;
+        var ub: [16]u16 = undefined;
+        for (&ua, &ub) |*x, *y| {
+            x.* = random.int(u16);
+            y.* = random.int(u16);
+        }
+        const hu: [16]u16 = mulhu(ua, ub);
         const k: [16]i16 = pack(b, c);
         for (0..16) |i| {
             if (i < 8) try testing.expectEqual(@as(i32, a[2 * i]) * 1234 + @as(i32, a[2 * i + 1]) * -32768, p[i]);
             if (i < 8) try testing.expectEqual((@as(i32, a[2 * i]) + a[2 * i + 1]) * 1234, pv[i]);
             try testing.expectEqual(@as(i16, @intCast((@as(i32, a[i]) * -12345 + (1 << 14)) >> 15)), h[i]);
+            try testing.expectEqual(@as(u16, @intCast((@as(u32, ua[i]) * ub[i]) >> 16)), hu[i]);
             const src = if (i % 8 < 4) b[(i / 8) * 4 + i % 4] else c[(i / 8) * 4 + i % 4];
             try testing.expectEqual(@as(i16, @intCast(std.math.clamp(src, -32768, 32767))), k[i]);
         }
