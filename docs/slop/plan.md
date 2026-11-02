@@ -199,7 +199,12 @@ owning the files adding-a-format.md assigns to its format plus
   processes return Unsupported, as in libjpeg-turbo. Bit-exact with
   libjpeg-turbo, and at or above it by size-class geomean on every row
   (results/jpeg-stage2-20261102.md). TIFF detects its interface
-  with `@hasField(image.jpeg.Decoder.Options, "tables")`.
+  with `@hasField(image.jpeg.Decoder.Options, "tables")`. JPEG gives TIFF
+  `Decoder.workLen` (work memory from IFD fields, exactly what
+  `decodeConfig` states for that frame header; `multi_scan = false` bounds
+  single-scan streams only) and `Options.crop` (edge tiles into a top-left
+  page-buffer view), and builds the CMYK converter only for CMYK images
+  (results/jpeg-tiff-20261102.md, icons +4.6%).
 - **WebP decode** (landed at `a7f586e`; webp.md, results/webp-20261102.md):
   lossless (VP8L) from RFC 9649, lossy (VP8) from RFC 6386 with ALPH (raw or
   lossless, every filter), and animation (ANIM/ANMF) under the Frame
@@ -238,7 +243,7 @@ owning the files adding-a-format.md assigns to its format plus
   `frame_count`. ×0.90 libtiff overall: faster on uncompressed data and
   icons, about ×0.5 on the compressed paths at 1 MP and above; peak RSS at
   or below libtiff's in every class. Stage 2 is JPEG compression through
-  `image.jpeg`'s `Options.tables` and `.color`.
+  `image.jpeg`'s `Options.tables`, `.color`, `.crop`, and `Decoder.workLen`.
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
   orb until `wave1-png-strict` lands.
