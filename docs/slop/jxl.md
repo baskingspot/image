@@ -162,6 +162,20 @@ Modular.
   rounded to nearest even. Native formats: f32 for float samples or more
   than 16 bits, 8-bit when every channel's maximum divides 255 (1, 2, 4,
   or 8 bits), otherwise 16-bit.
+- **Float destinations** (plan.md decision 24) are written from the f32
+  planes, not through the native format, so a lossy frame keeps its
+  precision: every conformance file is within its `test.json` peak bound
+  in `rgba_f32` (alpha_premultiplied 3.0e-6 against 3.8e-6, spot exact;
+  through 16 bits they were 9.5e-6 and 7.6e-6). Integer images are clamped
+  to [0, 1] there, as the 16-bit step clamps; float images are not. Out of
+  gamut the floats can differ from libjxl's unclamped output: on bike, 135
+  of 21 million samples, all blue below -0.13, are less negative than
+  libjxl's (-0.34 against -0.59 at worst), while everything in [0, 1] and
+  above 1 agrees to 7e-6. The conformance reference there is a clamped PNG,
+  so the bounds do not reach it; the cause is not yet found. The fuzz target
+  checks a float destination against the 16-bit one, within half a native
+  step, since `harness.checkDecoder`'s exact format check skips decoders
+  with `float_direct`.
 - **Frame size.** A frame (a cropped layer) may have up to twice the
   canvas's pixels; more is `TooComplex`. The specification allows any size;
   the cap keeps the bound finite, and the conformance files stay within it

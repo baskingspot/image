@@ -15,8 +15,52 @@ pub const extensions = [_][]const u8{".jxl"};
 pub fn check(input: []const u8, choice: u64) !void {
     try harness.checkDecoder(image.jxl.Decoder, input, choice);
     if (choice % 4 == 0) try checkSink(input);
+    if (choice % 4 == 1) try checkFloat(input);
     if (choice % 4 == 2) try checkStream(input);
     if (choice % 4 == 3) try checkJpeg(input);
+}
+
+var float_pixels: [harness.limits.max_pixels * 16]u8 align(4) = undefined;
+var int_pixels: [harness.limits.max_pixels * 8]u8 align(2) = undefined;
+var float_work: [harness.limits.max_work]u8 = undefined;
+var int_work: [harness.limits.max_work]u8 = undefined;
+
+/// A float destination, written from the decoder's floats (plan.md
+/// decision 24), is within half a native step of the 16-bit destination,
+/// which goes through the native format (8-bit when the first frame is
+/// lossless 8-bit, though a later one may not be): clamped to [0, 1],
+/// frame by frame, with the same frames and errors.
+fn checkFloat(input: []const u8) !void {
+    var rf: std.Io.Reader = .fixed(input);
+    var ri: std.Io.Reader = .fixed(input);
+    var df: image.jxl.Decoder = .init(&rf, .{ .limits = harness.limits });
+    var di: image.jxl.Decoder = .init(&ri, .{ .limits = harness.limits });
+    const c = df.decodeConfig() catch return;
+    _ = di.decodeConfig() catch return error.FloatDiffers;
+    const premul = c.native.isPremultiplied();
+    const ff: image.PixelFormat = if (premul) .rgba_f32_premul else .rgba_f32;
+    const fi: image.PixelFormat = if (premul) .rgba16_premul else .rgba16;
+    const bf = image.PixelBuffer.init(&float_pixels, ff, c.width, c.height) catch return;
+    const bi = image.PixelBuffer.init(&int_pixels, fi, c.width, c.height) catch return;
+    const step: f32 = if (c.native.sample() == .u8) 1.0 / 255.0 else 1.0 / 65535.0;
+    for (0..harness.limits.max_frames + 1) |_| {
+        const a = df.decodeFrame(bf, float_work[0..c.work_len]);
+        const b = di.decodeFrame(bi, int_work[0..c.work_len]);
+        const fa = a catch |e| {
+            if (b) |_| return error.FloatDiffers else |e2| if (e2 != e) return error.FloatDiffers;
+            return;
+        };
+        const fb = b catch return error.FloatDiffers;
+        if (!std.meta.eql(fa, fb)) return error.FloatDiffers;
+        if (fa == null) return;
+        const n = @as(usize, c.width) * c.height * 4;
+        const fl = std.mem.bytesAsSlice(f32, float_pixels[0 .. n * 4]);
+        const in = std.mem.bytesAsSlice(u16, int_pixels[0 .. n * 2]);
+        for (fl, in) |v, u| {
+            const want = @as(f32, @floatFromInt(u)) / 65535;
+            if (!(@abs(std.math.clamp(v, 0, 1) - want) <= step / 2 + 1e-6)) return error.FloatDiffers;
+        }
+    }
 }
 
 /// A frame streamed a group row at a time has the pixels, frames, and

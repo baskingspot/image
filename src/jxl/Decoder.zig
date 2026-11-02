@@ -33,6 +33,11 @@ const Decoder = @This();
 
 pub const Options = decode.Options;
 
+/// A float destination is written from the decoder's floats, not converted
+/// from the native format (plan.md decision 24); the fuzz harness checks it
+/// against the native format with a tolerance instead of exactly.
+pub const float_direct = true;
+
 pub const Error = decode.Error || error{
     /// A container box breaks ISO/IEC 18181-2.
     BadBox,
@@ -361,7 +366,7 @@ fn isFloat(h: *const headers.ImageHeader) bool {
 
 fn native(d: *const Decoder) PixelFormat {
     const h = &d.image;
-    if (isFloat(h)) return if (premultiplied(h)) .rgba_f32_premul else .rgba_f32;
+    if (isFloat(h)) return floatPivot(h);
     // Lossy frames make floats: 16 bits keep them to within the
     // conformance suite's error bounds. Only a first frame read ahead
     // shows an image is lossless.
@@ -405,8 +410,20 @@ fn pivot16(h: *const headers.ImageHeader) PixelFormat {
 }
 
 fn pivot(h: *const headers.ImageHeader) PixelFormat {
-    if (isFloat(h)) return if (premultiplied(h)) .rgba_f32_premul else .rgba_f32;
+    if (isFloat(h)) return floatPivot(h);
     return pivot16(h);
+}
+
+fn floatPivot(h: *const headers.ImageHeader) PixelFormat {
+    return if (premultiplied(h)) .rgba_f32_premul else .rgba_f32;
+}
+
+/// The format frames go through on their way to `dst`: a float
+/// destination straight from the decoder's floats, with no 16-bit step
+/// (plan.md decision 24), clamped to [0, 1] for integer samples as the
+/// 16-bit step clamps; others through `p`.
+fn through(dst: PixelFormat, h: *const headers.ImageHeader, p: PixelFormat) PixelFormat {
+    return if (dst.sample() == .f32) floatPivot(h) else p;
 }
 
 /// The metadata, describing the pixels `decodeFrame` writes. Without an
@@ -856,9 +873,10 @@ const Frame = struct {
     }
 
     /// Writes the frame, which covers the canvas, to `dst`, through the
-    /// native format, so that every format is the native pixels
-    /// converted. (A blended canvas goes through `pivot` instead, which
-    /// keeps the blend's precision as the reference does.)
+    /// native format, so that every integer format is the native pixels
+    /// converted; a float format comes from the floats (`through`). (A
+    /// blended canvas goes through `pivot` instead, which keeps the
+    /// blend's precision as the reference does.)
     fn write(f: *const Frame, dst: PixelBuffer) void {
         f.writeRows(dst, 0, f.d.image.height);
     }
@@ -867,7 +885,7 @@ const Frame = struct {
     /// from `y0`.
     fn writeRows(f: *const Frame, dst: PixelBuffer, y0: usize, rows: usize) void {
         const h = &f.d.image;
-        const p = f.d.native_format;
+        const p = through(dst.format, h, f.d.native_format);
         const conv: Converter = .init(dst.format, p);
         var buf: [chunk * 16]u8 align(4) = undefined;
         var fl: [max_planes][chunk]f32 = undefined;
@@ -879,7 +897,7 @@ const Frame = struct {
                 const n = @min(chunk, h.width - x);
                 for (0..f.num_color) |c| f.row(c, y, x, fl[c][0..n]);
                 if (alpha) |a| f.row(f.num_color + a, y, x, fl[f.num_color + a][0..n]);
-                packPivot(p, &fl, f.num_color, alpha, n, &buf);
+                packPivot(p, &fl, f.num_color, alpha, n, &buf, !isFloat(h));
                 conv.run(out[x * dst.format.bytesPerPixel() ..], &buf, n);
                 x += n;
             }
@@ -910,8 +928,17 @@ fn toU8(v: f32) u8 {
 }
 
 /// Packs `n` pixels from float planes into `buf` in format `p`: the pivot
-/// or the native format.
-fn packPivot(p: PixelFormat, fl: *const [max_planes][chunk]f32, num_color: u32, alpha: ?u32, n: usize, buf: []u8) void {
+/// or the native format. Floats are clamped to [0, 1] when `clamp`, as
+/// the 16-bit pivot clamps.
+fn packPivot(
+    p: PixelFormat,
+    fl: *const [max_planes][chunk]f32,
+    num_color: u32,
+    alpha: ?u32,
+    n: usize,
+    buf: []u8,
+    clamp: bool,
+) void {
     const ai: ?usize = if (alpha) |a| num_color + a else null;
     if (p.sample() == .f32) {
         const out = std.mem.bytesAsSlice(f32, buf[0 .. n * 16]);
@@ -919,6 +946,9 @@ fn packPivot(p: PixelFormat, fl: *const [max_planes][chunk]f32, num_color: u32, 
             for (0..3) |c| out[x * 4 + c] = fl[if (num_color == 1) 0 else c][x];
             out[x * 4 + 3] = if (ai) |a| fl[a][x] else 1.0;
         }
+        if (clamp) for (out[0 .. n * 4]) |*v| {
+            v.* = std.math.clamp(v.*, 0, 1);
+        };
         return;
     }
     const nc = p.channelCount();
@@ -993,7 +1023,7 @@ fn saveCanvas(d: *Decoder, k: u32) void {
 fn writeCanvas(d: *const Decoder, dst: PixelBuffer) void {
     const st = &d.store;
     const h = &d.image;
-    const p = pivot(h);
+    const p = through(dst.format, h, pivot(h));
     const conv: Converter = .init(dst.format, p);
     var buf: [chunk * 16]u8 align(4) = undefined;
     var fl: [max_planes][chunk]f32 = undefined;
@@ -1007,7 +1037,7 @@ fn writeCanvas(d: *const Decoder, dst: PixelBuffer) void {
             const at = y * h.width + x;
             for (0..nc) |c| @memcpy(fl[c][0..n], st.canvas[c][at..][0..n]);
             if (alpha) |a| @memcpy(fl[nc + a][0..n], st.canvas[nc + a][at..][0..n]);
-            packPivot(p, &fl, nc, alpha, n, &buf);
+            packPivot(p, &fl, nc, alpha, n, &buf, !isFloat(h));
             conv.run(out[x * dst.format.bytesPerPixel() ..], &buf, n);
             x += n;
         }
