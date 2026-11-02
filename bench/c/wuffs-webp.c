@@ -1,4 +1,4 @@
-// Wuffs's WebP decoder, which reads lossless files, to RGBA8. The decoder
+// Wuffs's WebP decoder, lossless and lossy, to RGBA8. The decoder
 // lives in static memory and is initialized per call, as a caller that
 // reuses it would.
 #include <stdlib.h>
@@ -20,4 +20,10 @@ static size_t webp_decode(const uint8_t *in, size_t len, uint8_t *out, size_t ca
                           out, cap, WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL);
 }
 
+// One function per row: `BENCH_OP` names its registration after it.
+static size_t webp_lossy(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return webp_decode(in, len, out, cap);
+}
+
 BENCH_OP("webp-decode-lossless", webp_decode)
+BENCH_OP("webp-decode-lossy", webp_lossy)

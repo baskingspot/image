@@ -14,6 +14,7 @@ import (
 func init() {
 	register("webp-decode-lossless", webpDecode)
 	register("webp-decode-lossless-large", webpDecode)
+	register("webp-decode-lossy", webpDecode)
 }
 
 func webpDecode(in, out []byte) int {

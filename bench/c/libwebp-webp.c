@@ -21,5 +21,10 @@ static size_t webp_lossless_large(const uint8_t *in, size_t len, uint8_t *out, s
   return webp_decode(in, len, out, cap);
 }
 
+static size_t webp_lossy(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return webp_decode(in, len, out, cap);
+}
+
 BENCH_OP("webp-decode-lossless", webp_lossless)
 BENCH_OP("webp-decode-lossless-large", webp_lossless_large)
+BENCH_OP("webp-decode-lossy", webp_lossy)

@@ -8,6 +8,7 @@ const image = @import("image");
 pub const ops = .{
     .{ "webp-decode-lossless", rgba },
     .{ "webp-decode-lossless-large", rgba },
+    .{ "webp-decode-lossy", rgba },
 };
 
 var work: [256 << 20]u8 = undefined;

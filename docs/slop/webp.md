@@ -213,3 +213,9 @@ libwebp's peak RSS. What is left: color-indexed images with flat areas
 (0.54–0.80×, libwebp's palette fast paths), the predictor transform on
 photographs (mode-by-mode SIMD only for the above-only modes), and the
 per-symbol table lookups for groups that are not trivial.
+
+Lossy, with the same output as libwebp on every row: icons 1.36× faster,
+0.92× to a megapixel, 0.86× over one, 1.02× overall, at or below libwebp's
+peak RSS in every size class. What is left: the loop filter and the token
+reader, which run a pixel or a coefficient at a time where libwebp's SSE2
+filters take 16 pixels.

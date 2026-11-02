@@ -1,0 +1,4 @@
+op/class                         image     wuffs      qoih       stb    libpng      spng    gifliblibjpeg-turbo    magick   libwebp  image-rs      zune        go
+webp-decode-lossy/icon             2.4       3.4         -         -         -         -         -         -         -       3.0       3.6         -       4.4
+webp-decode-lossy/1mp              9.8      10.1         -         -         -         -         -         -         -      11.8      18.2         -      44.3
+webp-decode-lossy/large          196.6     270.5         -         -         -         -         -         -         -     197.1     534.7         -     411.7

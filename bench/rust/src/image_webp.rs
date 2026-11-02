@@ -8,6 +8,7 @@ use image::{ColorType, DynamicImage, ImageDecoder};
 pub const OPS: &[super::Op] = &[
     (c"webp-decode-lossless", decode),
     (c"webp-decode-lossless-large", decode),
+    (c"webp-decode-lossy", decode),
 ];
 
 fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {

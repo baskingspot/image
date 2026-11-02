@@ -1,0 +1,2 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp image-rs     zune       go
+webp-decode-lossy         197.5    270.8        -        -        -        -        -        -        -    198.2    536.8        -    369.3
