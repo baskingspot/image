@@ -6,7 +6,8 @@
 //! For every input and pixel format, this package and every oracle either
 //! accept it, with pixels, or reject it. Two answers agree when both reject,
 //! or both accept with the same size and the same pixels (the same length
-//! and XXH64, so the oracle need not send the pixels), and two deciders
+//! and XXH64, so the oracle need not send the pixels; or, for an input the
+//! format module gives a tolerance, samples within it), and two deciders
 //! agree on an input when they agree in every pixel format both answered.
 //! A mismatch is an input where ours agrees with no oracle, or differs from
 //! an oracle that every other oracle agrees with. When the oracles disagree among themselves
@@ -31,6 +32,7 @@ const image = @import("image");
 const fuzz = @import("fuzz");
 const Oracle = @import("Oracle.zig");
 const PixelFormat = image.PixelFormat;
+const Tolerance = Oracle.Tolerance;
 
 /// The formats with oracles, from formats.zig.
 const formats = @import("formats.zig");
@@ -96,7 +98,7 @@ const Answer = struct {
     /// The pixels' length and XXH64, or an encoder's file's.
     len: usize = 0,
     hash: u64 = 0,
-    /// The pixels themselves, for a format with a `tolerance`.
+    /// The pixels themselves, for an input with a tolerance.
     pixels: []const u8 = &.{},
 
     fn of(width: u32, height: u32, bytes: []const u8) Answer {
@@ -105,9 +107,9 @@ const Answer = struct {
     }
 
     /// Whether `a` and `b` agree: both reject, or both accept the same size
-    /// with the same pixels, or, given a `tolerance`, pixels whose samples
-    /// in `format` differ by at most that much.
-    fn agrees(a: Answer, b: Answer, format: PixelFormat, tolerance: ?u16) bool {
+    /// with the same pixels, or, given a tolerance, pixels whose samples
+    /// in `format` differ within it.
+    fn agrees(a: Answer, b: Answer, format: PixelFormat, tolerance: ?Tolerance) bool {
         if (a.accepted != b.accepted) return false;
         if (!a.accepted) return true;
         if (a.width != b.width or a.height != b.height or a.len != b.len) return false;
@@ -117,48 +119,73 @@ const Answer = struct {
     }
 };
 
-/// Whether samples of `format` in `a` and `b` differ by at most `t` each:
-/// `t` in an integer sample's units, and for floats `t / 65535`, one 16-bit
-/// step per unit.
-fn within(format: PixelFormat, a: []const u8, b: []const u8, t: u16) bool {
+/// Whether samples of `format` in `a` and `b` differ within `t`: each by
+/// at most `t.peak`, and their root mean square by at most `t.rms`, in an
+/// integer sample's units, and for floats in units of 1/65535, one 16-bit
+/// step. Two NaNs do not differ.
+fn within(format: PixelFormat, a: []const u8, b: []const u8, t: Tolerance) bool {
     if (a.len != b.len) return false;
+    var squares: f64 = 0;
+    var count: usize = 0;
     switch (format.sample()) {
-        .u8 => for (a, b) |x, y| {
-            if (@max(x, y) - @min(x, y) > t) return false;
-        },
-        .u16 => for (0..a.len / 2) |i| {
-            const x = std.mem.readInt(u16, a[2 * i ..][0..2], .native);
-            const y = std.mem.readInt(u16, b[2 * i ..][0..2], .native);
-            if (@max(x, y) - @min(x, y) > t) return false;
-        },
-        .f32 => for (0..a.len / 4) |i| {
-            const x: f32 = @bitCast(std.mem.readInt(u32, a[4 * i ..][0..4], .native));
-            const y: f32 = @bitCast(std.mem.readInt(u32, b[4 * i ..][0..4], .native));
-            if (std.math.isNan(x) and std.math.isNan(y)) continue;
-            if (!(@abs(x - y) <= @as(f32, @floatFromInt(t)) / 65535)) return false;
+        inline else => |s| {
+            const size = switch (s) {
+                .u8 => 1,
+                .u16 => 2,
+                .f32 => 4,
+            };
+            const Bits = @Int(.unsigned, size * 8);
+            count = a.len / size;
+            for (0..count) |i| {
+                const x = std.mem.readInt(Bits, a[size * i ..][0..size], .native);
+                const y = std.mem.readInt(Bits, b[size * i ..][0..size], .native);
+                const d: f64 = if (s == .f32) d: {
+                    const fx: f32 = @bitCast(x);
+                    const fy: f32 = @bitCast(y);
+                    if (std.math.isNan(fx) and std.math.isNan(fy)) continue;
+                    break :d @abs(@as(f64, fx) - fy) * 65535;
+                } else @floatFromInt(@max(x, y) - @min(x, y));
+                // NaN against a number fails too.
+                if (!(d <= @as(f64, @floatFromInt(t.peak)))) return false;
+                squares += d * d;
+            }
         },
     }
-    return true;
+    const rms = t.rms orelse return true;
+    return count == 0 or @sqrt(squares / @as(f64, @floatFromInt(count))) <= rms;
 }
 
 test within {
     // Samples of 200 and 201, in each sample type, both orders.
     const u8s = [_]u8{ 10, 200 };
-    try std.testing.expect(within(.gray8, &u8s, &.{ 10, 201 }, 1));
-    try std.testing.expect(!within(.gray8, &u8s, &.{ 10, 202 }, 1));
-    try std.testing.expect(!within(.gray8, &.{ 10, 202 }, &u8s, 1));
-    try std.testing.expect(!within(.gray8, &u8s, &.{ 10, 201 }, 0));
+    try std.testing.expect(within(.gray8, &u8s, &.{ 10, 201 }, .{ .peak = 1 }));
+    try std.testing.expect(!within(.gray8, &u8s, &.{ 10, 202 }, .{ .peak = 1 }));
+    try std.testing.expect(!within(.gray8, &.{ 10, 202 }, &u8s, .{ .peak = 1 }));
+    try std.testing.expect(!within(.gray8, &u8s, &.{ 10, 201 }, .{ .peak = 0 }));
     // A u16 sample differing by 256 in its high byte only is far off,
     // though each of its bytes is within 1.
     const a16 = std.mem.toBytes([_]u16{ 0x01ff, 7 });
-    try std.testing.expect(within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x0200, 7 }), 1));
-    try std.testing.expect(!within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x02ff, 7 }), 1));
-    try std.testing.expect(!within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x01fd, 7 }), 1));
+    try std.testing.expect(within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x0200, 7 }), .{ .peak = 1 }));
+    try std.testing.expect(!within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x02ff, 7 }), .{ .peak = 1 }));
+    try std.testing.expect(!within(.gray16, &a16, &std.mem.toBytes([_]u16{ 0x01fd, 7 }), .{ .peak = 1 }));
     const nan = std.math.nan(f32);
     const f = std.mem.toBytes([4]f32{ 0.5, 0, 1, nan });
-    try std.testing.expect(within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5 + 1.0 / 65536.0, 0, 1, nan }), 1));
-    try std.testing.expect(!within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5 + 2.0 / 65535.0, 0, 1, nan }), 1));
-    try std.testing.expect(!within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5, 0, 1, 0 }), 1));
+    const one: Tolerance = .{ .peak = 1 };
+    try std.testing.expect(within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5 + 1.0 / 65536.0, 0, 1, nan }), one));
+    try std.testing.expect(!within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5 + 2.0 / 65535.0, 0, 1, nan }), one));
+    try std.testing.expect(!within(.rgba_f32, &f, &std.mem.toBytes([4]f32{ 0.5, 0, 1, 0 }), .{ .peak = 1 }));
+    // Root mean square: one sample of four off by 2 is an RMS of 1, and
+    // all four off by 2 is 2, within the peak either way.
+    const zeros = [_]u8{ 0, 0, 0, 0 };
+    try std.testing.expect(within(.rgba8, &zeros, &.{ 2, 0, 0, 0 }, .{ .peak = 2, .rms = 1 }));
+    try std.testing.expect(!within(.rgba8, &zeros, &.{ 2, 0, 0, 0 }, .{ .peak = 2, .rms = 0.99 }));
+    try std.testing.expect(!within(.rgba8, &zeros, &.{ 2, 2, 2, 2 }, .{ .peak = 2, .rms = 1.99 }));
+    try std.testing.expect(within(.rgba8, &zeros, &.{ 2, 2, 2, 2 }, .{ .peak = 2 }));
+    // In 16-bit steps for floats: 0.5 against 0.5 + 2/65535 in one of four
+    // samples, an RMS of 1.
+    const off = std.mem.toBytes([4]f32{ 0.5 + 2.0 / 65535.0, 0, 1, nan });
+    try std.testing.expect(within(.rgba_f32, &f, &off, .{ .peak = 3, .rms = 1.01 }));
+    try std.testing.expect(!within(.rgba_f32, &f, &off, .{ .peak = 3, .rms = 0.99 }));
 }
 
 /// The image our decoder `D` reads from `input` as `format`, tightly
@@ -184,8 +211,8 @@ fn decode(comptime D: type, input: []const u8, format: PixelFormat, pixel_gpa: s
 }
 
 /// Our decoder's answer. Its pixels are hashed and freed, so a batch holds
-/// one image at a time; with `keep` (a format with a `tolerance`) the
-/// answer holds them, from `gpa`, for the caller to free.
+/// one image at a time; with `keep` (an input with a tolerance) the answer
+/// holds them, from `gpa`, for the caller to free.
 fn ours(comptime D: type, input: []const u8, format: PixelFormat, keep: bool) !Answer {
     const dst = try decode(D, input, format, gpa) orelse return .{ .accepted = false };
     var answer: Answer = .of(dst.width, dst.height, dst.pixels);
@@ -193,13 +220,40 @@ fn ours(comptime D: type, input: []const u8, format: PixelFormat, keep: bool) !A
     return answer;
 }
 
-/// The tolerance `F` compares pixels within, or null to compare their
-/// hashes: an optional `pub const tolerance: u16` in its module.
-fn toleranceOf(comptime F: type) ?u16 {
-    if (!@hasDecl(F, "tolerance")) return null;
-    if (@hasDecl(F, "encode")) @compileError(F.name ++ ": an encoder's files are compared exactly");
-    const t: u16 = F.tolerance;
-    return t;
+/// The tolerance `F` compares `input`'s answers within, or null to compare
+/// their hashes: its module's `pub fn toleranceFor(input: []const u8)
+/// ?Oracle.Tolerance`, or for every input its `pub const tolerance: u16`,
+/// a peak alone.
+fn toleranceFor(comptime F: type, input: []const u8) ?Tolerance {
+    if (comptime !tolerates(F)) return null;
+    if (@hasDecl(F, "toleranceFor")) return F.toleranceFor(input);
+    return .{ .peak = F.tolerance };
+}
+
+/// Whether `F` declares a tolerance, for some inputs or all.
+fn tolerates(comptime F: type) bool {
+    const per_input = @hasDecl(F, "toleranceFor");
+    const flat = @hasDecl(F, "tolerance");
+    if (per_input and flat) @compileError(F.name ++ ": declare `tolerance` or `toleranceFor`, not both");
+    if ((per_input or flat) and @hasDecl(F, "encode"))
+        @compileError(F.name ++ ": an encoder's files are compared exactly");
+    return per_input or flat;
+}
+
+test toleranceFor {
+    const Exact = struct {};
+    const Flat = struct {
+        pub const tolerance: u16 = 2;
+    };
+    const PerInput = struct {
+        pub fn toleranceFor(input: []const u8) ?Tolerance {
+            return if (std.mem.startsWith(u8, input, "L")) .{ .peak = 3, .rms = 0.5 } else null;
+        }
+    };
+    try std.testing.expectEqual(null, toleranceFor(Exact, "L"));
+    try std.testing.expectEqual(Tolerance{ .peak = 2 }, toleranceFor(Flat, "x").?);
+    try std.testing.expectEqual(Tolerance{ .peak = 3, .rms = 0.5 }, toleranceFor(PerInput, "L").?);
+    try std.testing.expectEqual(null, toleranceFor(PerInput, "x"));
 }
 
 /// The image our decoder `D` reads from `input` as `format`, tightly
@@ -225,9 +279,10 @@ fn comparable(comptime F: type, op: []const u8, format: PixelFormat, input: []co
 
 /// The bytes `input` holds in a batch: itself, and the images its size
 /// (from our decoder's header) says the batch keeps: an encoder's sources,
-/// or for a format with a `tolerance` ours and every oracle's pixels.
-fn batchBytes(comptime F: type, input: []const u8) usize {
-    const images: usize = if (@hasDecl(F, "encode")) 1 else if (toleranceOf(F) != null) 1 + F.oracles.len else 0;
+/// or for an input with a tolerance (`tolerant`) ours and every oracle's
+/// pixels.
+fn batchBytes(comptime F: type, input: []const u8, tolerant: bool) usize {
+    const images: usize = if (@hasDecl(F, "encode")) 1 else if (tolerant) 1 + F.oracles.len else 0;
     if (images == 0) return input.len;
     var r: std.Io.Reader = .fixed(input);
     var d = F.Decoder.init(&r, .{ .limits = .{ .max_pixels = max_pixels } });
@@ -284,7 +339,6 @@ fn Run(comptime F: type) type {
         const dir = "zig-out/oracle/" ++ F.name;
         /// An encoder's comparison rather than a decoder's.
         const encodes = @hasDecl(F, "encode");
-        const tolerance = toleranceOf(F);
 
         oracle: Oracle,
         /// The corpus files' paths.
@@ -319,11 +373,12 @@ fn Run(comptime F: type) type {
         fn batch(r: *Self, arena: std.mem.Allocator) !bool {
             r.mutex.lockUncancelable(io);
             const first = r.done;
-            const inputs = r.take(arena) catch |e| {
+            const taken = r.take(arena) catch |e| {
                 r.mutex.unlock(io);
                 return e;
             };
             r.mutex.unlock(io);
+            const inputs = taken.inputs;
             if (inputs.len == 0) return false;
 
             // An encoder's comparison encodes, from each input in each
@@ -344,7 +399,7 @@ fn Run(comptime F: type) type {
                             .format = format,
                             .max_pixels = max_pixels,
                             .input = adapted,
-                            .pixels = tolerance != null,
+                            .pixels = taken.tolerances[i] != null,
                         });
                     }
                     continue;
@@ -377,7 +432,7 @@ fn Run(comptime F: type) type {
                             continue;
                         };
                         m.* = try oursEncode(F, src, arena);
-                    } else m.* = try ours(F.Decoder, input, format, tolerance != null);
+                    } else m.* = try ours(F.Decoder, input, format, taken.tolerances[i] != null);
                     for (row, F.oracles, 0..) |*t, op, o| {
                         const resp = if (encodes) responses[k] else responses[first_request + o * F.formats.len + f];
                         if (encodes) k += 1;
@@ -396,58 +451,63 @@ fn Run(comptime F: type) type {
                     }
                 }
             }
-            defer if (tolerance != null) for (mine) |row| {
+            defer for (mine) |row| {
                 for (row) |m| gpa.free(m.pixels);
             };
             r.mutex.lockUncancelable(io);
             defer r.mutex.unlock(io);
-            for (inputs, mine, theirs, first..) |input, *m, *t, i| {
-                try r.stats.add(F, dir, input, i < r.corpus.len, m, t);
+            for (inputs, taken.tolerances, mine, theirs, first..) |input, tolerance, *m, *t, i| {
+                try r.stats.add(F, dir, input, tolerance, i < r.corpus.len, m, t);
             }
             return true;
         }
 
         /// The next batch of inputs: corpus files first, then fuzzed ones,
-        /// until the batch would hold `batch_bytes`. Under the
-        /// lock.
-        fn take(r: *Self, arena: std.mem.Allocator) ![]const []const u8 {
+        /// until the batch would hold `batch_bytes`, and each one's
+        /// tolerance. Under the lock.
+        fn take(r: *Self, arena: std.mem.Allocator) !struct {
+            inputs: []const []const u8,
+            tolerances: []const ?Tolerance,
+        } {
             const random = r.prng.random();
             const room = @min(batch_inputs, r.total - r.done);
             const inputs = try arena.alloc([]const u8, room);
+            const tolerances = try arena.alloc(?Tolerance, room);
             var count: usize = 0;
             var bytes: usize = 0;
-            for (inputs, r.done..) |*input, i| {
+            for (inputs, tolerances, r.done..) |*input, *tolerance, i| {
                 if (count > 0 and bytes >= batch_bytes) break;
                 count += 1;
-                defer bytes += batchBytes(F, input.*);
                 if (i < r.corpus.len) {
                     input.* = try readFile(r.corpus[i], 0, arena);
-                    continue;
-                }
-                const buf = try arena.alloc(u8, 1 << 16);
-                var len: usize = 0;
-                if (r.corpus.len > 0 and random.boolean()) {
-                    const any = r.bases.len == 0 or random.uintLessThan(u8, big_base_odds) == 0;
-                    const pool = if (any) r.corpus else r.bases;
-                    const pick = pool[random.uintLessThan(usize, pool.len)];
-                    // Room for `mutate` to grow it.
-                    const extra = 4096;
-                    var big: []u8 = undefined;
-                    if (any) big = try readFile(pick, extra, arena) else {
-                        big = try arena.alloc(u8, pick.len + extra);
-                        @memcpy(big[0..pick.len], pick);
-                    }
-                    len = fuzz.harness.mutate(random, big, big.len - extra);
-                    input.* = big[0..len];
                 } else {
-                    const g = T.generate(random, buf);
-                    len = g.len;
-                    if (random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
-                    input.* = buf[0..len];
+                    const buf = try arena.alloc(u8, 1 << 16);
+                    var len: usize = 0;
+                    if (r.corpus.len > 0 and random.boolean()) {
+                        const any = r.bases.len == 0 or random.uintLessThan(u8, big_base_odds) == 0;
+                        const pool = if (any) r.corpus else r.bases;
+                        const pick = pool[random.uintLessThan(usize, pool.len)];
+                        // Room for `mutate` to grow it.
+                        const extra = 4096;
+                        var big: []u8 = undefined;
+                        if (any) big = try readFile(pick, extra, arena) else {
+                            big = try arena.alloc(u8, pick.len + extra);
+                            @memcpy(big[0..pick.len], pick);
+                        }
+                        len = fuzz.harness.mutate(random, big, big.len - extra);
+                        input.* = big[0..len];
+                    } else {
+                        const g = T.generate(random, buf);
+                        len = g.len;
+                        if (random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
+                        input.* = buf[0..len];
+                    }
                 }
+                tolerance.* = toleranceFor(F, input.*);
+                bytes += batchBytes(F, input.*, tolerance.* != null);
             }
             r.done += count;
-            return inputs[0..count];
+            return .{ .inputs = inputs[0..count], .tolerances = tolerances[0..count] };
         }
     };
 }
@@ -475,7 +535,7 @@ const Stats = struct {
     comparisons: usize = 0,
     mismatches: usize = 0,
     agreed: usize = 0,
-    /// Of those, the ones that agree only within the format's tolerance.
+    /// Of those, the ones that agree only within their tolerance.
     within_tolerance: usize = 0,
     /// Oracle disagreements, keyed by which oracles ours differed from and
     /// whether ours accepted.
@@ -489,6 +549,7 @@ const Stats = struct {
         comptime F: type,
         dir: []const u8,
         input: []const u8,
+        tolerance: ?Tolerance,
         from_corpus: bool,
         mine: []const Answer,
         theirs: []const [F.oracles.len]?Answer,
@@ -498,7 +559,6 @@ const Stats = struct {
         var answered: [n]bool = @splat(false);
         var with_us: [n]bool = @splat(true);
         var pair: [n][n]bool = @splat(@splat(true));
-        const tolerance = toleranceOf(F);
         var inexact = false;
         for (mine, theirs, F.formats) |m, row, format| {
             for (row, 0..) |t, o| {
@@ -579,8 +639,10 @@ const Stats = struct {
         std.debug.print("  {d} agree with every oracle, {d} mismatches, in {d:.1} s\n", .{
             s.agreed, s.mismatches, seconds,
         });
-        if (toleranceOf(F)) |t| {
-            std.debug.print("  {d} of them only within the tolerance of {d}\n", .{ s.within_tolerance, t });
+        if (@hasDecl(F, "toleranceFor")) {
+            std.debug.print("  {d} of them only within their inputs' tolerances\n", .{s.within_tolerance});
+        } else if (comptime tolerates(F)) {
+            std.debug.print("  {d} of them only within the tolerance of {d}\n", .{ s.within_tolerance, F.tolerance });
         }
         // In key order, not the order the workers' batches finished in.
         s.split.sort(ByKey{ .keys = s.split.keys() });

@@ -53,6 +53,18 @@ pub const Request = struct {
     pixels: bool = false,
 };
 
+/// How far two answers for one input may differ, from a format module's
+/// `toleranceFor` (compare.zig): every sample by at most `peak`, and, when
+/// `rms` is set, the root mean square of the differences over all the
+/// image's samples by at most `rms`. Both are in the compared format's
+/// sample units, and for floats in 16-bit steps (a unit is 1/65535); a
+/// bound as a fraction of full scale is that fraction times 255, 65535, or
+/// 65535 for floats.
+pub const Tolerance = struct {
+    peak: u16,
+    rms: ?f32 = null,
+};
+
 pub const Response = struct {
     status: Status,
     width: u32,
