@@ -1,8 +1,8 @@
-# The jobs baskingspot/gh-actions' ci.yml runs, in parallel: together they
-# are `just ci`. The oracle comparison is a gate like the tests; fuzzing runs
-# on a schedule instead (.github/workflows/fuzz.yml).
+# The jobs baskingspot/gh-actions' ci.yml runs, in parallel: with the
+# oracle comparison, which .github/workflows/ci.yml runs itself so that a
+# mismatch's inputs are uploaded, they are `just ci`. Fuzzing runs on a
+# schedule instead (.github/workflows/fuzz.yml).
 jobs:
   - recipe: test
   - recipe: test-be
   - recipe: lint
-  - recipe: oracle-ci

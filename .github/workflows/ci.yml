@@ -15,3 +15,34 @@ jobs:
     uses: baskingspot/gh-actions/.github/workflows/ci.yml@a26279caa6babcb0b548e6c55ced2aac9ee9a5b9 # v0.12.1
     secrets:
       CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  # The oracle comparison, a gate like the tests. It runs here, not in
+  # .github/ci.yaml, because gh-actions' ci.yml cannot upload files: a
+  # mismatch fails the run and uploads its inputs from zig-out/oracle. The
+  # steps follow gh-actions' ci.yml, as fuzz.yml's do.
+  oracle-ci:
+    name: oracle-ci
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          install_url: https://releases.nixos.org/nix/nix-2.35.3/install
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: baskingspot
+          extraPullNames: mattrobenolt
+          skipPush: true
+      - name: Compare with the oracles
+        run: nix develop --command just oracle-ci
+      - name: Upload the mismatches
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oracle-mismatches
+          path: zig-out/oracle/**/mismatch-*.input
+          if-no-files-found: ignore
