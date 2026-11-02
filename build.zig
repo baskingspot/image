@@ -93,6 +93,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.step("oracle", "Build the oracle comparison").dependOn(&b.addInstallArtifact(compare, .{}).step);
+    // Its own tests (the tolerance comparison) need no oracle.
+    const compare_tests = b.addTest(.{
+        .name = "oracle-compare",
+        .root_module = compare.root_module,
+        .test_runner = runner,
+    });
+    test_step.dependOn(&b.addRunArtifact(compare_tests).step);
 
     // The benchmark's Zig arm, bench-image: bench/zig's operations under
     // the C arms' harness (bench/c/arm.c). Built with -Dbench-optimize,

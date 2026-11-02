@@ -2,7 +2,8 @@
 // batch of requests that follows, each
 //
 //   u8 name length, name (an op from a format's table, such as "qoi-wuffs"),
-//   u8 pixel format (image.PixelFormat), u64 pixel limit, u32 length, bytes
+//   u8 pixel format (image.PixelFormat; the high bit set asks for the
+//   pixels), u64 pixel limit, u32 length, bytes
 //
 // where a length of 0xffffffff, with no bytes, means the previous request's
 // input again, so an input asked for in many formats and of an oracle
@@ -13,8 +14,10 @@
 //   u8 status (enum status), u32 width, u32 height, u32 length, u64 hash
 //
 // where the hash is XXH64, seed 0, of the pixels, tightly packed in the
-// requested format: the harness only asks whether two answers are the same,
-// and gigabytes of pixels need not cross the pipe to say so.
+// requested format: the harness mostly asks whether two answers are the
+// same, and gigabytes of pixels need not cross the pipe to say so. A
+// request that asks for the pixels, for a comparison within a tolerance,
+// gets them after its response when the status is ok, `length` bytes.
 //
 // An encode op's input is the source's width and height, u32 each, then
 // its pixels, tightly packed in the pixel format; its response's length
@@ -184,6 +187,9 @@ int main(void) {
     }
     struct image img = {0};
     enum status s = STATUS_SKIPPED;
+    // The format byte's high bit asks for the pixels after the response.
+    int with_pixels = format & 0x80;
+    format &= 0x7f;
     int known = format <= PF_CMYK16;
     if (known && op->encode) {
       if (last_len < 8) {
@@ -209,6 +215,7 @@ int main(void) {
     put32(stdout, img.height);
     put32(stdout, img.len);
     put64(stdout, xxh64(img.pixels, img.len));
+    if (with_pixels && s == STATUS_OK) fwrite(img.pixels, 1, img.len, stdout);
     free(img.pixels);
   }
   return fflush(stdout) == 0 ? 0 : 1;

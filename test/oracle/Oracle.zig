@@ -49,6 +49,8 @@ pub const Request = struct {
     input: []const u8,
     /// For an encode op, the source's width and height.
     size: ?[2]u32 = null,
+    /// Return the pixels too, for a comparison within a tolerance.
+    pixels: bool = false,
 };
 
 pub const Response = struct {
@@ -60,10 +62,14 @@ pub const Response = struct {
     len: u32,
     /// XXH64, seed 0, of those pixels: `std.hash.XxHash64.hash(0, pixels)`.
     hash: u64,
+    /// The pixels themselves, when the request asked for them and the op
+    /// succeeded; freed by `free`.
+    pixels: []const u8 = &.{},
 };
 
 pub const RunError = error{ OracleFailed, BadResponse } || mem.Allocator.Error ||
-    std.process.SpawnError || Io.File.Writer.Error || Io.Reader.LimitedAllocError || std.process.Child.WaitError;
+    std.process.SpawnError || Io.File.Writer.Error || Io.File.Reader.Error || Io.Reader.LimitedAllocError ||
+    std.process.Child.WaitError;
 
 /// Runs one batch through the oracle and returns a response per request,
 /// in order. Free the result with `free`.
@@ -90,18 +96,18 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     stdin.interface.flush() catch return stdin.err.?;
     child.stdin.?.close(oracle.io);
     child.stdin = null;
+    // Each response is read into its own allocation, so pixels asked for
+    // are held once, at their size.
     var buf: [64 * 1024]u8 = undefined;
     var reader = child.stdout.?.readerStreaming(oracle.io, &buf);
-    const bytes = try reader.interface.allocRemaining(oracle.gpa, .unlimited);
-    defer oracle.gpa.free(bytes);
-    const term = try child.wait(oracle.io);
-    if (term != .exited or term.exited != 0) return error.OracleFailed;
-
-    const size = 21;
-    if (bytes.len != requests.len * size) return error.BadResponse;
     const responses = try oracle.gpa.alloc(Response, requests.len);
-    for (responses, 0..) |*resp, i| {
-        const b = bytes[i * size ..][0..size];
+    var read: usize = 0;
+    errdefer {
+        for (responses[0..read]) |resp| oracle.gpa.free(resp.pixels);
+        oracle.gpa.free(responses);
+    }
+    for (responses, requests) |*resp, req| {
+        const b = reader.interface.takeArray(21) catch return readError(&reader);
         resp.* = .{
             .status = @enumFromInt(b[0]),
             .width = mem.readInt(u32, b[1..5], .little),
@@ -109,8 +115,28 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
             .len = mem.readInt(u32, b[9..13], .little),
             .hash = mem.readInt(u64, b[13..21], .little),
         };
+        if (req.pixels and resp.status == .ok) {
+            const pixels = try oracle.gpa.alloc(u8, resp.len);
+            reader.interface.readSliceAll(pixels) catch {
+                oracle.gpa.free(pixels);
+                return readError(&reader);
+            };
+            resp.pixels = pixels;
+        }
+        read += 1;
     }
+    if (reader.interface.takeByte()) |_| return error.BadResponse else |e| switch (e) {
+        error.EndOfStream => {},
+        error.ReadFailed => return readError(&reader),
+    }
+    const term = try child.wait(oracle.io);
+    if (term != .exited or term.exited != 0) return error.OracleFailed;
     return responses;
+}
+
+/// A short response is the oracle failing, or the pipe's error.
+fn readError(reader: *Io.File.Reader) RunError {
+    return reader.err orelse error.OracleFailed;
 }
 
 /// The batch as oracle.c reads it, after its length.
@@ -119,7 +145,8 @@ fn writeRequests(w: *Io.Writer, requests: []const Request) Io.Writer.Error!void 
     for (requests) |req| {
         try w.writeByte(@intCast(req.op.len));
         try w.writeAll(req.op);
-        try w.writeByte(@intFromEnum(req.format));
+        // The high bit asks for the pixels.
+        try w.writeByte(@intFromEnum(req.format) | @as(u8, if (req.pixels) 0x80 else 0));
         try w.writeInt(u64, req.max_pixels, .little);
         // The same input as the last request's goes once (oracle.c). An
         // encode op's input is the source's width and height, then its
@@ -141,5 +168,6 @@ fn writeRequests(w: *Io.Writer, requests: []const Request) Io.Writer.Error!void 
 
 /// Frees what `run` returned.
 pub fn free(oracle: Oracle, responses: []Response) void {
+    for (responses) |resp| oracle.gpa.free(resp.pixels);
     oracle.gpa.free(responses);
 }

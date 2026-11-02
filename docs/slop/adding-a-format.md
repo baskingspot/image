@@ -165,7 +165,13 @@ few-bytes-at-a-time writer, for a target's own checks.
   `corpus` cost the corpus pass, not every mutation. Corpus files are read
   from disk as batches need them, and `adapt` is called once per input and
   op, so an `adapt` that copies its input costs one copy per op, not one
-  per pixel format; return the input itself when it needs no change. `just oracle
+  per pixel format; return the input itself when it needs no change.
+  Answers agree when their lengths and XXH64s match. A lossy format whose
+  specification leaves arithmetic open can declare `pub const tolerance:
+u16` in its module instead: its oracles then return pixels, and two
+  answers agree when every sample differs by at most that much, in the
+  compared format's units (for floats, `tolerance / 65535`). The run prints
+  how many agreed only within it. `just oracle
 100000` runs every format, and `just oracle 20000 1 <fmt>` one; the gate is
   0 mismatches.
 - **MagickWand.** An oracle that reads through ImageMagick calls
