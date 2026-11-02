@@ -184,6 +184,8 @@ pub const Group = struct {
 /// Space for building and writing codes, so none of it is on the stack.
 pub const Scratch = struct {
     sorted: [max_green]u64,
+    /// The radix sort's other buffer.
+    spare: [max_green]u64,
     weight: [2 * max_green]u64,
     parent: [2 * max_green]u16,
     depth: [2 * max_green]u8,
@@ -207,7 +209,7 @@ pub fn buildLengths(counts: []const u32, limit: u5, lens: []u8, s: *Scratch) usi
         lens[@as(u16, @truncate(s.sorted[0]))] = 1;
         return 1;
     }
-    std.sort.pdq(u64, s.sorted[0..n], {}, std.sort.asc(u64));
+    sortKeys(s.sorted[0..n], s.spare[0..n]);
     // Huffman's algorithm with two queues: the leaves in order, and the
     // internal nodes in the order they are made, which is also by weight.
     // Nodes 0..n are the leaves, n.. the internal nodes.
@@ -263,6 +265,44 @@ pub fn buildLengths(counts: []const u32, limit: u5, lens: []u8, s: *Scratch) usi
         }
     }
     return n;
+}
+
+/// Sorts `keys` ascending, by bytes from the lowest (a radix sort), with
+/// `spare` as the other buffer; bytes every key shares are skipped. Not
+/// `std.sort.pdq`: LLVM widens its pivot selection to 512-bit vectors, and
+/// this host lowers its clock after any (docs/slop/plan.md, the WebP
+/// decode performance pass). The keys are distinct, so any sort orders
+/// them the same.
+fn sortKeys(keys: []u64, spare: []u64) void {
+    var all_or: u64 = 0;
+    var all_and: u64 = std.math.maxInt(u64);
+    for (keys) |k| {
+        all_or |= k;
+        all_and &= k;
+    }
+    var from = keys;
+    var to = spare;
+    var shift: u6 = 0;
+    while (true) : (shift += 8) {
+        if (@as(u8, @truncate((all_or ^ all_and) >> shift)) != 0) {
+            var at: [256]u32 = @splat(0);
+            for (from) |k| at[@as(u8, @truncate(k >> shift))] += 1;
+            var sum: u32 = 0;
+            for (&at) |*c| {
+                const n = c.*;
+                c.* = sum;
+                sum += n;
+            }
+            for (from) |k| {
+                const d: u8 = @truncate(k >> shift);
+                to[at[d]] = k;
+                at[d] += 1;
+            }
+            std.mem.swap([]u64, &from, &to);
+        }
+        if (shift == 56) break;
+    }
+    if (from.ptr != keys.ptr) @memcpy(keys, from);
 }
 
 /// Canonical codes for `lens`, bit-reversed.
@@ -412,24 +452,32 @@ fn maxSymbolBits(count: usize) u32 {
 
 /// Bits to write the first `count` code-length tokens with their own code.
 fn lengthCodeCost(s: *Scratch, count: usize, use_max: bool) u64 {
+    // Each count is at most `count`, a token per symbol at most, so the
+    // counts fit 16 bits, and so does the sum of their lengths, at most 7
+    // bits each: summed in 16 lanes of 16 bits, which keeps the sum out of
+    // 512-bit vectors (see `sortKeys`).
+    comptime std.debug.assert(max_green * 7 < 1 << 16);
+    std.debug.assert(count <= max_green);
     var hist: [19]u32 = @splat(0);
-    for (s.tokens[0..count]) |tok| hist[tok] += 1;
+    var hist16: [19]u16 = @splat(0);
+    for (s.tokens[0..count]) |tok| {
+        hist[tok] += 1;
+        hist16[tok] += 1;
+    }
     var cl_lens: [19]u8 = undefined;
     const used = buildLengths(&hist, 7, &cl_lens, s);
     var num: usize = 19;
     while (num > 4 and cl_lens[code_length_order[num - 1]] == 0) num -= 1;
     var bits: u64 = 4 + 3 * num + 1;
     if (use_max) bits += 3 + 2 + 2 * maxSymbolBits(count);
-    for (hist, cl_lens, 0..) |h, l, tok| {
-        const per: u64 = (if (used > 1) l else 0) + @as(u64, switch (tok) {
-            16 => 2,
-            17 => 3,
-            18 => 7,
-            else => 0,
-        });
-        bits += h * per;
+    if (used > 1) {
+        const V = @Vector(16, u16);
+        const h: V = hist16[0..16].*;
+        const l: V = @as(@Vector(16, u8), cl_lens[0..16].*);
+        bits += @reduce(.Add, h * l);
+        for (16..19) |tok| bits += @as(u64, hist[tok]) * cl_lens[tok];
     }
-    return bits;
+    return bits + 2 * @as(u64, hist[16]) + 3 * @as(u64, hist[17]) + 7 * @as(u64, hist[18]);
 }
 
 test prefix {

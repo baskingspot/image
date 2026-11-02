@@ -198,6 +198,9 @@ const Layout = struct {
     ring_len: usize,
     head_bits: u5,
     meta_bits: u5,
+    /// The most prefix code groups the entropy image may have: the
+    /// effort's limit, but no more than its tiles.
+    clusters: u32,
     total: usize,
 
     fn init(plan: Plan, width: u32, height: u32) ?Layout {
@@ -210,8 +213,9 @@ const Layout = struct {
         const meta_bits = plan.metaBits(width, height);
         const ent_tiles: u64 = if (meta_bits == 0) 0 else tiles(width, height, meta_bits);
         const ent_cols: u64 = if (meta_bits == 0) 0 else transform.divRoundUp(width, meta_bits);
-        const groups: u64 = plan.clusters + sub_count;
-        const cluster_len = entropy.workLen(ent_tiles, ent_cols, n, plan.clusters);
+        const clusters: u32 = @intCast(@min(plan.clusters, ent_tiles));
+        const groups: u64 = clusters + sub_count;
+        const cluster_len = entropy.workLen(ent_tiles, ent_cols, n, clusters);
         const sizes = [_]u64{
             n * 4,
             n * 4 + 8,
@@ -258,6 +262,7 @@ const Layout = struct {
         l.ring_len = std.math.cast(usize, ring_len) orelse return null;
         l.head_bits = head_bits;
         l.meta_bits = meta_bits;
+        l.clusters = clusters;
         // Slack to align the caller's buffer.
         l.total = std.math.cast(usize, at + 16) orelse return null;
         return l;
@@ -276,6 +281,8 @@ pub fn workLen(options: EncodeOptions, width: u32, height: u32) ?usize {
 const CacheScratch = struct {
     green: [codes.max_cache_bits + 1][256 + (1 << codes.max_cache_bits)]u32,
     rest: [codes.max_cache_bits + 1][3][256]u32,
+    /// Every literal's channels, before any cache takes some.
+    all: [4][256]u32,
 };
 
 /// An entropy-coded image, as the stream writes it.
@@ -442,8 +449,8 @@ const sub_params: lz77.Params = .{ .chain = 8 };
 
 /// Codes `px`, the transform image `sub`, with `sub`'s one group and no
 /// color cache, into `tokens`.
-fn codeSub(wk: Work, l: Layout, plan: Plan, sub: Sub, px: []const u32, width: u32, tokens: []u32) Coded {
-    const k = plan.clusters + @intFromEnum(sub);
+fn codeSub(wk: Work, l: Layout, sub: Sub, px: []const u32, width: u32, tokens: []u32) Coded {
+    const k = l.clusters + @intFromEnum(sub);
     const group = &wk.slice(codes.Group, l.groups, k + 1)[k];
     const histo = &wk.slice(codes.Histogram, l.histos, k + 1)[k];
     const s = wk.one(codes.Scratch, l.scratch);
@@ -718,7 +725,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
             palette[k] = transform.sub(palette[k], palette[k - 1]);
         }
         const tokens = wk.slice(u32, l.palette_tokens, 258);
-        const image = codeSub(wk, l, plan, .palette, palette[0..count], @intCast(count), tokens);
+        const image = codeSub(wk, l, .palette, palette[0..count], @intCast(count), tokens);
         st.steps[0] = .{ .kind = .color_index, .image = image };
         st.step_count = 1;
     }
@@ -744,7 +751,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
             scratch,
         );
         const tw = transform.divRoundUp(width, plan.pred_bits);
-        const image = codeSub(wk, l, plan, .predictor, img, tw, wk.slice(u32, l.pred_tokens, pn + 2));
+        const image = codeSub(wk, l, .predictor, img, tw, wk.slice(u32, l.pred_tokens, pn + 2));
         st.steps[st.step_count] = .{ .kind = .predictor, .bits = plan.pred_bits, .image = image };
         st.step_count += 1;
         if (plan.cross) {
@@ -753,7 +760,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
             const cscratch = wk.one(transform.ColorScratch, l.color_scratch);
             transform.crossColor(argb, width, height, plan.cross_bits, plan.cross_sample, cimg, cscratch);
             const cw = transform.divRoundUp(width, plan.cross_bits);
-            const cimage = codeSub(wk, l, plan, .color, cimg, cw, wk.slice(u32, l.color_tokens, cn + 2));
+            const cimage = codeSub(wk, l, .color, cimg, cw, wk.slice(u32, l.color_tokens, cn + 2));
             st.steps[st.step_count] = .{ .kind = .color, .bits = plan.cross_bits, .image = cimage };
             st.step_count += 1;
         }
@@ -778,7 +785,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
     // Again along the cheapest path, by what the last parse's symbols
     // cost.
     for (0..plan.passes) |_| {
-        const k = plan.clusters + @intFromEnum(Sub.single);
+        const k = l.clusters + @intFromEnum(Sub.single);
         const h = &wk.slice(codes.Histogram, l.histos, k + 1)[k];
         h.clear();
         lz77.histogram(main_px, tokens, h);
@@ -817,10 +824,10 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
 /// the smaller is kept.
 fn chooseGroups(st: *Stream, wk: Work, l: Layout, plan: Plan, green_size: usize, meta: *Coded) void {
     const s = wk.one(codes.Scratch, l.scratch);
-    const group_mem = wk.slice(codes.Group, l.groups, plan.clusters + sub_count);
-    const histos = wk.slice(codes.Histogram, l.histos, plan.clusters + sub_count);
-    const sub_group = group_mem[plan.clusters..];
-    const sub_histo = histos[plan.clusters..];
+    const group_mem = wk.slice(codes.Group, l.groups, l.clusters + sub_count);
+    const histos = wk.slice(codes.Histogram, l.histos, l.clusters + sub_count);
+    const sub_group = group_mem[l.clusters..];
+    const sub_histo = histos[l.clusters..];
     const main_px = st.main.px;
     const tokens = st.main.tokens;
     const cur_w = st.main.width;
@@ -841,10 +848,10 @@ fn chooseGroups(st: *Stream, wk: Work, l: Layout, plan: Plan, green_size: usize,
         .tokens = tokens,
         .bits = l.meta_bits,
         .green_size = green_size,
-        .max_groups = plan.clusters,
+        .max_groups = l.clusters,
         .rounds = plan.rounds,
         .tile_group = ent,
-        .histos = histos[0..plan.clusters],
+        .histos = histos[0..l.clusters],
         .mem = wk.slice(u8, l.cluster, l.cluster_len),
     };
     var best_bits = st.main.bits(true, s);
@@ -854,7 +861,7 @@ fn chooseGroups(st: *Stream, wk: Work, l: Layout, plan: Plan, green_size: usize,
         at.start = @intCast(k);
         const count = entropy.cluster(at);
         if (count < 2) continue;
-        const bits = groupedBits(st.main, ent, count, wk, l, plan, green_size, meta);
+        const bits = groupedBits(st.main, ent, count, wk, l, green_size, meta);
         if (bits < best_bits) {
             best_bits = bits;
             best = .{ .start = at.start, .count = count };
@@ -865,7 +872,7 @@ fn chooseGroups(st: *Stream, wk: Work, l: Layout, plan: Plan, green_size: usize,
     if (b.start != plan.starts - 1) {
         var at = in;
         at.start = b.start;
-        _ = groupedBits(st.main, ent, entropy.cluster(at), wk, l, plan, green_size, meta);
+        _ = groupedBits(st.main, ent, entropy.cluster(at), wk, l, green_size, meta);
     }
     st.main.groups = group_mem[0..b.count];
     st.main.histos = histos[0..b.count];
@@ -882,16 +889,15 @@ fn groupedBits(
     group_count: usize,
     wk: Work,
     l: Layout,
-    plan: Plan,
     green_size: usize,
     meta: *Coded,
 ) u64 {
     const s = wk.one(codes.Scratch, l.scratch);
-    const group_mem = wk.slice(codes.Group, l.groups, plan.clusters + sub_count);
-    const histos = wk.slice(codes.Histogram, l.histos, plan.clusters + sub_count);
+    const group_mem = wk.slice(codes.Group, l.groups, l.clusters + sub_count);
+    const histos = wk.slice(codes.Histogram, l.histos, l.clusters + sub_count);
     for (ent) |*e| e.* = 0xff000000 | e.* << 8;
     const ew = transform.divRoundUp(main.width, l.meta_bits);
-    meta.* = codeSub(wk, l, plan, .entropy, ent, ew, wk.slice(u32, l.ent_tokens, ent.len + 2));
+    meta.* = codeSub(wk, l, .entropy, ent, ew, wk.slice(u32, l.ent_tokens, ent.len + 2));
     for (group_mem[0..group_count], histos[0..group_count]) |*g, *h| g.build(h, green_size, s);
     var multi = main;
     multi.groups = group_mem[0..group_count];
@@ -943,7 +949,10 @@ fn chooseCache(px: []const u32, tokens: []const u32, candidates: []const u5, cs:
         @memset(cs.green[b][0 .. 256 + (@as(usize, 1) << b)], 0);
         for (&cs.rest[b]) |*r| @memset(r, 0);
     }
-    // One cache for each size, side by side: size 2^b starts at 2^b.
+    for (&cs.all) |*a| @memset(a, 0);
+    // One cache for each size, side by side: size 2^b starts at 2^b. Each
+    // literal is counted once in `all`, and what each cache takes instead
+    // in that cache's histograms, to subtract after.
     @memset(cache[0 .. @as(usize, 2) << max], 0);
     var p: usize = 0;
     var t: usize = 0;
@@ -951,7 +960,11 @@ fn chooseCache(px: []const u32, tokens: []const u32, candidates: []const u5, cs:
         const tok = tokens[t];
         if (tok & lz77.copy_flag != 0) {
             const len = tok & 0xffff;
+            // A pixel like the one before goes where that one went.
+            var last = px[p] +% 1;
             for (px[p..][0..len]) |v| {
+                if (v == last) continue;
+                last = v;
                 for (candidates) |b| {
                     if (b != 0) cache[(@as(usize, 1) << b) + lz77.cacheIndex(v, b)] = v;
                 }
@@ -961,23 +974,34 @@ fn chooseCache(px: []const u32, tokens: []const u32, candidates: []const u5, cs:
             continue;
         }
         const v = px[p];
+        const g = (v >> 8) & 0xff;
+        const r = (v >> 16) & 0xff;
+        const bl = v & 0xff;
+        const a = v >> 24;
+        cs.all[0][g] += 1;
+        cs.all[1][r] += 1;
+        cs.all[2][bl] += 1;
+        cs.all[3][a] += 1;
         for (candidates) |b| {
-            if (b != 0) {
-                const k = lz77.cacheIndex(v, b);
-                const slot = &cache[(@as(usize, 1) << b) + k];
-                if (slot.* == v) {
-                    cs.green[b][256 + k] += 1;
-                    continue;
-                }
-                slot.* = v;
-            }
-            cs.green[b][(v >> 8) & 0xff] += 1;
-            cs.rest[b][0][(v >> 16) & 0xff] += 1;
-            cs.rest[b][1][v & 0xff] += 1;
-            cs.rest[b][2][v >> 24] += 1;
+            if (b == 0) continue;
+            const k = lz77.cacheIndex(v, b);
+            const slot = &cache[(@as(usize, 1) << b) + k];
+            if (slot.* == v) {
+                cs.green[b][256 + k] += 1;
+                cs.green[b][g] += 1;
+                cs.rest[b][0][r] += 1;
+                cs.rest[b][1][bl] += 1;
+                cs.rest[b][2][a] += 1;
+            } else slot.* = v;
         }
         p += 1;
         t += 1;
+    }
+    for (candidates) |b| {
+        for (cs.green[b][0..256], cs.all[0]) |*c, n| c.* = n - c.*;
+        for (&cs.rest[b], cs.all[1..]) |*h, *all| {
+            for (h, all) |*c, n| c.* = n - c.*;
+        }
     }
     var best: u5 = 0;
     var best_cost: f64 = std.math.inf(f64);

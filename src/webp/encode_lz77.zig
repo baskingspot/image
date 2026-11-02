@@ -408,8 +408,23 @@ pub fn parseOptimal(
 /// same.
 inline fn relaxAll(cost: []f32, from: []u32, i: usize, len: u32, here: f32, code: u32, costs: *const Costs) void {
     const dc = here + costs.distance(code);
+    const short = @min(len, 32);
     var l: u32 = 2;
-    while (l <= @min(len, 32)) : (l += 1) relax(cost, from, i, l, dc + costs.length[l], code);
+    // Eight lengths at a time: each writes its own entry, so this is the
+    // loop below, reordered. `l + 7 <= short <= len` keeps the entries
+    // within `cost[0..i + len + 1]`.
+    const F = @Vector(8, f32);
+    const U = @Vector(8, u32);
+    while (l + 7 <= short) : (l += 8) {
+        const at = i + l;
+        const old: F = cost[at..][0..8].*;
+        const total = @as(F, @splat(dc)) + @as(F, costs.length[l..][0..8].*);
+        const better = total < old;
+        cost[at..][0..8].* = @select(f32, better, total, old);
+        const tok = (@as(U, @splat(l - 1)) + std.simd.iota(u32, 8)) << @splat(20) | @as(U, @splat(code));
+        from[at..][0..8].* = @select(u32, better, tok, @as(U, from[at..][0..8].*));
+    }
+    while (l <= short) : (l += 1) relax(cost, from, i, l, dc + costs.length[l], code);
     while (l <= len) {
         const p = codes.prefix(l);
         const top = @min(len, l + ((@as(u32, 1) << @intCast(p.bits)) - 1 - p.extra));
