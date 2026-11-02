@@ -31,7 +31,7 @@ Shared by every format:
 
 - **Metadata** is reported, never applied: ICC profiles, EXIF (with the
   orientation parsed out, since callers need it to display a photo), XMP,
-  gamma and chromaticities, physical size and DPI, animation timing and loop
+  gamma, transfer, primaries, intensity target, physical size and DPI, animation timing and loop
   counts, TIFF and ICO page lists.
 - **Format detection** from the first bytes (`image.detect`).
 - **Pixel formats.** A decoder writes the format the caller asks for:
@@ -82,9 +82,11 @@ format follows):
   before any work; `Limits.none` lifts them. `DecodeOptions` also carries a
   `BlobSink` that receives ICC, EXIF, and XMP bytes as the decoder passes
   them; `Metadata` reports orientation (`image.exif` parses it), transfer,
-  chromaticities, and density.
-- `PixelFormat` has 20 formats: 8- and 16-bit gray, gray-alpha, RGB, BGR,
-  RGBA, and BGRA, straight and premultiplied, and RGBA f32. `PixelBuffer` is
+  primaries, intensity target, density, and whether a JPEG XL file can
+  rebuild its JPEG (`jpeg_reconstruction`).
+- `PixelFormat` has 24 formats: 8- and 16-bit gray, gray-alpha, RGB, BGR,
+  RGBA, and BGRA, straight and premultiplied; RGBA, RGB, and gray f32; and
+  8- and 16-bit CMYK. `PixelBuffer` is
   pixels, format, size, and stride. `image.convert` (`Converter`, `convert`,
   `convertBuffer`) converts between any two, with SIMD kernels for the
   common pairs and a general path through 16-bit or f32 RGBA. Its integer
@@ -353,10 +355,13 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   bench rows; only its export lines in `src/webp/root.zig`. It writes ALPH
   raw until the lossless encoder (`wave5-webp-encode`) lands, then
   compresses it with that encoder.
-- **Shared types for JPEG XL** (branch `wave2-types`, the QOI/WBMP orb):
-  decision 29's metadata fields in `src/decode.zig` and the `rgb_f32` and
-  `gray_f32` formats in `src/pixel.zig` and `src/convert.zig`, with the
-  oracle protocol's pixel formats.
+- **Shared types for JPEG XL** (landed; results/convert-f32-20261102.md):
+  decision 29's metadata fields (`Transfer` bt709, dci, pq, and hlg;
+  `Metadata.primaries` replacing `chromaticities`; `intensity_target`;
+  `jpeg_reconstruction`), `rgb_f32` and `gray_f32`, and SIMD between float
+  and 8- or 16-bit samples in the same layout (5–16× the general path).
+  PNG encode takes `primaries`. The JPEG XL orb still maps its colour
+  encoding into the new fields.
 - **JPEG reconstruction** (branch `wave4-jxl-jbrd`, the Netpbm orb):
   `src/jxl/jbrd.zig`, `src/jxl/JpegReconstructor.zig`, and their fuzz and
   oracle files, on the coefficient callback the JPEG XL orb adds to
