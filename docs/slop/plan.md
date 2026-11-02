@@ -782,7 +782,11 @@ orb asks for a change to them, or for text in this file, in its report.
 37. **ICO entries in order. Decided by the owner:** a multi-size icon with a
     PNG entry must decode straight through without `Options.entry`: the
     BMP/ICO orb bounds PNG work memory by the canvas size and counts bytes
-    through the PNG decoder, after the TIFF encoder.
+    through the PNG decoder, after the TIFF encoder. Landed
+    (wave1-ico-png2): PNG entries among several decode in order on the
+    bgra8 canvas through a reader limited to the entry's length, which
+    counts the bytes; `Config.work_len` is `png.Decoder.maxWorkLen(canvas
+width)` for every file with several entries.
 38. **ICO 16-bit sources. Decided by the owner:** convert to 8 bits per
     channel before encoding a PNG entry (256 KiB more work memory, only for
     16-bit sources).
@@ -821,7 +825,9 @@ orb asks for a change to them, or for text in this file, in its report.
 50. **ICO 16-bit sources. Decided by the owner:** `png.EncodeOptions` gains an
     8-bit cap, converted row by row with no extra work memory, and ICO sets
     it for PNG entries (decision 38). The BMP/ICO orb makes the PNG encode
-    change in `wave1-ico-png2`.
+    change in `wave1-ico-png2`. Landed: `png.EncodeOptions.max_depth =
+.@"8"` narrows the base format row by row with no extra work memory; ICO
+    sets it for PNG entries.
 
 ## Harness requests
 
