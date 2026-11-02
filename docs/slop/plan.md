@@ -314,6 +314,12 @@ owning the files adding-a-format.md assigns to its format plus
 - **Gates on 8 GB orbs** (branch `wave2-harness4`, the harness orb): the
   all-format `just oracle 100000` and, on some orbs, `just ci` run out of
   memory on an 8 GB orb; make them fit.
+- **WebP lossy encode** (branch `wave5-webp-lossy`, a new orb):
+  `src/webp/vp8_encode.zig` and any new `src/webp/vp8_encode_*.zig` files,
+  the webp_lossy_encode fuzz and oracle files, and the webp-encode-lossy
+  bench rows; only its export lines in `src/webp/root.zig`. It writes ALPH
+  raw until the lossless encoder (`wave5-webp-encode`) lands, then
+  compresses it with that encoder.
 - **Shared types for JPEG XL** (branch `wave2-types`, the QOI/WBMP orb):
   decision 29's metadata fields in `src/decode.zig` and the `rgb_f32` and
   `gray_f32` formats in `src/pixel.zig` and `src/convert.zig`, with the
