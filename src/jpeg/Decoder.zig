@@ -66,6 +66,11 @@ pub const Options = struct {
     color: ColorHint = .auto,
     /// What a CMYK or YCCK image decodes to.
     cmyk: Cmyk = .rgb,
+    /// Whether `decodeFrame` takes a destination smaller than the frame,
+    /// writing the frame's top-left `dst.width` × `dst.height` pixels and
+    /// decoding the rest without writing it, as for TIFF's edge tiles,
+    /// which are coded whole but lie partly outside the image.
+    crop: bool = false,
 };
 
 pub const Scale = enum(u2) {
@@ -340,18 +345,69 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     };
 }
 
-/// Decodes the image into `dst`, which must be the canvas's size, in any
-/// format, reading through EOI. Returns null once the image is decoded.
+/// Decodes the image into `dst`, which must be the canvas's size (or, with
+/// `Options.crop`, no larger), in any format, reading through EOI. Returns
+/// null once the image is decoded.
 pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     if (d.err) |e| return e;
     if (d.state == .done) return null;
     _ = try d.decodeConfig();
     try dst.check();
-    if (dst.width != d.geo.out_w or dst.height != d.geo.out_h) return error.SizeMismatch;
+    const fits = if (d.options.crop)
+        dst.width <= d.geo.out_w and dst.height <= d.geo.out_h
+    else
+        dst.width == d.geo.out_w and dst.height == d.geo.out_h;
+    if (!fits) return error.SizeMismatch;
     if (work.len < d.geo.work_len) return error.WorkTooSmall;
     d.frame(dst, work) catch |e| return d.fail(e);
     d.state = .done;
-    return .{ .width = d.geo.out_w, .height = d.geo.out_h, .is_opaque = true };
+    return .{ .width = dst.width, .height = dst.height, .is_opaque = true };
+}
+
+/// A frame as a container states it before its JPEG stream, as TIFF's
+/// IFD does: what `workLen` needs.
+pub const FrameParams = struct {
+    width: u32,
+    height: u32,
+    /// 1 (gray), 3, or 4.
+    components: u8,
+    /// Each component's sampling factors, 1 to 4.
+    sampling: [4]Sampling = @splat(.{}),
+    /// 8 or 12 bits, or 2 to 16 for lossless.
+    precision: u8 = 8,
+    lossless: bool = false,
+    /// Whether to provide for a progressive stream, or one that codes its
+    /// components in separate scans, which keep every coefficient until
+    /// the last scan. Without it the bound covers single-scan streams
+    /// only, and `decodeFrame` returns `error.WorkTooSmall` for the rest.
+    multi_scan: bool = true,
+
+    pub const Sampling = struct { h: u8 = 1, v: u8 = 1 };
+};
+
+/// The work memory that `decodeFrame` needs for a stream whose frame
+/// header matches `params`, decoded with `options`: what `decodeConfig`
+/// would state, without reading the stream. A stream whose frame differs
+/// may need more; `decodeFrame` checks, and returns `error.WorkTooSmall`.
+pub fn workLen(params: FrameParams, options: Options) Error!usize {
+    var d: Decoder = .{ .reader = undefined, .options = options };
+    d.width = params.width;
+    d.height = params.height;
+    d.precision = params.precision;
+    d.lossless = params.lossless;
+    d.progressive = params.multi_scan and !params.lossless;
+    if (params.width == 0 or params.components == 0) return error.BadHeader;
+    if (params.height == 0) return error.Unsupported;
+    try d.checkFrame(params.components);
+    for (d.comps[0..d.ncomp], params.sampling[0..d.ncomp], 1..) |*c, f, id| {
+        if (f.h < 1 or f.h > 4 or f.v < 1 or f.v > 4) return error.BadHeader;
+        c.* = .{ .id = @intCast(id), .h = f.h, .v = f.v, .tq = 0 };
+    }
+    // A first scan of fewer than all the components keeps every
+    // coefficient (lossless: every row), as a progressive one does.
+    d.scan = .{ .n = if (params.multi_scan) 1 else d.ncomp, .comp = undefined, .ss = 0, .se = 0, .ah = 0, .al = 0 };
+    try d.setup();
+    return d.geo.work_len;
 }
 
 fn fail(d: *Decoder, e: Error) Error {
@@ -520,9 +576,21 @@ fn readSof(d: *Decoder, process: enum { sequential, progressive, lossless }, ari
     if (d.width == 0 or nc == 0) return error.BadHeader;
     if (d.height == 0) return error.Unsupported;
     if (len != 8 + 3 * @as(u32, nc)) return error.BadMarker;
+    try d.checkFrame(nc);
+    for (d.comps[0..nc]) |*c| {
+        const p = d.reader.takeArray(3) catch |e| return mapRead(e);
+        d.pos += 3;
+        c.* = .{ .id = p[0], .h = p[1] >> 4, .v = p[1] & 15, .tq = p[2] };
+        if (c.h < 1 or c.h > 4 or c.v < 1 or c.v > 4) return error.BadHeader;
+    }
+}
+
+/// The frame's size, precision, and component count against the limits
+/// and what this decoder reads; sets `ncomp`.
+fn checkFrame(d: *Decoder, nc: u8) Error!void {
     // Lossless images are not scaled, as in libjpeg-turbo.
     const s = if (d.lossless) 8 else d.options.scale.blockSize();
-    try d.options.limits.checkSize(ceilDiv(d.width * s, 8), ceilDiv(d.height * s, 8));
+    try d.options.limits.checkSize(ceilDiv(@as(u64, d.width) * s, 8), ceilDiv(@as(u64, d.height) * s, 8));
     if (d.width > max_dimension or d.height > max_dimension) return error.Unsupported;
     // T.81's precisions: 8 or 12 bits for the DCT, 2 to 16 lossless.
     if (d.lossless) {
@@ -530,12 +598,6 @@ fn readSof(d: *Decoder, process: enum { sequential, progressive, lossless }, ari
     } else if (d.precision != 8 and d.precision != 12) return error.BadHeader;
     if (nc != 1 and nc != 3 and nc != 4) return error.Unsupported;
     d.ncomp = nc;
-    for (d.comps[0..nc]) |*c| {
-        const p = d.reader.takeArray(3) catch |e| return mapRead(e);
-        d.pos += 3;
-        c.* = .{ .id = p[0], .h = p[1] >> 4, .v = p[1] & 15, .tq = p[2] };
-        if (c.h < 1 or c.h > 4 or c.v < 1 or c.v > 4) return error.BadHeader;
-    }
 }
 
 fn readDht(d: *Decoder) Error!void {
@@ -1543,7 +1605,8 @@ fn Output(comptime S: type) type {
             const g = o.d.geo;
             const per = @as(u32, g.vmax) * g.min_ss;
             const y0 = my * per;
-            const y1 = @min(y0 + per, g.out_h);
+            // Rows below a cropped destination are decoded, not written.
+            const y1 = @min(y0 + per, o.dst.height);
             var y = y0;
             while (y < y1) : (y += 1) o.row(y);
         }
@@ -1582,7 +1645,7 @@ fn Output(comptime S: type) type {
                     },
                 };
             }
-            const n = g.out_w;
+            const n = o.dst.width;
             const target = if (o.conv == null) o.dst.row(y) else o.w.native_row;
             if (S != u8 or d.precision != 8) {
                 o.scaled(target, rows, n);
@@ -1746,5 +1809,48 @@ test "CMYK and YCCK as inks and as RGB" {
         // The inks converted by the caller's format match.
         _ = try testDecode(file, .rgb8, .{ .cmyk = .raw }, &rgb);
         for (0..64) |i| try testing.expectEqualSlices(u8, &c.rgb, rgb[i * 3 ..][0..3]);
+    }
+}
+
+test "workLen and crop" {
+    // The flat 8×8 gray file of "a tiny baseline file", one interleaved
+    // scan.
+    const file = "\xff\xd8" ++
+        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
+        "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
+        "\x28\xff\xd9" ++ "";
+    var out: [64]u8 = undefined;
+    const config = try testDecode(file, .gray8, .{}, &out);
+    const single = try workLen(.{ .width = 8, .height = 8, .components = 1, .multi_scan = false }, .{});
+    try testing.expectEqual(config.work_len, single);
+    const multi = try workLen(.{ .width = 8, .height = 8, .components = 1 }, .{});
+    try testing.expect(multi > single);
+    try testing.expectError(error.BadHeader, workLen(.{ .width = 0, .height = 8, .components = 1 }, .{}));
+    try testing.expectError(error.Unsupported, workLen(.{ .width = 70000, .height = 8, .components = 1 }, .{}));
+    try testing.expectError(error.Unsupported, workLen(.{ .width = 8, .height = 8, .components = 2 }, .{}));
+    const bad: FrameParams = .{ .width = 8, .height = 8, .components = 3, .sampling = .{ .{ .h = 5 }, .{}, .{}, .{} } };
+    try testing.expectError(error.BadHeader, workLen(bad, .{}));
+    // A destination smaller than the frame: an error without
+    // `Options.crop`, its top-left with it; a larger one, an error.
+    var small: [5 * 3]u8 = undefined;
+    var large: [9 * 8]u8 = undefined;
+    const work = try testing.allocator.alloc(u8, config.work_len);
+    defer testing.allocator.free(work);
+    for ([_]bool{ false, true }) |crop| {
+        var r: Io.Reader = .fixed(file);
+        var d: Decoder = .init(&r, .{ .crop = crop });
+        const dst = try PixelBuffer.init(&small, .gray8, 5, 3);
+        if (!crop) {
+            try testing.expectError(error.SizeMismatch, d.decodeFrame(dst, work));
+            continue;
+        }
+        const f = (try d.decodeFrame(dst, work)).?;
+        try testing.expectEqual(5, f.width);
+        try testing.expectEqual(3, f.height);
+        for (small) |v| try testing.expectEqual(128, v);
+        r = .fixed(file);
+        d = .init(&r, .{ .crop = true });
+        try testing.expectError(error.SizeMismatch, d.decodeFrame(try PixelBuffer.init(&large, .gray8, 9, 8), work));
     }
 }

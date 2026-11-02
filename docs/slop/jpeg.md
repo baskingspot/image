@@ -201,6 +201,26 @@ processes.
   Adobe marker and component IDs are not consulted. The TIFF decoder can test
   for the interface with `@hasDecl(image.jpeg.Decoder.Options, "tables")`
   or `@hasField`. Old-style JPEG (compression 6) is not supported.
+- **Work memory from the IFD.** `Decoder.workLen(params, options)` gives,
+  from a `FrameParams` (width, height, component count, each component's
+  sampling factors, precision, lossless, and `multi_scan`), the `work_len`
+  that `decodeConfig` states for a stream with that frame header: it runs
+  the same geometry (`setup`) on those fields, so the two agree exactly
+  (the fuzz target checks it on every input). `multi_scan` (default true)
+  provides for a progressive stream or one that codes its components in
+  separate scans, which keeps every coefficient: for a tile that is two
+  bytes per sample, for a whole-image strip as much as the image; false
+  bounds single-scan streams, as libtiff writes, and `decodeFrame` then
+  returns `error.WorkTooSmall` for a multi-scan one. A stream whose frame
+  differs from the IFD gets the same check.
+- **Edge tiles.** With `Options.crop`, `decodeFrame` takes a destination
+  no larger than the frame and writes the frame's top-left `dst.width` ×
+  `dst.height` pixels; the rest is decoded (so damage there still fails)
+  but not written. An edge tile's part inside the image is its top-left, so
+  TIFF passes a view of its page buffer (offset pointer, the page's stride,
+  the clipped size) and needs no tile-sized scratch. A crop or a row
+  callback for an arbitrary rectangle was the alternative; nothing needs it
+  yet. The fuzz target checks a random crop against the full decode.
 
 ## Testing
 

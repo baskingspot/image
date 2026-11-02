@@ -28,6 +28,57 @@ pub fn check(input: []const u8, choice: u64) !void {
     }
     // CMYK and YCCK as their inks, native `cmyk8` or `cmyk16`.
     if (choice >> 40 & 1 == 1) try harness.checkDecoder(With(.full, .raw), input, choice);
+    try checkContainer(input, choice);
+}
+
+var whole_pixels: [harness.limits.max_pixels * 8]u8 = undefined;
+var cropped_pixels: [harness.limits.max_pixels * 8]u8 = undefined;
+var container_work: [harness.limits.max_work]u8 = undefined;
+
+/// The API TIFF uses: `workLen` from the frame header's fields gives what
+/// `decodeConfig` states, and a decode cropped by `Options.crop` writes
+/// the top-left of the full decode, or fails as it does.
+fn checkContainer(input: []const u8, choice: u64) !void {
+    const D = image.jpeg.Decoder;
+    var r: std.Io.Reader = .fixed(input);
+    var d: D = .init(&r, .{ .limits = harness.limits });
+    const config = d.decodeConfig() catch return;
+    var frame: D.FrameParams = .{
+        .width = d.width,
+        .height = d.height,
+        .components = d.ncomp,
+        .precision = d.precision,
+        .lossless = d.lossless,
+    };
+    for (frame.sampling[0..d.ncomp], d.comps[0..d.ncomp]) |*f, c| f.* = .{ .h = c.h, .v = c.v };
+    const multi = D.workLen(frame, .{ .limits = .none }) catch return error.WorkLenDiffers;
+    frame.multi_scan = false;
+    const single = D.workLen(frame, .{ .limits = .none }) catch return error.WorkLenDiffers;
+    if (single > multi or (config.work_len != multi and config.work_len != single)) return error.WorkLenDiffers;
+
+    if (choice >> 41 & 1 == 0 or config.work_len > container_work.len) return;
+    const w: u32 = @intCast(1 + (choice >> 8) % config.width);
+    const h: u32 = @intCast(1 + (choice >> 24) % config.height);
+    const whole = try image.PixelBuffer.init(&whole_pixels, config.native, config.width, config.height);
+    r = .fixed(input);
+    var a: D = .init(&r, .{ .limits = harness.limits });
+    const want = a.decodeFrame(whole, container_work[0..config.work_len]);
+    const cropped = try image.PixelBuffer.init(&cropped_pixels, config.native, w, h);
+    r = .fixed(input);
+    var b: D = .init(&r, .{ .limits = harness.limits, .crop = true });
+    const got = b.decodeFrame(cropped, container_work[0..config.work_len]);
+    if (want) |_| {
+        const frame_got = got catch return error.CropDiffers;
+        if (frame_got.?.width != w or frame_got.?.height != h) return error.CropDiffers;
+        const bytes = image.PixelBuffer.len(config.native, w, 1).?;
+        for (0..h) |y| {
+            const row: u32 = @intCast(y);
+            if (!std.mem.eql(u8, whole.row(row)[0..bytes], cropped.row(row)[0..bytes])) return error.CropDiffers;
+        }
+    } else |e| {
+        // Rows past the destination are decoded too, so it fails the same.
+        if (got) |_| return error.CropDiffers else |e2| if (e2 != e) return error.CropDiffers;
+    }
 }
 
 /// `image.jpeg.Decoder` with `Options.scale` and `Options.cmyk` set.
