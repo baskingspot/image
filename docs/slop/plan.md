@@ -693,11 +693,11 @@ orb asks for a change to them, or for text in this file, in its report.
    smaller than our progressive, at 8–14× less speed. Decided by the owner
    (decision 30): no trellis by default; an opt-in size mode measured by
    SSIM or butteraugli may come after phase 1.
-4. **JPEG XL lossy encoding.** VarDCT encoding is as large as the decoder.
-   Decide after lossless encode lands whether it stays in phase 1.
+4. **JPEG XL lossy encoding. Decided by the owner (decision 57): phase 2.**
+   VarDCT encoding is as large as the decoder.
 5. **JPEG XL's JPEG reconstruction** (`jbrd`, the original JPEG's exact
-   bytes). In scope for decode; decide whether we also produce `jbrd` boxes
-   from a JPEG (lossless JPEG recompression).
+   bytes). In scope for decode. Producing `jbrd` files from JPEGs (lossless
+   JPEG recompression) is phase 2, alongside VarDCT encoding (decision 58).
 6. **GIF quantization.** Which quantizer (median cut, octree, k-means) and
    dither, measured on quality and speed against gifski and ImageMagick.
    Measured (results/gif-encode-20261102.md, 16 images): Wu beats median
@@ -925,6 +925,24 @@ width)` for every file with several entries.
     `alpha_compression` on, `workLen` includes the lossless encoder's work
     memory whatever the source; a caller encoding opaque images sets it off
     to ask for 3.2 B/px. Documented.
+56. **JPEG XL lossless effort. Decided by the owner:** `default` (between
+    cjxl e6 and e7 in size, e7's speed above icons).
+57. **JPEG XL lossy encoding. Decided by the owner:** phase 2 (decision 4).
+58. **JPEG recompression into JPEG XL. Decided by the owner:** phase 2, with
+    VarDCT encoding (decision 5).
+59. **APNG default-image fcTL. Decided by the owner:** an fcTL smaller than
+    the canvas is accepted and decoded as Wuffs, libpng, and libspng decode
+    it.
+60. **cICP and ICC. Decided by the owner:** the ICC profile is still
+    reported beside cICP; cICP's precedence is documented.
+61. **HDR chunks after PLTE. Decided by the owner:** read, as gAMA, cHRM,
+    sRGB, and iCCP are.
+62. **Draft HDR chunk names. Decided by the owner:** mDCv and cLLi are not
+    read.
+63. **Duplicate HDR chunks. Decided by the owner:** the first chunk decides,
+    valid or not, as libpng.
+64. **Gain-map oracle. Decided by the owner:** libultrahdr joins the flake
+    and the jpeg oracle checks `Metadata.gain_map`.
 
 ## Harness requests
 
