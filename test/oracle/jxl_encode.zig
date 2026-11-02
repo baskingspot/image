@@ -1,7 +1,7 @@
 //! The JPEG XL encoder's output against libjxl: every input is a file
 //! `image.jxl.encode` wrote, at a random effort, from pixels the encoder's
-//! fuzz target generates in a random pixel format, at sizes up to 64 by
-//! 64 and one time in sixteen up to 320 by 200 (two groups). libjxl must
+//! fuzz target generates in a random pixel format, at sizes up to 24 by
+//! 24 and one time in 32 a strip across two groups. libjxl must
 //! decode it as this package does, in RGBA16 (premultiplied when the file's alpha
 //! is), and the fuzz target (test/fuzz/jxl_encode.zig) checks that this
 //! package decodes it to the source converted to the stored format, so
@@ -60,7 +60,7 @@ fn written(file: []const u8) bool {
 }
 
 var work: [64 << 20]u8 = undefined;
-var pixels: [320 * 200 * 16]u8 = undefined;
+var pixels: [320 * 24 * 16]u8 = undefined;
 var out: [4 << 20]u8 = undefined;
 
 pub const fuzz = struct {
@@ -72,17 +72,31 @@ pub const fuzz = struct {
     pub fn generate(random: std.Random, buf: []u8) []u8 {
         var raw: [4096]u8 = undefined;
         const input = target.generate(random, &raw);
-        const big = random.uintLessThan(u8, 16) == 0;
-        var width: u32 = 1 + input[0] % @as(u32, if (big) 320 else 64);
-        var height: u32 = 1 + input[1] % @as(u32, if (big) 200 else 64);
+        // Encoding is serial, so sources are small: up to 24 by 24, and
+        // one time in 32 a strip 257 to 320 long (two groups) and up to 24
+        // across, mostly at the fast effort.
+        var width: u32 = 1 + input[0] % 24;
+        var height: u32 = 1 + input[1] % 24;
+        const big = random.uintLessThan(u8, 32) == 0;
+        if (big) {
+            const long = 257 + @as(u32, input[0]) % 64;
+            const across = 1 + @as(u32, input[1]) % 24;
+            if (random.boolean()) {
+                width = long;
+                height = across;
+            } else {
+                width = across;
+                height = long;
+            }
+        }
         const body = input[2..];
         const all = std.enums.values(image.PixelFormat);
         const format = all[random.uintLessThan(usize, all.len)];
-        // Mostly the cheaper efforts, since generating is serial: the
-        // best effort only for images up to 32 by 32.
+        // The best effort only up to 16 by 16.
         const roll = random.uintLessThan(u8, 8);
-        const effort: image.jxl.Effort =
-            if (roll < 4) .fast else if (roll < 7 or width * height > 1024) .default else .best;
+        const effort: image.jxl.Effort = if (roll < 4 or (big and roll < 7))
+            .fast
+        else if (roll < 7 or width * height > 256) .default else .best;
         const options: image.jxl.EncodeOptions = .{ .effort = effort };
         while (true) {
             const len = image.PixelBuffer.len(format, width, height).?;

@@ -155,8 +155,11 @@ the alias-table builder `pub`, so the encoder can use them instead.
 - `test/oracle/jxl_encode.zig`: random images, encoded at a random effort,
   decoded by libjxl in RGBA16 (premultiplied when the file is). Only files
   as written count; mutated ones are the decoder's oracle's business.
-  Encoding is serial in the harness, so efforts are weighted toward fast,
-  and best only runs up to 32×32. About 10 ms an input.
+  Encoding is serial in the harness, so sources are small: up to 24×24,
+  and one in 32 a strip of 257 to 320 by up to 24 (two groups), mostly at
+  fast. Efforts are weighted toward fast, and best only runs up to 16×16.
+  At 20,000 inputs it takes 46–48 s (it took 192 s in oracle-ci with
+  sources up to 64×64 and one in 16 up to 320×200).
 - jxl-oxide has no oracle. A one-off check decoded 117 of our files with
   the bench arms: every format, each effort, one to many groups. libjxl and
   jxl-oxide agreed on all 117, and our decoder on all but the 12
