@@ -58,6 +58,11 @@ jpeg-decode-arith	JpegDecodeArith	jpeg/arith	3	own
 jpeg-decode-12bit	JpegDecode12bit	jpeg/12bit	6	own
 jpeg-decode-lossless	JpegDecodeLossless	jpeg/lossless	3	own
 jpeg-decode-cmyk	JpegDecodeCmyk	jpeg/cmyk	3	own
+jpeg-encode	JpegEncode	netpbm/raw-rgb8	4	own
+jpeg-encode-444	JpegEncode444	netpbm/raw-rgb8	4	own
+jpeg-encode-optimized	JpegEncodeOptimized	netpbm/raw-rgb8	4	own
+jpeg-encode-progressive	JpegEncodeProgressive	netpbm/raw-rgb8	4	own
+jpeg-encode-gray	JpegEncodeGray	netpbm/raw-gray8	4	own
 webp-decode-lossless	WebpDecodeLossless	webp/lossless	4	same
 webp-decode-lossless-large	WebpDecodeLosslessLarge	webp/lossless-large	4	same
 tiff-decode-none	TiffDecodeNone	tiff/none	4	same

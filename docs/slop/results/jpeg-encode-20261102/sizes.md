@@ -1,0 +1,22 @@
+| operation             | class | image bytes | libjpeg-turbo |    stb | image-rs |     go |
+| --------------------- | ----- | ----------: | ------------: | -----: | -------: | -----: |
+| JpegEncode            | icon  |       17964 |        1.000× | 0.988× |   1.127× | 0.976× |
+| JpegEncode            | 1mp   |     1362466 |        1.000× | 0.995× |   1.200× | 1.001× |
+| JpegEncode            | large |     8778335 |        1.000× | 0.991× |   1.200× | 1.000× |
+| JpegEncode            | all   |    10158765 |        1.000× | 0.991× |   1.200× | 1.000× |
+| JpegEncode444         | icon  |       28489 |        1.000× | 0.990× |   0.995× |      - |
+| JpegEncode444         | 1mp   |     3077410 |        1.000× | 0.985× |   0.976× |      - |
+| JpegEncode444         | large |    19620076 |        1.000× | 0.976× |   0.969× |      - |
+| JpegEncode444         | all   |    22725975 |        1.000× | 0.977× |   0.970× |      - |
+| JpegEncodeGray        | icon  |       12792 |        1.000× | 1.298× |   0.997× | 1.044× |
+| JpegEncodeGray        | 1mp   |     1202442 |        1.000× | 1.037× |   0.980× | 1.001× |
+| JpegEncodeGray        | large |     7782518 |        1.000× | 1.040× |   0.978× | 1.000× |
+| JpegEncodeGray        | all   |     8997752 |        1.000× | 1.040× |   0.978× | 1.000× |
+| JpegEncodeOptimized   | icon  |       13582 |        1.000× |      - |        - |      - |
+| JpegEncodeOptimized   | 1mp   |     1320314 |        1.000× |      - |        - |      - |
+| JpegEncodeOptimized   | large |     8581287 |        1.000× |      - |        - |      - |
+| JpegEncodeOptimized   | all   |     9915183 |        1.000× |      - |        - |      - |
+| JpegEncodeProgressive | icon  |       16525 |        1.000× |      - |        - |      - |
+| JpegEncodeProgressive | 1mp   |     1276825 |        1.000× |      - |        - |      - |
+| JpegEncodeProgressive | large |     8309445 |        1.000× |      - |        - |      - |
+| JpegEncodeProgressive | all   |     9602795 |        1.000× |      - |        - |      - |
