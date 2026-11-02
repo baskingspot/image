@@ -284,7 +284,10 @@ owning the files adding-a-format.md assigns to its format plus
   only a pixel count, computed from the output room left
   (results/qoi-encode-20261102.md): 1.02–1.17× the `qoi` crate by size
   class. The full bench-compare on eabc1ac found no convert row below 1
-  outside noise; next is the same one-counter bound in the QOI decoder.
+  outside noise. The decoder's chunk loop checks one count, the smaller of
+  buffered bytes / 5 and pixels left, cut after each run
+  (results/qoi-decode-bound-20261102.md): 1.03×. Screenshots stay at
+  0.87–0.88× the crate; next is local copies of the index and run carry.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
