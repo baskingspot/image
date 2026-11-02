@@ -390,6 +390,9 @@ const Hot = struct {
         const v: u32 = @truncate(h.value >> shift);
         var bit: u1 = 0;
         if (v > split) {
+            // A branch, not a select: a token's bits are mostly the likely
+            // one, and a predicted branch does not wait on the comparison.
+            @branchHint(.unlikely);
             h.range -= split + 1;
             h.value -= @as(u64, split + 1) << shift;
             bit = 1;
