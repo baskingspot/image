@@ -400,7 +400,14 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
     add(&entries, &n, .short(277, p.spp));
     add(&entries, &n, .shortOrLong(278, @intCast(p.rows)));
     const counts_at = n;
-    add(&entries, &n, .{ .tag = 279, .kind = Kind.long, .count = strips, .outside = array_len });
+    const short_counts = shortCounts(&p, options.compression);
+    const counts_len: u32 = if (short_counts) 2 * strips else 4 * strips;
+    add(&entries, &n, .{
+        .tag = 279,
+        .kind = if (short_counts) Kind.short else Kind.long,
+        .count = strips,
+        .outside = if (counts_len > 4) counts_len else 0,
+    });
     const density = options.density;
     if (density != null) {
         add(&entries, &n, .{ .tag = 282, .kind = Kind.rational, .count = 1, .outside = 8 });
@@ -443,6 +450,10 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
     if (strips == 1) {
         entries[offsets_at].value = @intCast(data_at);
         entries[counts_at].value = @intCast(total);
+    } else if (counts_len == 4) {
+        // Two SHORT counts, in the entry.
+        const first: u32 = @intCast(stripLen(&p, options, m, 0));
+        entries[counts_at].value = first | @as(u32, @intCast(stripLen(&p, options, m, 1))) << 16;
     }
     const next: u64 = if (more) std.mem.alignForward(u64, end, 2) else 0;
     if (next > max_offset) return error.ImageTooLarge;
@@ -464,7 +475,10 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
                 o += stripLen(&p, options, m, s);
             }
         },
-        279 => for (0..p.strips) |s| try out.int(u32, @intCast(stripLen(&p, options, m, s))),
+        279 => for (0..p.strips) |s| {
+            const len = stripLen(&p, options, m, s);
+            if (short_counts) try out.int(u16, @intCast(len)) else try out.int(u32, @intCast(len));
+        },
         282, 283 => {
             const d = density.?;
             try out.int(u32, if (entries[i].tag == 282) d.x else d.y);
@@ -511,6 +525,21 @@ const Entry = struct {
         return .{ .tag = tag, .kind = if (v <= 0xffff) Kind.short else Kind.long, .count = 1, .value = v };
     }
 };
+
+/// Whether StripByteCounts is SHORT, as libtiff types it: for several
+/// strips, when no strip could need more than 16 bits, judged from the
+/// strip's stored size before compressing, as libtiff judges it, which
+/// assumes LZW and Deflate may grow a strip tenfold and never trusts
+/// PackBits. One strip's count is LONG.
+fn shortCounts(p: *const Plan, compression: Compression) bool {
+    if (p.strips == 1) return false;
+    const strip = p.rows * p.row_len;
+    return switch (compression) {
+        .none => strip <= 0xffff,
+        .lzw, .deflate => strip < 0xffff / 10,
+        .packbits => false,
+    };
+}
 
 /// Strip `s`'s byte count in the file.
 fn stripLen(p: *const Plan, options: EncodeOptions, m: Memory, s: usize) usize {

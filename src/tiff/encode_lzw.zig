@@ -7,7 +7,8 @@
 //! the specification has it: to 10 bits once the next free entry is 512,
 //! which is when a decoder, an entry behind, has 511. When the next free
 //! entry would be 4094, the encoder writes Clear and starts over, so a
-//! decoder's table never needs a 13th bit.
+//! decoder's table never needs a 13th bit. The streams are libtiff's, byte
+//! for byte (test/oracle/tiff_encode.zig).
 
 const std = @import("std");
 const testing = std.testing;
@@ -91,8 +92,14 @@ pub fn encode(s: *State, src: []const u8, dst: []u8) usize {
         }
     }
     out.put(omega, width);
-    // A decoder adds an entry for the last code before it reads EOI.
-    if (next + 1 == @as(u16, 1) << width and width < 12) width += 1;
+    // A decoder adds an entry for the last code before it reads EOI, so
+    // the encoder counts it too: a full table clears first, as libtiff
+    // does, and EOI then takes 9 bits.
+    next += 1;
+    if (next == table_end) {
+        out.put(clear, width);
+        width = 9;
+    } else if (next == @as(u16, 1) << width) width += 1;
     out.put(eoi, width);
     return out.end();
 }
@@ -134,11 +141,6 @@ fn roundTrip(s: *State, data: []const u8) !void {
     const z = try gpa.alloc(u8, bound(data.len));
     defer gpa.free(z);
     const n = encode(s, data, z);
-    // The same stream as the decoder's own test encoder, which follows
-    // the specification's pseudocode.
-    const want = try lzw.testEncode(gpa, data, false);
-    defer gpa.free(want);
-    try testing.expectEqualSlices(u8, want, z[0..n]);
     var r: std.Io.Reader = .fixed(z[0..n]);
     const work = try gpa.alloc(u8, lzw.work_len);
     defer gpa.free(work);
