@@ -258,24 +258,27 @@ fn Run(comptime F: type) type {
             const sources = try arena.alloc([F.formats.len]?image.PixelBuffer, if (encodes) inputs.len else 0);
             var requests: std.ArrayList(Oracle.Request) = .empty;
             for (inputs, 0..) |input, i| {
-                for (F.formats, 0..) |format, f| {
-                    if (encodes) {
-                        sources[i][f] = try source(F.Decoder, input, format, arena);
-                        const src = sources[i][f] orelse continue;
-                        for (F.oracles) |op| try requests.append(arena, .{
+                if (!encodes) {
+                    for (F.oracles) |op| {
+                        const adapted = try F.adapt(op, input, arena);
+                        for (F.formats) |format| try requests.append(arena, .{
                             .op = op,
                             .format = format,
                             .max_pixels = max_pixels,
-                            .input = src.pixels,
-                            .size = .{ src.width, src.height },
+                            .input = adapted,
                         });
-                        continue;
                     }
+                    continue;
+                }
+                for (F.formats, 0..) |format, f| {
+                    sources[i][f] = try source(F.Decoder, input, format, arena);
+                    const src = sources[i][f] orelse continue;
                     for (F.oracles) |op| try requests.append(arena, .{
                         .op = op,
                         .format = format,
                         .max_pixels = max_pixels,
-                        .input = try F.adapt(op, input, arena),
+                        .input = src.pixels,
+                        .size = .{ src.width, src.height },
                     });
                 }
             }
@@ -285,6 +288,8 @@ fn Run(comptime F: type) type {
             const theirs = try arena.alloc([F.formats.len][F.oracles.len]?Answer, inputs.len);
             var k: usize = 0;
             for (inputs, mine, theirs, 0..) |input, *m_row, *t_rows, i| {
+                const first_request = k;
+                if (!encodes) k += F.oracles.len * F.formats.len;
                 for (F.formats, m_row, t_rows, 0..) |format, *m, *row, f| {
                     if (encodes) {
                         const src = sources[i][f] orelse {
@@ -294,9 +299,9 @@ fn Run(comptime F: type) type {
                         };
                         m.* = try oursEncode(F, src, arena);
                     } else m.* = try ours(F.Decoder, input, format);
-                    for (row, F.oracles) |*t, op| {
-                        const resp = responses[k];
-                        k += 1;
+                    for (row, F.oracles, 0..) |*t, op, o| {
+                        const resp = if (encodes) responses[k] else responses[first_request + o * F.formats.len + f];
+                        if (encodes) k += 1;
                         t.* = if (!comparable(F, op, format, input)) null else switch (resp.status) {
                             .ok => .{
                                 .accepted = true,
