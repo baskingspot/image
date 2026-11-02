@@ -24,7 +24,7 @@ const max_file = 8 << 20;
 /// Per thread, since compare.zig compares on every core.
 threadlocal var src_buf: [target.max_source_pixels * 16]u8 = undefined;
 threadlocal var source_work: [1 << 26]u8 = undefined;
-threadlocal var encode_work: [8 << 20]u8 = undefined;
+threadlocal var encode_work: [32 << 20]u8 = undefined;
 threadlocal var file_buf: [max_file]u8 = undefined;
 
 /// The options for `input`'s image: the fuzz target's for a choice made

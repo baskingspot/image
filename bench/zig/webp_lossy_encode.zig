@@ -19,7 +19,13 @@ var work: [512 << 20]u8 = undefined;
 fn encode(in: []const u8, out: []u8, effort: image.webp.lossy.Effort) ?usize {
     const format: image.PixelFormat = if (input.bytesPerPixel(in) == 4) .rgba8 else .rgb8;
     const src = input.pixels(in, format) orelse return null;
-    const options: image.webp.lossy.EncodeOptions = .{ .quality = 75, .effort = effort };
+    // Work memory for compressing alpha only when there can be alpha, as a
+    // caller that knows its pixels would ask.
+    const options: image.webp.lossy.EncodeOptions = .{
+        .quality = 75,
+        .effort = effort,
+        .alpha_compression = format == .rgba8,
+    };
     const n = image.webp.lossy.workLen(options, src.width, src.height) orelse return null;
     if (n > work.len) return null;
     var writer: std.Io.Writer = .fixed(out);

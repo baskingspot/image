@@ -87,6 +87,47 @@ pub fn main(init: std.process.Init) !void {
     _ = it.skip();
     const cmd = it.next().?;
     var buf: [512]u8 = undefined;
+    if (std.mem.eql(u8, cmd, "alpha")) {
+        const path = it.next().?;
+        const effort = try std.fmt.parseInt(u4, it.next().?, 10);
+        const filter = try std.fmt.parseInt(u2, it.next().?, 10);
+        const src = try load(io, path, .rgba8);
+        const w: usize = src.width;
+        const n = w * src.height;
+        const raw = try gpa.alloc(u8, n);
+        for (raw, 0..) |*a, i| a.* = src.pixels[4 * i + 3];
+        const plane = try gpa.alloc(u8, n);
+        for (0..src.height) |y| for (0..w) |x| {
+            const c = raw[y * w + x];
+            const l: i32 = if (x > 0) raw[y * w + x - 1] else if (y > 0) raw[(y - 1) * w] else 0;
+            const t: i32 = if (y > 0) raw[(y - 1) * w + x] else l;
+            const tl: i32 = if (x > 0 and y > 0) raw[(y - 1) * w + x - 1] else t;
+            const pred: i32 = switch (filter) {
+                0 => 0,
+                1 => if (x == 0 and y > 0) t else l,
+                2 => if (y == 0) l else t,
+                3 => if (y == 0) l else if (x == 0) t else std.math.clamp(l + t - tl, 0, 255),
+            };
+            plane[y * w + x] = c -% @as(u8, @intCast(pred & 0xff));
+        };
+        const work = try gpa.alloc(u8, image.webp.workLen(.{ .effort = effort }, src.width, src.height).?);
+        const out = try gpa.alloc(u8, n);
+        var fw: std.Io.Writer = .fixed(out);
+        const t0 = std.Io.Timestamp.now(io, .awake);
+        image.webp.encodeAlpha(&fw, plane, src.width, src.height, effort, work) catch |err| {
+            std.debug.print("{d} fail {t}\n", .{ n, err });
+            return;
+        };
+        const dt = t0.durationTo(std.Io.Timestamp.now(io, .awake));
+        std.debug.print("{d} {d} {d:.2}ms\n", .{ n, fw.end, @as(f64, @floatFromInt(dt.toNanoseconds())) / 1e6 });
+        return;
+    }
+    if (std.mem.eql(u8, cmd, "wl")) {
+        const w = try std.fmt.parseInt(u32, it.next().?, 10);
+        const h = try std.fmt.parseInt(u32, it.next().?, 10);
+        for (std.enums.values(image.webp.lossy.Effort)) |e| std.debug.print("{t} {d}\n", .{ e, image.webp.lossy.workLen(.{ .effort = e }, w, h).? });
+        return;
+    }
     if (std.mem.eql(u8, cmd, "enc")) {
         const path = it.next().?;
         const q = try std.fmt.parseInt(u8, it.next().?, 10);
@@ -105,16 +146,24 @@ pub fn main(init: std.process.Init) !void {
         const line = try std.fmt.bufPrint(&buf, "{d} {d:.3}\n", .{ out.written().len, mp / (@as(f64, @floatFromInt(ns)) / 1e9) });
         try std.Io.File.stdout().writeStreamingAll(io, line);
     } else {
-        const orig = try load(io, it.next().?, .rgb8);
+        const orig_path = it.next().?;
+        const orig = try load(io, orig_path, .rgb8);
         const test_path = it.next().?;
         const got = try load(io, test_path, .rgb8);
         const st = try std.Io.Dir.cwd().statFile(io, test_path, .{});
+        // PSNR over the pixels whose alpha is not 0.
+        const mask = try load(io, orig_path, .rgba8);
         var sum: f64 = 0;
-        for (orig.pixels, got.pixels) |x, y| {
-            const d = @as(f64, @floatFromInt(x)) - @as(f64, @floatFromInt(y));
-            sum += d * d;
+        var count: f64 = 0;
+        for (0..orig.pixels.len / 3) |i| {
+            if (mask.pixels[4 * i + 3] == 0) continue;
+            for (0..3) |c| {
+                const d = @as(f64, @floatFromInt(orig.pixels[3 * i + c])) - @as(f64, @floatFromInt(got.pixels[3 * i + c]));
+                sum += d * d;
+            }
+            count += 3;
         }
-        const mse = sum / @as(f64, @floatFromInt(orig.pixels.len));
+        const mse = sum / @max(count, 1);
         const la = try lumaPlane(orig);
         const lb = try lumaPlane(got);
         const s = ssim(la, lb, orig.width, orig.height);

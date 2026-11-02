@@ -47,9 +47,13 @@ One encode:
 
 Work memory (`workLen`) is about 45 KiB of state, 803 bytes per
 macroblock (the level store's worst case, the modes, and the activity),
-and 37 bytes per pixel of width: 3.2 bytes per pixel in all, 151 MiB for
+and 37 bytes per pixel of width: 3.2 bytes per pixel in all. With
+`alpha_compression` it adds the alpha plane, its stream (a byte a pixel
+each), and the lossless encoder's work memory at the alpha effort: 24, 30,
+and 38 MB at 1024×1024 for `fast`, `default`, and `best`, and 1.1 GB for
 the 50-megapixel mosaic. An encode touches the state, the rows, and about
-its output's size again in levels, so peak RSS stays below libwebp's.
+its output's size again in levels, and the alpha parts only when the
+source has alpha, so peak RSS stays below libwebp's.
 
 ## Decisions
 
@@ -86,12 +90,31 @@ its output's size again in levels, so peak RSS stays below libwebp's.
   `ImageTooLarge`, as libwebp does.
 - **One token partition.** Several partitions only help a multithreaded
   decoder; one is smallest.
-- **Alpha** is written raw (ALPH compression 0) with the prediction
-  filter whose residuals have the smallest sum of absolute values, until
-  the lossless encoder lands; then it is compressed with that encoder.
+- **Alpha** goes in ALPH compressed by the lossless encoder
+  (`image.webp.encodeAlpha`, compression 1) at effort 0, 1, and 5 for
+  `fast`, `default`, and `best`, kept only when it is smaller than the raw
+  plane (compression 0), as libwebp keeps it. It is never filtered: on ten
+  images with transparency, prefiltering made the lossless streams
+  10-22% larger in total at every effort, since its own predictors do better, and the
+  best of the four filters per image saved 0.3% at effort 5 for four
+  encodes; raw alpha is the same size filtered or not. Efforts 0, 1, and
+  5 gave 147,524, 138,528, and 134,951 bytes on those images (libwebp at
+  -m 2, 4, and 6: 138,509, 131,943, 124,968); effort 9 gave 135,972.
   Fully opaque alpha writes no ALPH. A file with alpha or metadata is
   VP8X; otherwise it is the simple format.
-- **Not done** (each a measured gain in libwebp, left for a later pass):
+- **Hidden colors are free.** A pixel whose alpha is 0 shows nothing, so
+  every candidate prediction is taken as exact there (the source is
+  replaced by the prediction for that mode), and a chroma sample is
+  hidden when all four of its pixels are. On those ten images this made
+  the default effort's files 16% smaller (277,414 to 232,200 bytes) at
+  higher PSNR over the visible pixels. Opaque macroblocks run a separate
+  instance of the mode search without the masks, so they cost nothing.
+- **`alpha_compression`** (on by default) needs the lossless encoder's
+  work memory, the plane, and its stream: `workLen` grows from about 3.2
+  to 23-36 bytes per pixel at a megapixel, and 0.5-1.3 MB for an icon,
+  whatever the source, since `workLen` cannot know whether the pixels
+  have alpha. An RGB caller that sizes work memory tightly can turn it off.
+- **Not done**, left for a later pass:
   trellis quantization, perceptual (SNS-like) tuning of quantizers and
   filter strength beyond the segments, sharp RGB to YUV, the loop filter's
   sharpness, and target-size encoding.

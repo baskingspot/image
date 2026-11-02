@@ -20,8 +20,8 @@
 //!   the token probabilities are chosen from the counts, both partitions
 //!   are sized by a pass of the boolean coder that writes nothing, and the
 //!   file is written in one pass, so the output streams.
-//! - Alpha is stored raw in ALPH with the prediction filter that leaves
-//!   the smallest residuals.
+//! - Alpha goes in ALPH, compressed by the lossless encoder
+//!   (src/webp/encode.zig) when that is smaller than raw.
 
 const std = @import("std");
 const testing = std.testing;
@@ -31,6 +31,7 @@ const shared = @import("../encode.zig");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
+const lossless = @import("encode.zig");
 const tables = @import("vp8_encode_tables.zig");
 const dsp = @import("vp8_encode_dsp.zig");
 const coder = @import("vp8_encode_bool.zig");
@@ -60,6 +61,13 @@ pub const EncodeOptions = struct {
     exif: ?[]const u8 = null,
     /// XMP for an XMP chunk.
     xmp: ?[]const u8 = null,
+    /// Whether alpha is compressed with the lossless encoder (ALPH
+    /// compression 1), kept only when that is smaller than storing it
+    /// raw, as libwebp does. While it is on, `workLen` includes the
+    /// lossless encoder's work memory whatever the source, about 23 to 36
+    /// bytes per pixel at a megapixel; a caller whose images are opaque
+    /// turns it off to ask for about 3.2. False stores alpha raw.
+    alpha_compression: bool = true,
 };
 
 pub const EncodeError = shared.Error || error{
@@ -134,13 +142,26 @@ const Layout = struct {
     top_modes: usize,
     top_nz: usize,
     alpha: usize,
+    band_hidden: usize,
+    band_hidden_uv: usize,
+    /// The alpha plane, its compressed stream, and the lossless encoder's
+    /// work memory, with `alpha_compression`.
+    alpha_plane: usize,
+    alpha_out: usize,
+    alpha_work: usize,
+    alpha_work_len: usize,
     total: usize,
 
-    fn init(width: u32, height: u32) ?Layout {
+    fn init(options: EncodeOptions, width: u32, height: u32) ?Layout {
         const w: u64 = @max(width, 1);
         const mbw: u64 = (w + 15) / 16;
         const mbh: u64 = (@as(u64, @max(height, 1)) + 15) / 16;
         const mbs = mbw * mbh;
+        const alpha_options: lossless.EncodeOptions = .{ .effort = alphaEffort(options.effort) };
+        const alpha_work: u64 = if (options.alpha_compression)
+            lossless.workLen(alpha_options, @max(width, 1), @max(height, 1)) orelse return null
+        else
+            0;
         const sizes = [_]u64{
             @sizeOf(State),
             mbs * @sizeOf(MbInfo),
@@ -155,7 +176,12 @@ const Layout = struct {
             8 * mbw,
             4 * mbw,
             2 * mbw,
-            3 * w,
+            w,
+            16 * 16 * mbw,
+            8 * 8 * mbw,
+            if (options.alpha_compression) w * @max(height, 1) else 0,
+            if (options.alpha_compression) w * @max(height, 1) else 0,
+            alpha_work,
         };
         var offsets: [sizes.len]u64 = undefined;
         var at: u64 = 0;
@@ -165,8 +191,9 @@ const Layout = struct {
         }
         var l: Layout = undefined;
         const names = .{
-            "state", "info",  "act",   "coefs", "band_y",    "band_u", "band_v",
-            "rgb",   "top_y", "top_u", "top_v", "top_modes", "top_nz", "alpha",
+            "state",       "info",           "act",         "coefs",     "band_y",     "band_u", "band_v",
+            "rgb",         "top_y",          "top_u",       "top_v",     "top_modes",  "top_nz", "alpha",
+            "band_hidden", "band_hidden_uv", "alpha_plane", "alpha_out", "alpha_work",
         };
         inline for (names, 0..) |name, i| {
             @field(l, name) = std.math.cast(usize, offsets[i]) orelse return null;
@@ -174,6 +201,7 @@ const Layout = struct {
         l.mbw = @intCast(mbw);
         l.mbh = @intCast(mbh);
         l.coefs_len = std.math.cast(usize, sizes[3]) orelse return null;
+        l.alpha_work_len = std.math.cast(usize, alpha_work) orelse return null;
         // Room to align the state.
         l.total = std.math.cast(usize, at + @alignOf(State)) orelse return null;
         return l;
@@ -181,12 +209,23 @@ const Layout = struct {
 };
 
 /// The work memory `encode` needs for a `width` by `height` image, or null
-/// when VP8 cannot store it.
+/// when VP8 cannot store it: with `alpha_compression`, the lossless
+/// encoder's for the alpha too, since the source's format is not known.
 pub fn workLen(options: EncodeOptions, width: u32, height: u32) ?usize {
-    _ = options;
     if (width > max_side or height > max_side) return null;
-    const l = Layout.init(width, height) orelse return null;
+    const l = Layout.init(options, width, height) orelse return null;
     return l.total;
+}
+
+/// The lossless encoder's effort for alpha at each effort: no more than
+/// libwebp spends at the method each is measured against, since alpha
+/// compresses well at low efforts (webp-lossy-encode.md).
+fn alphaEffort(effort: Effort) u4 {
+    return switch (effort) {
+        .fast => 0,
+        .default => 1,
+        .best => 5,
+    };
 }
 
 /// The base quantizer index (0 to 127, section 9.6) for a quality: what
@@ -342,12 +381,20 @@ const Chroma = struct {
     j: u64 = std.math.maxInt(u64),
 };
 
-/// The mode whose prediction of `src` (`n` pixels, `w` wide, packed) has
-/// the least Hadamard error plus its mode cost weighted by the AC step `q`.
+/// `src` with the pixels `hide` marks taken from `pred`.
+fn unhidden(comptime n: usize, src: *const [n]u8, pred: *const [n]u8, hide: *const [n]bool) [n]u8 {
+    var out: [n]u8 = undefined;
+    for (&out, src, pred, hide) |*o, s, p, h| o.* = if (h) p else s;
+    return out;
+}
+
+/// The mode whose prediction of `plain` (`n` pixels, `w` wide, packed;
+/// exact where `hide` marks) has the least Hadamard error plus its mode cost weighted by the AC step `q`.
 fn bestPrediction(
     comptime w: usize,
     comptime n: usize,
-    src: *const [n]u8,
+    plain: *const [n]u8,
+    hide: ?*const [n]bool,
     preds: *const [4][n]u8,
     mode_cost: *const [4]u32,
     q: u32,
@@ -355,6 +402,9 @@ fn bestPrediction(
     var best: u8 = 0;
     var least: u64 = std.math.maxInt(u64);
     for (preds, 0..) |*p, m| {
+        var blended: [n]u8 = undefined;
+        if (hide) |h| blended = unhidden(n, plain, p, h);
+        const src = if (hide != null) &blended else plain;
         var sum: u64 = 0;
         for (0..n / w / 4) |ty| for (0..w / 4) |tx| {
             var a: [16]u8 = undefined;
@@ -403,6 +453,17 @@ const Enc = struct {
     top_modes: []u8,
     top_nz: []u8,
     alpha_rows: []u8,
+    /// Whether each pixel of the band, and each chroma sample (all four
+    /// of its pixels), has alpha 0, with `rgb_format` RGBA8.
+    band_hidden: []bool,
+    band_hidden_uv: []bool,
+    /// The same for the current macroblock, and whether any is.
+    hide_y: [256]bool = undefined,
+    hide_uv: [64]bool = undefined,
+    hidden: bool = false,
+    alpha_plane: []u8,
+    alpha_out: []u8,
+    alpha_work: []u8,
     left_modes: [4]u8 = undefined,
     left_nz: [2]u8 = undefined,
     /// The format rows are converted to before YUV: RGB8, or RGBA8 when
@@ -449,6 +510,22 @@ const Enc = struct {
             for (0..w) |x| {
                 la[x] = luma(a[x * bpp ..][0..3]);
                 lb[x] = luma(b[x * bpp ..][0..3]);
+            }
+            if (bpp == 4) {
+                const ha = e.band_hidden[r * e.w16 ..][0..e.w16];
+                const hb = e.band_hidden[(r + 1) * e.w16 ..][0..e.w16];
+                for (0..w) |x| {
+                    ha[x] = a[4 * x + 3] == 0;
+                    hb[x] = b[4 * x + 3] == 0;
+                }
+                @memset(ha[w..], ha[w - 1]);
+                @memset(hb[w..], hb[w - 1]);
+                const hc = e.band_hidden_uv[(r / 2) * e.w8 ..][0..e.w8];
+                for (0..cw) |cx| {
+                    const x1 = @min(2 * cx + 1, w - 1);
+                    hc[cx] = ha[2 * cx] and ha[x1] and hb[2 * cx] and hb[x1];
+                }
+                @memset(hc[cw..], hc[cw - 1]);
             }
             @memset(la[w..], la[w - 1]);
             @memset(lb[w..], lb[w - 1]);
@@ -611,19 +688,32 @@ const Enc = struct {
         const top = e.top_nz[2 * mbx ..][0..2];
         const has_top = mby > 0;
         const has_left = mbx > 0;
+        // Pixels whose alpha is 0 show nothing, so every prediction is taken
+        // as exact there: they cost no residual and count no error.
+        e.hidden = false;
+        if (e.rgb_format == .rgba8) {
+            for (0..16) |r| @memcpy(e.hide_y[r * 16 ..][0..16], e.band_hidden[r * e.w16 + 16 * mbx ..][0..16]);
+            for (0..8) |r| @memcpy(e.hide_uv[r * 8 ..][0..8], e.band_hidden_uv[r * e.w8 + 8 * mbx ..][0..8]);
+            for (e.hide_y) |h| e.hidden = e.hidden or h;
+            for (e.hide_uv) |h| e.hidden = e.hidden or h;
+        }
 
         var best: Luma = .{};
-        e.lumaI16(seg, &sy, top.*, e.left_nz, has_top, has_left, &best);
-        var sub: Luma = .{};
-        const k: u64 = mby * e.mbw + mbx;
-        const unlimited = e.mode_budget == std.math.maxInt(u64);
-        const within = unlimited or (e.mode_budget > 0 and e.mode_spent <= k * e.mode_budget);
-        const top_modes = e.top_modes[4 * mbx ..][0..4];
-        if (within and e.lumaI4(seg, &sy, top[0], e.left_nz[0], top_modes, best.j, &sub)) best = sub;
-        for (0..16) |r| @memcpy(st.y[dsp.y0 + r * dsp.ys ..][0..16], best.recon[r * 16 ..][0..16]);
-
         var ch: Chroma = .{};
-        e.chroma(seg, &suv, top[0], e.left_nz[0], has_top, has_left, &ch);
+        // Specialized so that opaque macroblocks pay nothing for the masks.
+        switch (e.hidden) {
+            inline else => |hidden| {
+                e.lumaI16(hidden, seg, &sy, top.*, e.left_nz, has_top, has_left, &best);
+                var sub: Luma = .{};
+                const k: u64 = mby * e.mbw + mbx;
+                const unlimited = e.mode_budget == std.math.maxInt(u64);
+                const within = unlimited or (e.mode_budget > 0 and e.mode_spent <= k * e.mode_budget);
+                const top_modes = e.top_modes[4 * mbx ..][0..4];
+                if (within and e.lumaI4(hidden, seg, &sy, top[0], e.left_nz[0], top_modes, best.j, &sub)) best = sub;
+                for (0..16) |r| @memcpy(st.y[dsp.y0 + r * dsp.ys ..][0..16], best.recon[r * 16 ..][0..16]);
+                e.chroma(hidden, seg, &suv, top[0], e.left_nz[0], has_top, has_left, &ch);
+            },
+        }
         for (0..8) |r| {
             @memcpy(st.u[dsp.c0 + r * dsp.cs ..][0..8], ch.recon[0][r * 8 ..][0..8]);
             @memcpy(st.v[dsp.c0 + r * dsp.cs ..][0..8], ch.recon[1][r * 8 ..][0..8]);
@@ -692,6 +782,7 @@ const Enc = struct {
 
     fn lumaI16(
         e: *Enc,
+        comptime hidden: bool,
         seg: *const Segment,
         sy: *const [256]u8,
         top: [2]u8,
@@ -703,22 +794,26 @@ const Enc = struct {
         var cand: Luma = .{};
         var preds: [4][256]u8 = undefined;
         for (&preds, 0..) |*p, m| dsp.predictBlock(16, &e.st.y, dsp.y0, dsp.ys, @intCast(m), has_top, has_left, p);
+        const hide: ?*const [256]bool = if (hidden) &e.hide_y else null;
         // At `fast`, only the mode that predicts best is coded.
         const only: ?u8 = if (e.effort == .fast)
-            bestPrediction(16, 256, sy, &preds, &ymode_cost, seg.y1.q[1])
+            bestPrediction(16, 256, sy, hide, &preds, &ymode_cost, seg.y1.q[1])
         else
             null;
         for (0..4) |m| {
             const mode: u8 = @intCast(m);
             if (only) |o| if (o != mode) continue;
             const pred = &preds[m];
+            var blended: [256]u8 = undefined;
+            if (hide) |h| blended = unhidden(256, sy, pred, h);
+            const src = if (hide != null) &blended else sy;
             var coefs: [16][16]i16 = undefined;
             var dcs: [16]i32 = undefined;
             for (0..16) |b| {
                 var res: [16]i16 = undefined;
                 const at = (b / 4) * 64 + (b % 4) * 4;
                 for (0..4) |r| for (0..4) |c| {
-                    res[r * 4 + c] = @as(i16, sy[at + r * 16 + c]) - pred[at + r * 16 + c];
+                    res[r * 4 + c] = @as(i16, src[at + r * 16 + c]) - pred[at + r * 16 + c];
                 };
                 dsp.fdct(&res, &coefs[b]);
                 dcs[b] = coefs[b][0];
@@ -751,7 +846,7 @@ const Enc = struct {
                 tnz = (tnz & ~(@as(u8, 1) << x)) | (f << x);
                 lnz = (lnz & ~(@as(u8, 1) << y)) | (f << y);
             }
-            const d = dsp.sse(16, 16, &cand.recon, 16, sy);
+            const d = dsp.sse(16, 16, &cand.recon, 16, src);
             cand.j = rdCost(d, rate, seg.lam);
             cand.mode = mode;
             cand.mode_rate = i4_flag_cost[0] + ymode_cost[mode];
@@ -763,6 +858,7 @@ const Enc = struct {
     /// `limit` or more, the best 16x16 choice's cost.
     fn lumaI4(
         e: *Enc,
+        comptime hidden: bool,
         seg: *const Segment,
         sy: *const [256]u8,
         top_nz: u8,
@@ -788,7 +884,15 @@ const Enc = struct {
             const yi: usize = y;
             const at = dsp.y0 + yi * 4 * dsp.ys + xi * 4;
             var src: [16]u8 = undefined;
-            for (0..4) |r| @memcpy(src[r * 4 ..][0..4], sy[(yi * 4 + r) * 16 + xi * 4 ..][0..4]);
+            var hide: [16]bool = undefined;
+            for (0..4) |r| {
+                const o = (yi * 4 + r) * 16 + xi * 4;
+                @memcpy(src[r * 4 ..][0..4], sy[o..][0..4]);
+                if (hidden) @memcpy(hide[r * 4 ..][0..4], e.hide_y[o..][0..4]);
+            }
+            // Each mode's source, with its hidden pixels predicted exactly.
+            var blended: [10][16]u8 = undefined;
+            var srcs: [10]*const [16]u8 = undefined;
             const ctx: u2 = @intCast(((tnz >> x) & 1) + ((lnz >> y) & 1));
             const mode_costs = &bmode_cost[tm[x]][lm[y]];
             var best_j: u64 = std.math.maxInt(u64);
@@ -805,7 +909,12 @@ const Enc = struct {
             const ranked: usize = if (e.effort == .fast) 4 else 10;
             for (0..ranked) |m| {
                 dsp.predictSub(&sc, at, @intCast(m), &preds[m]);
-                score[m] = (@as(u64, dsp.satd4(&src, &preds[m])) << 8) + mode_costs[m] * @as(u64, seg.y1.q[1]) / 2;
+                srcs[m] = &src;
+                if (hidden) {
+                    blended[m] = unhidden(16, &src, &preds[m], &hide);
+                    srcs[m] = &blended[m];
+                }
+                score[m] = (@as(u64, dsp.satd4(srcs[m], &preds[m])) << 8) + mode_costs[m] * @as(u64, seg.y1.q[1]) / 2;
                 // Insertion into `order` by score.
                 var k = m;
                 while (k > 0 and score[order[k - 1]] > score[m]) : (k -= 1) order[k] = order[k - 1];
@@ -819,7 +928,7 @@ const Enc = struct {
             for (order[0..@min(tries, ranked)]) |mode| {
                 const pred = &preds[mode];
                 var res: [16]i16 = undefined;
-                for (&res, src, pred) |*r, s, p| r.* = @as(i16, s) - p;
+                for (&res, srcs[mode], pred) |*r, s, p| r.* = @as(i16, s) - p;
                 var coefs: [16]i16 = undefined;
                 dsp.fdct(&res, &coefs);
                 var lv: [16]i16 = undefined;
@@ -827,7 +936,7 @@ const Enc = struct {
                 const last = dsp.quantize(&coefs, &seg.y1, 0, &lv, &deq);
                 var recon = pred.*;
                 dsp.inverse(last + 1, &deq, &recon, 4);
-                const d = dsp.sse(4, 4, &recon, 4, &src);
+                const d = dsp.sse(4, 4, &recon, 4, srcs[mode]);
                 const rate = mode_costs[mode] + e.st.costs.blockCost(3, ctx, 0, last, &lv);
                 const j = rdCost(d, rate, seg.lam);
                 if (j < best_j) {
@@ -860,6 +969,7 @@ const Enc = struct {
 
     fn chroma(
         e: *Enc,
+        comptime hidden: bool,
         seg: *const Segment,
         suv: *const [2][64]u8,
         top_nz: u8,
@@ -874,8 +984,12 @@ const Enc = struct {
             dsp.predictBlock(8, &e.st.u, dsp.c0, dsp.cs, @intCast(m), has_top, has_left, &p[0]);
             dsp.predictBlock(8, &e.st.v, dsp.c0, dsp.cs, @intCast(m), has_top, has_left, &p[1]);
         }
+        // Both planes share the hidden mask.
+        var hide2: [2][64]bool = undefined;
+        if (hidden) hide2 = .{ e.hide_uv, e.hide_uv };
+        const hide: ?*const [128]bool = if (hidden) @ptrCast(&hide2) else null;
         const only: ?u8 = if (e.effort == .fast)
-            bestPrediction(8, 128, @ptrCast(suv), @ptrCast(&preds), &uvmode_cost, seg.uv.q[1])
+            bestPrediction(8, 128, @ptrCast(suv), hide, @ptrCast(&preds), &uvmode_cost, seg.uv.q[1])
         else
             null;
         for (0..4) |m| {
@@ -883,6 +997,11 @@ const Enc = struct {
             if (only) |o| if (o != mode) continue;
             var rate = uvmode_cost[mode];
             var d: u32 = 0;
+            var blended: [2][64]u8 = undefined;
+            if (hide != null) for (0..2) |ch| {
+                blended[ch] = unhidden(64, &suv[ch], &preds[m][ch], &e.hide_uv);
+            };
+            const srcs = if (hide != null) &blended else suv;
             for (0..2) |ch| {
                 const pred = &preds[m][ch];
                 cand.recon[ch] = pred.*;
@@ -895,7 +1014,7 @@ const Enc = struct {
                     const at = @as(usize, y) * 32 + @as(usize, x) * 4;
                     var res: [16]i16 = undefined;
                     for (0..4) |r| for (0..4) |c| {
-                        res[r * 4 + c] = @as(i16, suv[ch][at + r * 8 + c]) - pred[at + r * 8 + c];
+                        res[r * 4 + c] = @as(i16, srcs[ch][at + r * 8 + c]) - pred[at + r * 8 + c];
                     };
                     var coefs: [16]i16 = undefined;
                     dsp.fdct(&res, &coefs);
@@ -909,7 +1028,7 @@ const Enc = struct {
                     ct = (ct & ~(@as(u8, 1) << x)) | (f << x);
                     cl = (cl & ~(@as(u8, 1) << y)) | (f << y);
                 }
-                d += dsp.sse(8, 8, &cand.recon[ch], 8, &suv[ch]);
+                d += dsp.sse(8, 8, &cand.recon[ch], 8, &srcs[ch]);
             }
             cand.j = rdCost(d, rate, seg.lam);
             cand.mode = mode;
@@ -1050,46 +1169,47 @@ const Enc = struct {
         for (out, 0..) |*a, x| a.* = px[4 * x + 3];
     }
 
-    /// Null when every alpha is opaque; otherwise the prediction filter
-    /// whose residuals, as signed bytes, are smallest in magnitude.
-    fn surveyAlpha(e: *Enc) ?u2 {
-        const w: usize = e.width;
-        const rows = e.alpha_rows;
-        var sums: [4]u64 = @splat(0);
-        var all_opaque = true;
+    /// Whether any alpha is not opaque.
+    fn hasAlpha(e: *Enc) bool {
+        const row = e.alpha_rows;
         for (0..e.height) |y| {
-            const cur = rows[(y % 2) * w ..][0..w];
-            const prev: ?[]const u8 = if (y == 0) null else rows[((y + 1) % 2) * w ..][0..w];
-            e.alphaRow(@intCast(y), cur);
-            for (cur) |a| all_opaque = all_opaque and a == 255;
-            const out = rows[2 * w ..][0..w];
-            for (0..4) |f| {
-                filterAlpha(@intCast(f), prev, cur, out);
-                for (out) |v| sums[f] += @abs(@as(i8, @bitCast(v)));
-            }
+            e.alphaRow(@intCast(y), row);
+            for (row) |a| if (a != 255) return true;
         }
-        if (all_opaque) return null;
-        var best: u2 = 0;
-        for (1..4) |f| {
-            if (sums[f] < sums[best]) best = @intCast(f);
-        }
-        return best;
+        return false;
     }
 
-    /// The ALPH chunk: raw, filtered with `filter`.
-    fn writeAlpha(e: *Enc, w: *Io.Writer, filter: u2, len: u64) EncodeError!void {
+    /// The alpha plane into `alpha_plane`, and its lossless stream into
+    /// `alpha_out`; the stream's length, or null when it is no smaller
+    /// than the plane.
+    fn compressAlpha(e: *Enc, effort: Effort) EncodeError!?usize {
+        const w: usize = e.width;
+        for (0..e.height) |y| e.alphaRow(@intCast(y), e.alpha_plane[y * w ..][0..w]);
+        var out: Io.Writer = .fixed(e.alpha_out);
+        const level = alphaEffort(effort);
+        lossless.encodeAlpha(&out, e.alpha_plane, e.width, e.height, level, e.alpha_work) catch |err| switch (err) {
+            // The stream would not fit in the plane's size.
+            error.WriteFailed => return null,
+            error.BadMetadata => unreachable,
+            else => |x| return x,
+        };
+        return out.end;
+    }
+
+    /// The ALPH chunk, unfiltered: the lossless stream `compressed`, or the
+    /// plane raw, streamed from the source when it was not kept.
+    fn writeAlpha(e: *Enc, w: *Io.Writer, compressed: ?usize, len: u64) EncodeError!void {
         try w.writeAll("ALPH");
         try w.writeInt(u32, @intCast(len), .little);
-        try w.writeByte(@as(u8, filter) << 2);
-        const width: usize = e.width;
-        const rows = e.alpha_rows;
-        for (0..e.height) |y| {
-            const cur = rows[(y % 2) * width ..][0..width];
-            const prev: ?[]const u8 = if (y == 0) null else rows[((y + 1) % 2) * width ..][0..width];
-            e.alphaRow(@intCast(y), cur);
-            const out = rows[2 * width ..][0..width];
-            filterAlpha(filter, prev, cur, out);
-            try w.writeAll(out);
+        try w.writeByte(@intFromBool(compressed != null));
+        const n = @as(usize, e.width) * e.height;
+        if (compressed) |c| {
+            try w.writeAll(e.alpha_out[0..c]);
+        } else if (e.alpha_plane.len == n) {
+            try w.writeAll(e.alpha_plane);
+        } else for (0..e.height) |y| {
+            e.alphaRow(@intCast(y), e.alpha_rows);
+            try w.writeAll(e.alpha_rows);
         }
         if (len % 2 == 1) try w.writeByte(0);
     }
@@ -1208,44 +1328,17 @@ fn load(data: []const u8, at: *usize, has_data: bool, first: u5, lv: *[16]i16) i
     return @as(i32, first) + n - 1;
 }
 
-/// Filters alpha row `cur` (`prev` above it, null on the top row) with
-/// `filter` (RFC 9649's prediction filters, 0 to 3) into `out`.
-fn filterAlpha(filter: u2, prev: ?[]const u8, cur: []const u8, out: []u8) void {
-    switch (filter) {
-        0 => @memcpy(out, cur),
-        1 => {
-            out[0] = cur[0] -% if (prev) |p| p[0] else 0;
-            for (1..cur.len) |x| out[x] = cur[x] -% cur[x - 1];
-        },
-        2 => if (prev) |p| {
-            for (out, cur, p) |*o, c, a| o.* = c -% a;
-        } else {
-            out[0] = cur[0];
-            for (1..cur.len) |x| out[x] = cur[x] -% cur[x - 1];
-        },
-        3 => if (prev) |p| {
-            out[0] = cur[0] -% p[0];
-            for (1..cur.len) |x| {
-                const g = std.math.clamp(@as(i32, cur[x - 1]) + p[x] - p[x - 1], 0, 255);
-                out[x] = cur[x] -% @as(u8, @intCast(g));
-            }
-        } else {
-            out[0] = cur[0];
-            for (1..cur.len) |x| out[x] = cur[x] -% cur[x - 1];
-        },
-    }
-}
-
 /// Writes `src` as a lossy WebP file to `w`.
 pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u8) EncodeError!void {
     try src.check();
     if (src.width == 0 or src.height == 0) return error.EmptyImage;
     if (src.width > max_side or src.height > max_side) return error.ImageTooLarge;
-    const l = Layout.init(src.width, src.height).?;
+    const l = Layout.init(options, src.width, src.height).?;
     if (work.len < l.total) return error.WorkTooSmall;
     const base = std.mem.alignForward(usize, @intFromPtr(work.ptr), @alignOf(State)) - @intFromPtr(work.ptr);
     const mem = work[base..];
     const mbs = l.mbw * l.mbh;
+    const pixels = @as(usize, src.width) * src.height;
     const rgb_format: PixelFormat = if (src.format.hasAlpha()) .rgba8 else .rgb8;
     var e: Enc = .{
         .src = src,
@@ -1269,14 +1362,23 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
         .top_v = mem[l.top_v..][0 .. 8 * l.mbw],
         .top_modes = mem[l.top_modes..][0 .. 4 * l.mbw],
         .top_nz = mem[l.top_nz..][0 .. 2 * l.mbw],
-        .alpha_rows = mem[l.alpha..][0 .. 3 * @as(usize, src.width)],
+        .alpha_rows = mem[l.alpha..][0..src.width],
+        .band_hidden = @as([*]bool, @ptrCast(mem[l.band_hidden..].ptr))[0 .. 256 * l.mbw],
+        .band_hidden_uv = @as([*]bool, @ptrCast(mem[l.band_hidden_uv..].ptr))[0 .. 64 * l.mbw],
+        .alpha_plane = if (options.alpha_compression) mem[l.alpha_plane..][0..pixels] else &.{},
+        .alpha_out = if (options.alpha_compression) mem[l.alpha_out..][0..pixels] else &.{},
+        .alpha_work = mem[l.alpha_work..][0..l.alpha_work_len],
         .rgb_format = rgb_format,
         .conv = .init(rgb_format, src.format),
     };
 
-    // Alpha: whether any is not opaque, and the filter that leaves the
-    // smallest residuals.
-    const alpha_filter: ?u2 = if (rgb_format == .rgba8) e.surveyAlpha() else null;
+    // Alpha, when any is not opaque: compressed when that is smaller.
+    // Prediction filters before the lossless encoder measured larger
+    // than none, whose own predictors do better, and raw alpha is the
+    // same size filtered or not, so the ALPH chunk is never filtered.
+    const has_alpha = rgb_format == .rgba8 and e.hasAlpha();
+    var compressed: ?usize = null;
+    if (has_alpha and options.alpha_compression) compressed = try e.compressAlpha(options.effort);
 
     const base_qi = quantizerIndex(options.quality);
     for (e.info) |*m| m.* = .{ .flags = 0, .bmodes = @splat(0) };
@@ -1329,13 +1431,13 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     var c1: coder.Counter = .{};
     e.writeTokens(coder.Counter, &c1);
     const vp8_len = 10 + first_len + c1.bytes();
-    const alpha_len: u64 = if (alpha_filter != null) 1 + @as(u64, src.width) * src.height else 0;
-    const extended = alpha_filter != null or options.icc != null or options.exif != null or options.xmp != null;
+    const alpha_len: u64 = if (!has_alpha) 0 else 1 + (compressed orelse @as(u64, src.width) * src.height);
+    const extended = has_alpha or options.icc != null or options.exif != null or options.xmp != null;
     var riff_len: u64 = 4 + chunkLen(vp8_len);
     if (extended) {
         riff_len += chunkLen(10);
         if (options.icc) |b| riff_len += chunkLen(b.len);
-        if (alpha_filter != null) riff_len += chunkLen(alpha_len);
+        if (has_alpha) riff_len += chunkLen(alpha_len);
         if (options.exif) |b| riff_len += chunkLen(b.len);
         if (options.xmp) |b| riff_len += chunkLen(b.len);
     }
@@ -1347,14 +1449,14 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     if (extended) {
         var x: [10]u8 = @splat(0);
         if (options.icc != null) x[0] |= 0x20;
-        if (alpha_filter != null) x[0] |= 0x10;
+        if (has_alpha) x[0] |= 0x10;
         if (options.exif != null) x[0] |= 0x08;
         if (options.xmp != null) x[0] |= 0x04;
         std.mem.writeInt(u24, x[4..7], @intCast(src.width - 1), .little);
         std.mem.writeInt(u24, x[7..10], @intCast(src.height - 1), .little);
         try writeChunk(w, "VP8X", &x);
         if (options.icc) |b| try writeChunk(w, "ICCP", b);
-        if (alpha_filter) |f| try e.writeAlpha(w, f, alpha_len);
+        if (has_alpha) try e.writeAlpha(w, compressed, alpha_len);
     }
     try w.writeAll("VP8 ");
     try w.writeInt(u32, @intCast(vp8_len), .little);
@@ -1437,12 +1539,23 @@ fn roundTrip(src: PixelBuffer, options: EncodeOptions, dst: []u8) !usize {
 
 /// Peak signal to noise ratio of `a` against `b`, in dB.
 fn psnr(a: []const u8, b: []const u8) f64 {
+    return psnrVisible(a, b, 1);
+}
+
+/// The same over RGBA pixels' color, leaving out those whose alpha in `b`
+/// is 0 (`bpp` 4), or over every byte (`bpp` 1).
+fn psnrVisible(a: []const u8, b: []const u8, comptime bpp: usize) f64 {
     var sum: f64 = 0;
-    for (a, b) |x, y| {
-        const d = @as(f64, @floatFromInt(x)) - @as(f64, @floatFromInt(y));
-        sum += d * d;
+    var n: f64 = 0;
+    for (0..a.len / bpp) |i| {
+        if (bpp == 4 and b[4 * i + 3] == 0) continue;
+        for (0..@min(bpp, 3)) |c| {
+            const d = @as(f64, @floatFromInt(a[bpp * i + c])) - @as(f64, @floatFromInt(b[bpp * i + c]));
+            sum += d * d;
+            n += 1;
+        }
     }
-    const mse = sum / @as(f64, @floatFromInt(a.len));
+    const mse = sum / @max(n, 1);
     return 10 * @log10(255.0 * 255.0 / @max(mse, 1e-9));
 }
 
@@ -1477,16 +1590,23 @@ test "alpha is kept exactly" {
     const w = 19;
     const h = 23;
     var px: [w * h * 4]u8 = undefined;
-    for (0..h) |y| for (0..w) |x| {
-        const i = (y * w + x) * 4;
-        px[i] = @intCast(x * 13);
-        px[i + 1] = @intCast(y * 11);
-        px[i + 2] = 90;
-        px[i + 3] = @intCast((x * y * 7) % 256);
-    };
-    const src = try PixelBuffer.init(&px, .rgba8, w, h);
     var got: [w * h * 4]u8 = undefined;
-    _ = try roundTrip(src, .{}, &got);
-    for (0..w * h) |i| try testing.expectEqual(px[4 * i + 3], got[4 * i + 3]);
-    try testing.expect(psnr(&got, &px) > 30);
+    // A pattern, and a gradient that the lossless encoder compresses.
+    for (0..2) |pattern| {
+        for (0..h) |y| for (0..w) |x| {
+            const i = (y * w + x) * 4;
+            px[i] = @intCast(x * 13);
+            px[i + 1] = @intCast(y * 11);
+            px[i + 2] = 90;
+            px[i + 3] = if (pattern == 0) @intCast((x * y * 7) % 256) else @intCast(x * 8);
+        };
+        const src = try PixelBuffer.init(&px, .rgba8, w, h);
+        var lens: [2]usize = undefined;
+        for (&lens, [_]bool{ true, false }) |*len, compress| {
+            len.* = try roundTrip(src, .{ .alpha_compression = compress }, &got);
+            for (0..w * h) |i| try testing.expectEqual(px[4 * i + 3], got[4 * i + 3]);
+            try testing.expect(psnrVisible(&got, &px, 4) > 30);
+        }
+        if (pattern == 1) try testing.expect(lens[0] + w * h / 2 < lens[1]);
+    }
 }
