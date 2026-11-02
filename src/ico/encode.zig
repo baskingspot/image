@@ -26,7 +26,7 @@ pub const Payload = enum {
     auto,
     /// A 32-bit BMP and its mask, which every reader takes.
     bmp,
-    /// A PNG of the image's own channels and depth, reduced to the
+    /// A PNG of the image's own channels at 8 bits, reduced to the
     /// smallest color type that holds them, which Windows Vista and later
     /// read.
     png,
@@ -74,8 +74,10 @@ pub fn workLen(options: Options, width: u32, height: u32) ?usize {
     };
 }
 
-/// PNG entries are written with the PNG encoder's defaults.
-const png_options: png.EncodeOptions = .{};
+/// PNG entries are written with the PNG encoder's defaults, but at most 8
+/// bits a sample, as icons are and as every icon reader takes them
+/// (plan.md decision 38).
+const png_options: png.EncodeOptions = .{ .max_depth = .@"8" };
 
 /// Writes `src` as a one-entry ICO or CUR file.
 pub fn encode(w: *Io.Writer, src: PixelBuffer, options: Options, work: []u8) Error!void {
@@ -178,14 +180,15 @@ test "256 by 256 entries are PNG by default, smaller ones BMP, and each reads ba
     const gpa = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
-    // An opaque icon of four colors in a 16-bit format, which PNG reduces
-    // to a palette, passed to it unconverted; and a smaller one.
+    // An icon of four colors in a 16-bit format, whose low bytes only 16
+    // bits hold, so only the 8-bit cap makes it the palette PNG it reduces
+    // to (alpha 0xff37 narrows to opaque); and a smaller one.
     const big_px = try gpa.alloc(u8, 256 * 256 * 8);
     defer gpa.free(big_px);
     for (0..256 * 256) |i| {
         const c: u16 = random.uintLessThan(u8, 4);
         const rgba = [4]u16{ c * 80, 255 - c * 60, c * 7, 255 };
-        for (rgba, 0..) |v, k| std.mem.writeInt(u16, big_px[i * 8 + k * 2 ..][0..2], v * 0x101, .little);
+        for (rgba, 0..) |v, k| std.mem.writeInt(u16, big_px[i * 8 + k * 2 ..][0..2], v * 0x100 + 0x37, .little);
     }
     const big: PixelBuffer = try .init(big_px, .rgba16, 256, 256);
     var small_px: [32 * 16 * 4]u8 = undefined;
@@ -225,6 +228,9 @@ test "256 by 256 entries are PNG by default, smaller ones BMP, and each reads ba
             try testing.expectEqual(e.offset + e.size, if (i == 0) d.entry(1).offset else file.len);
             const is_png = std.mem.startsWith(u8, file[e.offset..], "\x89PNG");
             try testing.expectEqual(img.payload.of(img.pixels.width, img.pixels.height) == .png, is_png);
+            // PNG entries are at most 8 bits a sample, from 16-bit sources
+            // too: IHDR's depth.
+            if (is_png) try testing.expect(file[e.offset + 24] <= 8);
             // A BMP is 8-bit BGRA; a PNG is what it reduced to.
             try testing.expectEqual(!is_png, config.native == .bgra8);
             const len = PixelBuffer.len(config.native, config.width, config.height).?;

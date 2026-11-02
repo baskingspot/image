@@ -108,9 +108,10 @@ picked.
 
 - `.bmp`: a 32-bit BMP entry with straight alpha and an AND mask set where
   alpha is 0, for readers that ignore alpha. No work memory.
-- `.png`: `png.encode` with its default options on the image's own pixels,
-  unconverted, so PNG's reduction to gray or a palette keeps icons small
-  and a 16-bit source stays 16-bit. Work memory is `png.workLen` (868,871
+- `.png`: `png.encode` with its default options and `max_depth = .@"8"`
+  on the image's own pixels, unconverted: a 16-bit or float source is
+  narrowed row by row inside the PNG encoder (decision 38), and PNG's
+  reduction to gray or a palette keeps icons small. Work memory is `png.workLen` (868,871
   bytes at 256 by 256 at the default effort).
 - `.auto`, the default (plan.md decision 17): PNG at 256 by 256, BMP below,
   as Windows' own icons are made and as readers before Vista need.
