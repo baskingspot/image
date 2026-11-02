@@ -239,7 +239,10 @@ Running beside wave 1's tail, started early by the owner:
   peak RSS is 507 MiB against libjxl's 527 (results/jxl-mem-20261102.md).
   Images under a megapixel don't stream (to-1-MP class 28.0 MiB against
   libjxl's 23.1), nor do subsampled, noisy, or upsampled frames or Modular.
-  Next: lossy frames in the oracle on the harness's
+  `decodeJpeg` rebuilds DC from LF groups with extra precision as libjxl
+  does and refuses raw tables whose denominator isn't 1/(8·255); the
+  Modular predictors, weighted predictor, and alias table are pub for the
+  encoder. Next: lossy frames in the oracle on the harness's
   per-input tolerance (decision 45), f32 output (decision 24), render by
   group row, then speed.
 
