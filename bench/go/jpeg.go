@@ -53,4 +53,5 @@ func init() {
 	register("jpeg-decode", decodeJPEG)
 	register("jpeg-decode-progressive", decodeJPEG)
 	register("jpeg-decode-444", decodeJPEG)
+	register("jpeg-decode-cmyk", decodeJPEG)
 }

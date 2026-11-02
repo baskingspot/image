@@ -14,6 +14,7 @@ pub const ops = .{
     .{ "jpeg-decode-arith", rgb },
     .{ "jpeg-decode-12bit", rgb16 },
     .{ "jpeg-decode-lossless", rgb },
+    .{ "jpeg-decode-cmyk", rgb },
 };
 
 var work: [512 << 20]u8 = undefined;

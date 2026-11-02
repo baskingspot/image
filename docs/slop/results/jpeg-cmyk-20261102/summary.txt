@@ -1,0 +1,26 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, 4 threads
+image: ReleaseFast, native; C arms: cc -O3 -march=native; rust: target-cpu=native; go: GOAMD64=v3
+buffers: input 0 bytes past a page, output 2048; 50 ms a sample, 10 rounds
+wuffs       44 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+qoih         0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+stb         44 rows, 44 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+libpng       0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+spng         0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+giflib       0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+libjpeg-turbo   44 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+magick       0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+libwebp      0 rows, 0 differ on own operations, 1 operations skipped, 0 inputs failed and skipped
+image-rs    44 rows, 44 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+zune        44 rows, 44 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+go          44 rows, 44 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp image-rs     zune       go
+jpeg-decode-cmyk          157.5    277.2        -    422.8        -        -        -    157.5        -        -    169.3    158.7    844.8
+
+benchstat: zig-out/bench-compare/benchstat.txt
+
+image/arm, geomean              rows image MP/s    wuffs      stb libjpeg-turbo image-rs     zune       go     ±   <1    ~   slowest vs wuffs
+JpegDecodeCmyk/icon               13       84.1     1.45     1.46     3.68     1.87     1.41     5.34    4%    0    4   1.04 [1.00, 1.11] icon_16-actions_contact_new-16x16.jpg
+JpegDecodeCmyk/1mp                23      190.9     1.95     1.75     1.37     1.00     0.98    10.08    4%    0    0   1.54 [1.43, 1.99] photo_kodak-kodim01-768x512.jpg
+JpegDecodeCmyk/large               8      181.7     1.98     1.96     1.21     0.93     0.91     9.38    4%    0    0   1.47 [1.35, 1.75] photo_wikipedia-001-1276x850.jpg
+all                               44      148.5     1.79     1.69     1.79     1.19     1.08     8.25          0    4

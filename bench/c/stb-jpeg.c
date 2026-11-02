@@ -24,7 +24,11 @@ static size_t jpeg_progressive(const uint8_t *in, size_t len, uint8_t *out, size
 static size_t jpeg_444(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return jpeg_decode(in, len, out, cap);
 }
+static size_t jpeg_cmyk(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return jpeg_decode(in, len, out, cap);
+}
 
 BENCH_OP("jpeg-decode", jpeg_decode)
 BENCH_OP("jpeg-decode-progressive", jpeg_progressive)
 BENCH_OP("jpeg-decode-444", jpeg_444)
+BENCH_OP("jpeg-decode-cmyk", jpeg_cmyk)

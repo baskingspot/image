@@ -9,6 +9,7 @@ pub const OPS: &[super::Op] = &[
     (c"jpeg-decode", decode),
     (c"jpeg-decode-progressive", decode),
     (c"jpeg-decode-444", decode),
+    (c"jpeg-decode-cmyk", decode),
 ];
 
 fn decode(input: &[u8], out: &mut [u8]) -> Option<usize> {

@@ -1,11 +1,14 @@
 // libjpeg-turbo through the libjpeg API, from memory, to RGB8 with its
 // default settings (the accurate integer IDCT and fancy upsampling, with
 // its SIMD), scanlines straight into the caller's buffer. CMYK and YCCK
-// files are not converted, so they fail. Errors longjmp out. 12-bit files
+// files decode to libjpeg-turbo's inks, a row at a time, converted to RGB
+// naively as djpeg converts them (each channel the ink times black over
+// 255, rounded). Errors longjmp out. 12-bit files
 // decode to its 12-bit samples, six bytes a pixel, unscaled (this package
 // scales them to 16 bits), so that operation's checksums differ.
 #include <setjmp.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <jpeglib.h>
 
@@ -26,6 +29,7 @@ static size_t decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, in
   struct jpeg_decompress_struct cinfo;
   struct fail err;
   volatile size_t result = 0;
+  uint8_t *volatile inks = NULL;
   cinfo.err = jpeg_std_error(&err.pub);
   err.pub.error_exit = fail_exit;
   err.pub.emit_message = quiet;
@@ -33,10 +37,23 @@ static size_t decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, in
   if (setjmp(err.jump)) goto done;
   jpeg_mem_src(&cinfo, in, (unsigned long)len);
   jpeg_read_header(&cinfo, TRUE);
-  cinfo.out_color_space = JCS_RGB;
+  int cmyk = cinfo.jpeg_color_space == JCS_CMYK || cinfo.jpeg_color_space == JCS_YCCK;
+  cinfo.out_color_space = cmyk ? JCS_CMYK : JCS_RGB;
   jpeg_start_decompress(&cinfo);
   size_t stride = (size_t)cinfo.output_width * (wide ? 6 : 3);
-  if (cinfo.output_components != 3 || stride * cinfo.output_height > cap) goto done;
+  if (cinfo.output_components != (cmyk ? 4 : 3) || stride * cinfo.output_height > cap) goto done;
+  if (cmyk) {
+    if (wide || !(inks = malloc((size_t)cinfo.output_width * 4))) goto done;
+    while (cinfo.output_scanline < cinfo.output_height) {
+      uint8_t *o = out + cinfo.output_scanline * stride;
+      JSAMPROW r = inks;
+      jpeg_read_scanlines(&cinfo, &r, 1);
+      for (size_t x = 0; x < cinfo.output_width; x++) {
+        unsigned k = inks[4 * x + 3];
+        for (int c = 0; c < 3; c++) o[3 * x + c] = (uint8_t)((2 * inks[4 * x + c] * k + 255) / 510);
+      }
+    }
+  }
   while (cinfo.output_scanline < cinfo.output_height) {
     JSAMPROW rows[16];
     J12SAMPROW rows12[16];
@@ -56,6 +73,7 @@ static size_t decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, in
   result = stride * cinfo.output_height;
 done:
   jpeg_destroy_decompress(&cinfo);
+  free(inks);
   return result;
 }
 
@@ -77,6 +95,9 @@ static size_t jpeg_arith(const uint8_t *in, size_t len, uint8_t *out, size_t cap
 static size_t jpeg_lossless(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return jpeg_decode(in, len, out, cap);
 }
+static size_t jpeg_cmyk(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return jpeg_decode(in, len, out, cap);
+}
 static size_t jpeg_12bit(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return decode(in, len, out, cap, 1);
 }
@@ -87,3 +108,4 @@ BENCH_OP("jpeg-decode-444", jpeg_444)
 BENCH_OP("jpeg-decode-arith", jpeg_arith)
 BENCH_OP("jpeg-decode-12bit", jpeg_12bit)
 BENCH_OP("jpeg-decode-lossless", jpeg_lossless)
+BENCH_OP("jpeg-decode-cmyk", jpeg_cmyk)
