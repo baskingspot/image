@@ -240,10 +240,11 @@ owning the files adding-a-format.md assigns to its format plus
   peak RSS at or below libwebp in every class. Splits are in
   test/oracle/webp.zig.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
-  Stage 1 landed at `e96a20e` and was reverted: on CI's corpus the oracle
-  finds IFD rules where it disagrees with libtiff (tag counts, field types,
-  per-sample Compression, codec edges). It re-lands from `wave3-tiff-fix`
-  at 0 mismatches over many seeds. Stage 1 (tiff.md, results/tiff-20261102.md): classic
+  Stage 1 landed at `e96a20e`, was reverted for IFD rules where it
+  disagreed with libtiff on CI's corpus, and re-landed from `wave3-tiff-fix`
+  at `0a17750`: it agrees with libtiff over seeds 1–200 × 20000 on CI's
+  corpus and 100000 on the full corpus; the rules are in tiff.md
+  "Following libtiff". Stage 1 (tiff.md, results/tiff-20261102.md): classic
   TIFF and BigTIFF; strips and tiles; chunky and planar; none, PackBits,
   LZW, Deflate, and CCITT MH/G3/G4; predictors 2 and 3; 1–32-bit integer
   and 16–64-bit float samples; gray, palette, RGB, CMYK, and subsampled
@@ -280,7 +281,14 @@ owning the files adding-a-format.md assigns to its format plus
   webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
   only its export lines to `src/webp/root.zig`; the rest of `src/webp/`
   stays with the WebP orb's performance pass.
-- TIFF encode follows TIFF decode's re-land, with the TIFF orb.
+- **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
+  `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
+  tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
+  only its export lines to `src/tiff/root.zig`; the rest of `src/tiff/`
+  stays with the TIFF orb (stage 2, branch `wave3-tiff`).
+- **Gates on 8 GB orbs** (branch `wave2-harness4`, the harness orb): the
+  all-format `just oracle 100000` and, on some orbs, `just ci` run out of
+  memory on an 8 GB orb; make them fit.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
