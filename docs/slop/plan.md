@@ -392,13 +392,15 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   encoding into the new fields.
 - **JPEG reconstruction** (branch `wave4-jxl-jbrd`, the Netpbm orb):
   `src/jxl/jbrd.zig`, `src/jxl/JpegReconstructor.zig`, and their fuzz and
-  oracle files, on the coefficient callback the JPEG XL orb adds to
-  vardct.zig (`wave4-jxl-coeffs`). The rest of `src/jxl/` stays with the
-  JPEG XL orb (render by group row, then speed).
-  The jbrd box and the JPEG writer landed (byte-identical on 67 cjxl
-  transcodes given libjpeg-turbo's coefficients); `JpegReconstructor` needs
-  a seeker; the coefficients, oracle, and bench wait on the vardct
-  coefficient pass.
+  oracle files, on `Decoder.decodeJpeg` and `Decoder.Jpeg`, the coefficient
+  pass the JPEG XL orb added (`wave4-jxl-coeffs`, landed: coefficients and
+  quant tables equal libjpeg's `jpeg_read_coefficients` of djxl's
+  reconstruction on 353,186 blocks; chroma from luma undone in integers).
+  The rest of `src/jxl/` stays with the JPEG XL orb (render by group row,
+  then speed). The jbrd box and the JPEG writer landed (byte-identical on 67
+  cjxl transcodes given libjpeg-turbo's coefficients); `JpegReconstructor`
+  needs a seeker; stage 2 wires in `decodeJpeg`, then the oracle and the
+  bench against djxl.
 - **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
   `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
   fuzz and oracle files, and the jxl-encode bench rows; only its export
