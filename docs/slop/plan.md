@@ -183,7 +183,7 @@ owning the files adding-a-format.md assigns to its format plus
 - **GIF decode** (branch `wave2-gif`): `src/gif/`, with GIF's LZW.
 - **WebP decode** (branch `wave3-webp`): `src/webp/`.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
-  It uses `image.Seeker` once `wave1-seeker` lands, and decodes
+  It uses `image.Seeker` (landed), and decodes
   JPEG-compressed TIFF through `image.jpeg` behind `@hasDecl`.
 - **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
   and the png_encode harness files; `src/png/` otherwise stays with the PNG
@@ -199,8 +199,9 @@ owning the files adding-a-format.md assigns to its format plus
   it cut the fuzz rate 14× and found nothing.
 - **Netpbm corpus** (landed at `20a1f64`): the CNN screenshot is back in the
   bench corpus; zune's failure on it is a skipped row.
-- **bmp-stb determinism** (the BMP orb, after `wave1-seeker`):
-  `test/oracle/bmp.c` and `bmp.zig`.
+- **bmp-stb determinism** (landed at `56024dd`): stb_image reads its
+  uninitialized on-stack palette for some BMPs; bmp-stb now skips those, and
+  BMP split counts are stable between runs.
 - **Performance pass** (branch `wave2-perf`): `src/convert.zig`, `src/tga/`,
   and `src/netpbm/` now; `src/png/` (decoder) once `wave1-png-strict` lands
   and `src/qoi/` once `wave1-wbmp-qoi` lands; inflate in baskingspot/compress
@@ -233,12 +234,11 @@ orb asks for a change to them, or for text in this file, in its report.
   chose a pinned commit over a compress release.
 - **BMP, ICO and CUR, decode and encode** (landed; bmp.md and ico.md).
   `src/bmp/dib.zig` is shared by both. ICO reads entries forward in directory
-  order; an entry behind the reader needs an `ico.Seeker` (`fixed` over a
+  order; an entry behind the reader needs an `image.Seeker` (`DecodeOptions.seeker`; `fixed` over a
   `Reader.fixed`, at no copy, or `file`) and is `error.EntryBehind` without
   one, and `Options.entry` decodes one entry without seeking (a PNG entry
   through `image.png`, read through IEND; an APNG entry stops after its first
-  frame). It becomes the
-  shared `image.Seeker` (decision 8). PNG entries
+  frame). PNG entries
   decode only through `Options.entry` until png has a `workLen` bound, and
   PNG-entry encoding waits for wave 5.
 - **TGA, decode and encode** (landed; tga.md). Every image type in the 2.0
@@ -261,10 +261,9 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
-- **Seeker** (branch `wave1-seeker`, the BMP/ICO orb): moves `ico.Seeker`
-  to `image.Seeker` in `src/decode.zig`, adds `DecodeOptions.seeker`, and
-  passes it through `image.Decoder`; it owns `src/decode.zig`,
-  `src/Decoder.zig`, and `src/ico/` for this.
+- **Seeker** (landed at `6ee1d9f`): `image.Seeker` in `src/decode.zig`,
+  `DecodeOptions.seeker`, passed through by `image.Decoder` to formats whose
+  `Options` have the field.
 - **PNG strictness** (landed at `f521a91`): `png.Decoder.Options` has
   `ignore_checksums`, which skips the critical-chunk CRCs (about 4.5% of
   decode time, results/png-ignore-checksums-20261101.md) and accepts a wrong
@@ -329,4 +328,5 @@ not yet made:
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
 - A generic hook on `image.Decoder` for metadata that follows the frames
-  (TGA's footer, PNG's chunks after IDAT), once `wave1-seeker` lands.
+  (TGA's footer, PNG's chunks after IDAT); unblocked now `image.Seeker` has
+  landed.
