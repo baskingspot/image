@@ -341,9 +341,14 @@ orb asks for a change to them, or for text in this file, in its report.
   (decision 11), forwarded when a format has one, synthesized for formats of
   at most one frame, and `Unsupported` otherwise; `Blob.len` as `?u64` with
   `Blob.endsAt` (decision 13).
-- **Contract wiring** (branch `wave2-contract-wiring`, the BMP/ICO orb):
-  `src/tga/`, `src/png/` (decoder), and `src/netpbm/` for `applyTrailer` in
-  TGA and PNG, and `decodeFrameConfig` in APNG and Netpbm.
+- **Contract wiring** (landed at `a7976c3`): decisions 10 and 11 are wired
+  for TGA (`applyTrailer`: gamma, density, key color), PNG (`applyTrailer`:
+  late eXIf; other late Config chunks are ignored as the spec requires;
+  `decodeFrameConfig` for APNG) and Netpbm (`decodeFrameConfig`; raw P5 and
+  P6 no longer Unsupported). PNG's `max_frames` applies when a frame past
+  the limit is reached; an acTL count over the limit leaves `frame_count`
+  null. The BMP/ICO orb keeps `src/tga/`, `src/png/` (decoder) and
+  `src/netpbm/`.
 - **GIF follow-ups** (landed at `e6e0414`; results/gif-options-20261102.md):
   decision 12. `loop_count` is 1 without a loop extension, and
   `gif.Decoder.Options.ignore_too_much_data` matches Wuffs's quirk, including
@@ -461,6 +466,8 @@ not yet made:
   it with a threadlocal buffer. Allocate work per input outside the arena,
   or one buffer per worker.
 - A per-size-class peak RSS column in `just bench-compare`.
+- A generic `decodeFrameConfig` fuzz property in `test/fuzz/harness.zig`,
+  replacing ICO's, PNG's, and Netpbm's copies.
 - `just ci`'s oracle pass is about 270 s of 419 s (wbmp 64 s, jpeg 60 s,
   qoi 59 s); profile wbmp and qoi.
 - `cmyk8` and `cmyk16` pixel formats with their `image.convert` kernels
