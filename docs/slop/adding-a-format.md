@@ -97,6 +97,12 @@ Rules every decoder keeps (AGENTS.md has the reasons):
   `harness.checkDecoder` checks a decoder whose own `Options` has a
   `seeker` twice, forward only and with a seeker over each of its readers,
   so a fuzz target need not wrap one.
+- A float destination is written from the native pixels by
+  `image.convert`, unless the decoder sets `float_direct` to true (a
+  `pub const`; plan.md decision 24). Then, when its native format has no
+  float samples, it writes float formats from its own floats;
+  `checkDecoder` skips comparing those with the converted native pixels,
+  and the format's fuzz target checks them itself.
 - Metadata is reported in `Config.metadata` and `Frame`, and ICC, EXIF, and
   XMP bytes go to `options.blob_sink` as the decoder passes them (a blob
   whose length is known only at its end passes `len` null until its last

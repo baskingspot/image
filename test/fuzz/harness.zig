@@ -11,7 +11,10 @@
 //!   over a few bytes at a time as through one holding the whole input;
 //! - write, in any pixel format, its native-format pixels converted by
 //!   `image.convert` (for frames that replace their region; a blended
-//!   frame's rounding depends on the format);
+//!   frame's rounding depends on the format; a decoder declaring
+//!   `pub const float_direct = true` writes a float format from its own
+//!   floats instead, when its native format is not float, and its target
+//!   checks those);
 //! - refuse a pixel buffer one byte short and work memory one byte short
 //!   with an error, writing nothing out of bounds;
 //! - where it has `decodeFrameConfig`, return from `decodeFrame` the frame
@@ -184,11 +187,14 @@ fn decodeAll(
 /// A toy one-frame format for testing `announced`: "T", the width and
 /// height as bytes, then gray pixels. `lie` makes `decodeFrameConfig`
 /// announce a wider frame, or an error, for a width of 3, or change the
-/// pixels `decodeFrame` writes.
-fn FrameToy(comptime lie: enum { none, frame, err, pixels }) type {
+/// pixels `decodeFrame` writes. `floats` and `float_direct` write a float
+/// format other than by converting the native pixels, the latter
+/// declaring so.
+fn FrameToy(comptime lie: enum { none, frame, err, pixels, floats, float_direct }) type {
     return struct {
         const Self = @This();
         pub const Options = image.DecodeOptions;
+        pub const float_direct = lie == .float_direct;
         r: *Io.Reader,
         limits: image.Limits,
         config: ?image.Config = null,
@@ -223,6 +229,10 @@ fn FrameToy(comptime lie: enum { none, frame, err, pixels }) type {
                 d.r.readSliceAll(row[0..c.width]) catch return error.Truncated;
                 if (lie == .pixels and d.peeked) row[0] ^= 1;
                 conv.run(dst.row(@intCast(y)), &row, c.width);
+                if ((lie == .floats or lie == .float_direct) and dst.format.sample() == .f32) {
+                    const floats: []align(1) f32 = @ptrCast(dst.row(@intCast(y)));
+                    floats[0] += 1.0 / 1024.0;
+                }
             }
             d.done = true;
             return .{ .width = c.width, .height = c.height };
@@ -241,6 +251,25 @@ test announced {
     try std.testing.expectError(error.FrameConfigDiffers, checkDecoder(FrameToy(.pixels), file, 0));
     // Other widths are announced truly.
     try checkDecoder(FrameToy(.frame), "T\x02\x01ab", 0);
+}
+
+test "float_direct" {
+    const file = "T\x03\x02" ++ "abcdef";
+    const formats = std.enums.values(PixelFormat);
+    var floats: usize = 0;
+    for (0..formats.len) |i| {
+        // `choice / 7` picks the other format.
+        const choice = i * 7;
+        try checkDecoder(FrameToy(.float_direct), file, choice);
+        if (formats[i].sample() != .f32) {
+            try checkDecoder(FrameToy(.floats), file, choice);
+            continue;
+        }
+        // Undeclared, float pixels not converted from the native ones differ.
+        try std.testing.expectError(error.FormatDiffers, checkDecoder(FrameToy(.floats), file, choice));
+        floats += 1;
+    }
+    try std.testing.expect(floats > 0);
 }
 
 /// A toy one-frame format for testing seeking: "S", the width, the height,
@@ -424,7 +453,11 @@ fn checkReading(comptime D: type, input: []const u8, choice: u64, comptime seeki
     const direct = try decodeAll(D, &fixed, fixed_seeker, config, other, &buffers[1], other, false);
     var replaced = true;
     for (direct.frames[0..direct.count]) |f| replaced = replaced and f.frame.blend == .src;
-    if (replaced and !converted.eql(&direct)) return error.FormatDiffers;
+    // A decoder with `float_direct` writes float formats from its own
+    // floats (plan.md decision 24), which its target checks.
+    const own_floats = @hasDecl(D, "float_direct") and D.float_direct and
+        other.sample() == .f32 and native.sample() != .f32;
+    if (replaced and !own_floats and !converted.eql(&direct)) return error.FormatDiffers;
 
     // Buffers one byte short.
     if (pixel_count > 0) {
