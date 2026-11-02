@@ -300,7 +300,9 @@ owning the files adding-a-format.md assigns to its format plus
   outside noise. The decoder's chunk loop checks one count, the smaller of
   buffered bytes / 5 and pixels left, cut after each run
   (results/qoi-decode-bound-20261102.md): 1.03×. Screenshots stay at
-  0.87–0.88× the crate; next is local copies of the index and run carry.
+  0.87–0.88× the crate. Local copies of the index and run carry do not pay
+  (results/qoi-decode-locals-20261102.md: 0.99× overall, icons down to
+  0.86×), so the QOI decoder work stops here.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
