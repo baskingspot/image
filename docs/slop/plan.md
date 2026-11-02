@@ -334,7 +334,17 @@ owning the files adding-a-format.md assigns to its format plus
   orb): `src/webp/encode.zig` and any new `src/webp/encode_*.zig` files, the
   webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
   only its export lines to `src/webp/root.zig`; the rest of `src/webp/`
-  stays with the WebP orb's performance pass.
+  stays with the WebP orb's performance pass. Stage 1 landed
+  (results/webp-encode-20261102.md): `image.webp.encode`, `workLen`, and
+  `EncodeOptions` (effort 0–9, cwebp's `-z` levels, default 5), plus
+  `encodeAlpha` for the lossy encoder's ALPH chunks, written from RFC 9649.
+  Smaller than libwebp in total bytes at every level and faster at every
+  level on large images; behind on speed at efforts 1–2 (and 4–7, slightly)
+  on flat few-color images, and 2–3% larger on icons from effort 3. Effort 5
+  is 1.2% smaller than libwebp's default `-z 6` at 1.1–2.9× its speed. The
+  oracle leaves out Wuffs for VP8X files: Wuffs 0.4 decodes no VP8L inside
+  VP8X. Stage 2, on the same branch: low-effort speed on flat images, work
+  memory's fixed part on icons, and no zmm in the code-length builder.
 - **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
