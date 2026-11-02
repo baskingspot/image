@@ -16,3 +16,4 @@ pub const netpbm = @import("netpbm.zig");
 pub const wbmp = @import("wbmp.zig");
 pub const webp = @import("webp.zig");
 pub const jxl = @import("jxl.zig");
+pub const webp_encode = @import("webp_encode.zig");
