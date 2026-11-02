@@ -289,9 +289,18 @@ owning the files adding-a-format.md assigns to its format plus
   starting gaps (results/webp-20261102.md) are lossless palette images with
   flat areas (0.54–0.80×) and lossy's per-pixel loop filter and token reader
   (0.82–0.92× above icons).
-- **PNG and APNG encode** (branch `wave5-png-encode`): `src/png/encode.zig`
-  and the png_encode harness files; `src/png/` otherwise stays with the PNG
-  orb until `wave1-png-strict` lands.
+- **PNG and APNG encode** (landed at `d50a0e8`; png.md,
+  results/png-encode-20261102.md) with compress 6319823: default effort is
+  level 7 filtered (1.3% smaller than libpng and libspng, 2.3–3.5× libpng's
+  speed), fast is level 6 (10.6% smaller than their level 1, 1.6–2.1×).
+  Palette only when it saves more than twice its cost; colors under
+  transparent pixels kept; APNG frame 0 is the canvas; pHYs from
+  `EncodeOptions.density`; no interlace, text, or bKGD. compress keeps a
+  block's token list and output scratch in `Writer.Buffer` (426,636 bytes),
+  not on the stack: in `Writer` itself, returned by value from `init`, it
+  ran `zig build check -Dtarget=arm-linux` out of memory. Work memory is
+  850,439 bytes plus 72 per pixel of width. Output never depends on prior
+  work-memory contents (ICO measures an entry with a discarding pass).
 - **GIF encode** (branch `wave5-gif-encode`, the GIF orb): `src/gif/encode.zig`
   and any new `src/gif/` files it adds (quantizer, dither), the gif_encode
   fuzz and oracle files, and the gif-encode bench rows; decision 6

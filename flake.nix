@@ -68,6 +68,9 @@
               qoi
               (lib.getBin qoi)
               imagemagick
+              # The size bars for PNG encode: oxipng, and zopfli's zopflipng.
+              oxipng
+              zopfli
               # The Rust (image, zune-image) and Go (image) arms.
               cargo
               rustc
