@@ -15,8 +15,11 @@ const testing = std.testing;
 const BitWriter = @import("encode_bits.zig").BitWriter;
 const Bump = @import("encode_mem.zig").Bump;
 
-pub const log_tab_size = 12;
-pub const tab_size = 1 << log_tab_size;
+const entropy = @import("entropy.zig");
+pub const log_tab_size = entropy.log_tab_size;
+pub const tab_size = entropy.tab_size;
+const Alias = entropy.Alias;
+const initAlias = entropy.initAlias;
 /// Tokens are below this: every hybrid configuration here keeps 32-bit
 /// values under 256 tokens.
 pub const alphabet = 256;
@@ -692,73 +695,6 @@ fn writeHistogram(w: *BitWriter, freq: []const u16, kind: u8) void {
     }
 }
 
-/// One bucket of the decoder's alias table (entropy.zig).
-const Alias = struct {
-    cutoff: u16,
-    right: u16,
-    offset: u16,
-};
-
-/// The decoder's alias table for `counts`, so the encoder maps each
-/// symbol's offsets to the same slots (entropy.zig's `initAlias`).
-fn initAlias(counts_in: []const u16, log_alpha: u5, table: []Alias) void {
-    var counts = counts_in;
-    while (counts.len > 0 and counts[counts.len - 1] == 0) counts = counts[0 .. counts.len - 1];
-    const one = [1]u16{tab_size};
-    if (counts.len == 0) counts = &one;
-    const n = table.len;
-    const entry_size: u32 = @as(u32, tab_size) >> log_alpha;
-    for (counts, 0..) |c, s| {
-        if (c == tab_size) {
-            for (table, 0..) |*e, i| e.* = .{ .cutoff = 0, .right = @intCast(s), .offset = @intCast(entry_size * i) };
-            return;
-        }
-    }
-    var cutoffs: [256]u32 = undefined;
-    var under: [256]u16 = undefined;
-    var over: [256]u16 = undefined;
-    var nu: usize = 0;
-    var no: usize = 0;
-    for (0..n) |i| {
-        cutoffs[i] = if (i < counts.len) counts[i] else 0;
-        table[i] = .{ .cutoff = 0, .right = 0, .offset = 0 };
-        if (cutoffs[i] > entry_size) {
-            over[no] = @intCast(i);
-            no += 1;
-        } else if (cutoffs[i] < entry_size) {
-            under[nu] = @intCast(i);
-            nu += 1;
-        }
-    }
-    while (no > 0) {
-        no -= 1;
-        const o = over[no];
-        nu -= 1;
-        const u = under[nu];
-        const by = entry_size - cutoffs[u];
-        cutoffs[o] -= by;
-        table[u].right = o;
-        table[u].offset = @intCast(cutoffs[o]);
-        if (cutoffs[o] < entry_size) {
-            under[nu] = o;
-            nu += 1;
-        } else if (cutoffs[o] > entry_size) {
-            over[no] = o;
-            no += 1;
-        }
-    }
-    for (0..n) |i| {
-        if (cutoffs[i] == entry_size) {
-            table[i].right = @intCast(i);
-            table[i].offset = 0;
-            table[i].cutoff = 0;
-        } else {
-            table[i].offset -%= @intCast(cutoffs[i]);
-            table[i].cutoff = @intCast(cutoffs[i]);
-        }
-    }
-}
-
 // Prefix codes.
 
 /// Huffman code lengths for `counts`, at most `limit` bits; symbols with
@@ -1070,7 +1006,6 @@ fn moveToFront(map: []const u8, out: []Token) void {
 
 // Tests: every code decodes with the decoder's entropy.zig.
 
-const entropy = @import("entropy.zig");
 const BitReader = @import("BitReader.zig");
 const Arena = @import("Arena.zig");
 

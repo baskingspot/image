@@ -3,14 +3,17 @@
 //! weighted predictor, a meta-adaptive tree learned from sampled pixels,
 //! and the tokens a channel's residuals become under a tree.
 //!
-//! The per-pixel definitions repeat the specification's (and match the
-//! decoder's modular.zig, which keeps them private): a residual is only
-//! right if both sides compute the same prediction and properties.
+//! The predictors and the weighted predictor are the decoder's
+//! (modular.zig): a residual is only right if both sides compute the same
+//! prediction. Properties 2 to 14 still repeat the specification's, as the
+//! decoder computes them inline.
 
 const std = @import("std");
 const testing = std.testing;
 
 const ent = @import("encode_entropy.zig");
+const dec = @import("modular.zig");
+const Arena = @import("Arena.zig");
 const Token = ent.Token;
 const Bump = @import("encode_mem.zig").Bump;
 
@@ -21,22 +24,7 @@ pub const max_props = num_props + 4 * max_refs;
 /// Property 15: the weighted predictor's largest neighbouring error.
 pub const wp_prop = 15;
 
-pub const Predictor = enum(u8) {
-    zero,
-    left,
-    top,
-    average0,
-    select,
-    gradient,
-    weighted,
-    top_right,
-    top_left,
-    left_left,
-    average1,
-    average2,
-    average3,
-    average4,
-};
+pub const Predictor = dec.Predictor;
 
 /// A tree node. A split tests `props[property] > value`: true goes to
 /// `child`, false to `child + 1`. A leaf (property -1) has its predictor
@@ -162,63 +150,13 @@ pub const Plane = struct {
 
 // Pixels.
 
-pub const Neighbours = struct {
-    left: i64,
-    top: i64,
-    topleft: i64,
-    topright: i64,
-    leftleft: i64,
-    toptop: i64,
-    toprightright: i64,
-};
+pub const Neighbours = dec.Neighbours;
+pub const clampedGradient = dec.clampedGradient;
+pub const predictOne = dec.predictOne;
 
-pub inline fn neighbours(d: []const i32, w: usize, x: usize, y: usize) Neighbours {
-    const i = y * w + x;
-    var n: Neighbours = undefined;
-    n.left = if (x > 0) d[i - 1] else if (y > 0) d[i - w] else 0;
-    n.top = if (y > 0) d[i - w] else n.left;
-    n.topleft = if (x > 0 and y > 0) d[i - w - 1] else n.left;
-    n.topright = if (x + 1 < w and y > 0) d[i - w + 1] else n.top;
-    n.leftleft = if (x > 1) d[i - 2] else n.left;
-    n.toptop = if (y > 1) d[i - 2 * w] else n.top;
-    n.toprightright = if (x + 2 < w and y > 0) d[i - w + 2] else n.topright;
-    return n;
-}
-
-pub inline fn clampedGradient(n: i64, w: i64, l: i64) i64 {
-    const mn = @min(n, w);
-    const mx = @max(n, w);
-    const grad: i64 = @as(i32, @truncate(n +% w -% l));
-    if (l > mx) return mn;
-    if (l < mn) return mx;
-    return grad;
-}
-
-pub inline fn predictOne(p: Predictor, n: Neighbours, wp_pred: i64) i64 {
-    return switch (p) {
-        .zero => 0,
-        .left => n.left,
-        .top => n.top,
-        .select => blk: {
-            const pp = n.left + n.top - n.topleft;
-            const pa = @abs(pp - n.left);
-            const pb = @abs(pp - n.top);
-            break :blk if (pa < pb) n.left else n.top;
-        },
-        .weighted => wp_pred,
-        .gradient => clampedGradient(n.left, n.top, n.topleft),
-        .top_left => n.topleft,
-        .top_right => n.topright,
-        .left_left => n.leftleft,
-        .average0 => @divTrunc(n.left + n.top, 2),
-        .average1 => @divTrunc(n.left + n.topleft, 2),
-        .average2 => @divTrunc(n.topleft + n.top, 2),
-        .average3 => @divTrunc(n.top + n.topright, 2),
-        .average4 => @divTrunc(
-            6 * n.top - 2 * n.toptop + 7 * n.left + n.leftleft + n.toprightright + 3 * n.topright + 8,
-            16,
-        ),
-    };
+/// The decoder's neighbours of (x, y) in `ch`, edge rules included.
+pub inline fn neighbours(ch: *const dec.Channel, x: usize, y: usize) Neighbours {
+    return dec.neighbours(ch, x, y);
 }
 
 /// The packed residual of `v` predicted as `g`. It wraps to 32 bits as
@@ -267,118 +205,28 @@ pub inline fn refProps(props: *[max_props]i32, refs: []const Plane, x: usize, y:
     }
 }
 
-/// The weighted predictor with the default header, for one channel.
+/// The decoder's weighted predictor, with the default header, for a
+/// channel `w` wide, its memory from `mem`.
 pub const Wp = struct {
-    w: usize,
-    pred_err: [4][]u32,
-    err: []i32,
-    prediction: [4]i64 = undefined,
-    pred: i64 = 0,
-
-    const p1c = 16;
-    const p2c = 10;
-    const p3c = [5]i64{ 7, 7, 7, 0, 0 };
-    const weights = [4]u32{ 0xd, 0xc, 0xc, 0xc };
-
-    const divlookup = blk: {
-        var t: [64]u32 = undefined;
-        for (&t, 0..) |*v, i| v.* = (1 << 24) / (i + 1);
-        break :blk t;
-    };
-
+    /// Five arrays, each aligned by the decoder's Arena: to its element,
+    /// or to a cache line from 4 KiB up.
     pub fn memory(w: usize) usize {
-        return 5 * ((w + 2) * 2 * 4 + 4);
+        return 5 * ((w + 2) * 2 * 4 + 64);
     }
 
-    pub fn init(mem: *Bump, w: usize) !Wp {
-        var s: Wp = .{ .w = w, .pred_err = undefined, .err = try mem.alloc(i32, (w + 2) * 2) };
-        @memset(s.err, 0);
-        for (&s.pred_err) |*p| {
-            p.* = try mem.alloc(u32, (w + 2) * 2);
-            @memset(p.*, 0);
-        }
-        return s;
-    }
-
-    inline fn errorWeight(x: u32, maxweight: u32) u32 {
-        const lg: i32 = std.math.log2_int(u64, @as(u64, x) + 1);
-        const shift: u5 = @intCast(@max(0, lg - 5));
-        return 4 +% ((maxweight *% divlookup[@intCast(@as(u64, x) >> shift)]) >> shift);
-    }
-
-    inline fn addBits(x: i64) i64 {
-        return @bitCast(@as(u64, @bitCast(x)) << 3);
-    }
-
-    inline fn iabs(x: i64) i64 {
-        return if (x < 0) 0 -% x else x;
-    }
-
-    /// The prediction at (x, y), and property 15 in `max_err`.
-    pub inline fn predict(s: *Wp, x: usize, y: usize, n: Neighbours, max_err: *i32) i64 {
-        const xs = s.w;
-        const cur: usize = if (y & 1 == 1) 0 else xs + 2;
-        const prev: usize = if (y & 1 == 1) xs + 2 else 0;
-        const pos_n = prev + x;
-        const pos_ne = if (x < xs - 1) pos_n + 1 else pos_n;
-        const pos_nw = if (x > 0) pos_n - 1 else pos_n;
-        var wts: [4]u32 = undefined;
-        for (0..4) |i| {
-            const e = s.pred_err[i];
-            wts[i] = errorWeight(e[pos_n] +% e[pos_ne] +% e[pos_nw], weights[i]);
-        }
-        const n_v = addBits(n.top);
-        const w_v = addBits(n.left);
-        const ne_v = addBits(n.topright);
-        const nw_v = addBits(n.topleft);
-        const nn_v = addBits(n.toptop);
-        const te_w: i64 = if (x == 0) 0 else s.err[cur + x - 1];
-        const te_n: i64 = s.err[pos_n];
-        const te_nw: i64 = s.err[pos_nw];
-        const sum_wn = te_n + te_w;
-        const te_ne: i64 = s.err[pos_ne];
-        var p = te_w;
-        if (iabs(te_n) > iabs(p)) p = te_n;
-        if (iabs(te_nw) > iabs(p)) p = te_nw;
-        if (iabs(te_ne) > iabs(p)) p = te_ne;
-        max_err.* = @truncate(p);
-        s.prediction[0] = w_v +% ne_v -% n_v;
-        s.prediction[1] = n_v -% (((sum_wn + te_ne) *% p1c) >> 5);
-        s.prediction[2] = w_v -% (((sum_wn + te_nw) *% p2c) >> 5);
-        s.prediction[3] = n_v -% ((te_nw *% p3c[0] +% te_n *% p3c[1] +% te_ne *% p3c[2] +%
-            (nn_v -% n_v) *% p3c[3] +% (nw_v -% w_v) *% p3c[4]) >> 5);
-        var wsum: u32 = 0;
-        for (wts) |wt| wsum +%= wt;
-        const lw: u5 = @intCast(std.math.log2_int(u32, wsum));
-        wsum = 0;
-        for (&wts) |*wt| {
-            wt.* >>= lw - 4;
-            wsum += wt.*;
-        }
-        var sum: i64 = @as(i64, wsum >> 1) - 1;
-        for (s.prediction, wts) |pr, wt| sum +%= pr *% wt;
-        s.pred = (sum *% divlookup[wsum - 1]) >> 24;
-        if (((te_n ^ te_w) | (te_n ^ te_nw)) <= 0) {
-            const mx = @max(w_v, @max(ne_v, n_v));
-            const mn = @min(w_v, @min(ne_v, n_v));
-            s.pred = @max(mn, @min(mx, s.pred));
-        }
-        return (s.pred +% 3) >> 3;
-    }
-
-    pub inline fn update(s: *Wp, val_in: i32, x: usize, y: usize) void {
-        const xs = s.w;
-        const cur: usize = if (y & 1 == 1) 0 else xs + 2;
-        const prev: usize = if (y & 1 == 1) xs + 2 else 0;
-        const val = addBits(val_in);
-        s.err[cur + x] = @truncate(s.pred -% val);
-        for (0..4) |i| {
-            const e: u32 = @truncate(@as(u64, @bitCast((iabs(s.prediction[i] -% val) +% 3) >> 3)));
-            s.pred_err[i][cur + x] = e;
-            s.pred_err[i][prev + x + 1] +%= e;
-        }
+    pub fn init(mem: *Bump, w: usize) !dec.Wp {
+        var arena: Arena = .init(try mem.alloc(u8, memory(w)));
+        return dec.Wp.init(&arena, .{}, w) catch unreachable;
     }
 };
+
+/// The weighted predictor's guess at (x, y), and property 15 in `prop`.
+inline fn predictWp(wp: *dec.Wp, x: usize, y: usize, n: Neighbours, prop: *i32) i64 {
+    var max_err: i64 = undefined;
+    const g = wp.predict(x, y, n.top, n.left, n.topright, n.topleft, n.toptop, &max_err);
+    prop.* = @truncate(max_err);
+    return g;
+}
 
 // Tokens.
 
@@ -435,13 +283,14 @@ pub fn tokenize(
     const nodes = tree.nodes;
     const p = plan(nodes, @intCast(chan), @bitCast(stream));
     const d = ch.data;
+    const c: dec.Channel = .{ .w = ch.w, .h = ch.h, .data = ch.data };
     var k: usize = 0;
     if (nodes[p.start].property < 0 and nodes[p.start].predictor != .weighted) {
         const leaf = nodes[p.start];
         const ctx = leaf.child;
         for (0..h) |y| {
             for (0..w) |x| {
-                const g = predictOne(leaf.predictor, neighbours(d, w, x, y), 0);
+                const g = predictOne(leaf.predictor, neighbours(&c, x, y), 0);
                 out[k] = .{ .ctx = ctx, .value = residual(d[y * w + x], g) };
                 k += 1;
             }
@@ -451,13 +300,14 @@ pub fn tokenize(
     const m = mem.mark();
     defer mem.release(m);
     var t: Tokenizer = .{
+        .ch = c,
         .d = d,
         .w = w,
         .flat = flat,
         .start = p.start,
         .refs = refs,
         .out = out,
-        .wp = if (p.uses_wp) try .init(mem, w) else undefined,
+        .wp = if (p.uses_wp) try Wp.init(mem, w) else undefined,
     };
     t.props[0] = @intCast(chan);
     t.props[1] = @bitCast(stream);
@@ -473,13 +323,14 @@ pub fn tokenize(
 /// time: whether the weighted predictor runs, whether there are
 /// reference channels, and whether a pixel's neighbours are all inside.
 const Tokenizer = struct {
+    ch: dec.Channel,
     d: []const i32,
     w: usize,
     flat: []const Flat,
     start: u32,
     refs: []const Plane,
     out: []Token,
-    wp: Wp,
+    wp: dec.Wp,
     props: [max_props]i32 = @splat(0),
     k: usize = 0,
 
@@ -510,11 +361,11 @@ const Tokenizer = struct {
     ) void {
         const d = t.d;
         const w = t.w;
-        const n = if (inside) neighboursInside(d, w, x, y) else neighbours(d, w, x, y);
+        const n = if (inside) neighboursInside(d, w, x, y) else neighbours(&t.ch, x, y);
         pixelProps(&t.props, n, x, y, prev9);
         if (has_refs) refProps(&t.props, t.refs, x, y);
         var wp_pred: i64 = 0;
-        if (uses_wp) wp_pred = t.wp.predict(x, y, n, &t.props[wp_prop]);
+        if (uses_wp) wp_pred = predictWp(&t.wp, x, y, n, &t.props[wp_prop]);
         const leaf = &t.flat[Flat.walk(t.flat, t.start, &t.props)];
         const v = d[y * w + x];
         const g = predictOne(leaf.predictor, n, wp_pred);
@@ -727,12 +578,13 @@ pub fn sample(
     const w: usize = ch.w;
     if (w == 0 or y1 <= y0) return;
     const d = ch.data;
+    const c: dec.Channel = .{ .w = ch.w, .h = ch.h, .data = ch.data };
     var uses_wp = options.wp_prop;
     for (options.predictors) |pr| uses_wp = uses_wp or pr == .weighted;
     const m = mem.mark();
     defer mem.release(m);
-    var wp: Wp = undefined;
-    if (uses_wp) wp = try .init(mem, w);
+    var wp: dec.Wp = undefined;
+    if (uses_wp) wp = try Wp.init(mem, w);
     var props: [max_props]i32 = @splat(0);
     props[0] = @intCast(chan);
     props[1] = @bitCast(stream);
@@ -740,11 +592,11 @@ pub fn sample(
     for (y0..y1) |y| {
         var prev9: i32 = 0;
         for (0..w) |x| {
-            const n = neighbours(d, w, x, y);
+            const n = neighbours(&c, x, y);
             pixelProps(&props, n, x, y, &prev9);
             if (nr > 0) refProps(&props, refs[0..nr], x, y);
             var wp_pred: i64 = 0;
-            if (uses_wp) wp_pred = wp.predict(x, y, n, &props[wp_prop]);
+            if (uses_wp) wp_pred = predictWp(&wp, x, y, n, &props[wp_prop]);
             const v = d[y * w + x];
             if (s.random != 0) {
                 // xorshift32: one pixel in `stride` at random.
