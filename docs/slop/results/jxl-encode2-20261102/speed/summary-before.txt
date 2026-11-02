@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   libjxl     ±   <1    ~   slowest vs libjxl
+JxlEncodeE3/icon                  13        0.4     0.26    1%   13    0   0.18 [0.17, 0.18] icon_32-actions_address_book_new-32x32.raw
+JxlEncodeE3/1mp                   23        6.0     1.03    2%    6    4   0.66 [0.66, 0.67] screenshot_game-3dbrick2-320x240.raw
+JxlEncodeE3/large                  7        5.5     0.88    3%    5    1   0.72 [0.72, 0.75] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+JxlEncodeE7/icon                  13        0.1     0.43    1%   12    1   0.30 [0.30, 0.32] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE7/1mp                   23        1.1     0.99    1%    9    2   0.40 [0.38, 0.41] test-testcard-256x256.raw
+JxlEncodeE7/large                  7        1.6     1.28    2%    1    1   0.88 [0.82, 0.90] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE8/icon                  13        0.0     0.18    2%   13    0   0.10 [0.10, 0.10] icon_16-actions_appointment_new-16x16.raw
+JxlEncodeE8/1mp                   23        0.2     0.62    1%   19    3   0.39 [0.38, 0.41] test-testcard_rgba-256x256.raw
+JxlEncodeE8/large                  7        0.7     1.57    1%    0    1   1.04 [1.00, 1.04] photo_wikipedia-001-1276x850.raw
+all                              129        0.6     0.64         78   13

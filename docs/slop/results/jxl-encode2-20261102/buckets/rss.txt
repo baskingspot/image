@@ -1,0 +1,4 @@
+peak RSS (MiB)            image   before   libjxl
+jxl-encode-e3             121.6    121.5    250.0
+jxl-encode-e7             123.9    158.2    260.8
+jxl-encode-e8             144.2    255.3    266.9

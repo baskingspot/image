@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before   libjxl     ±   <1    ~   slowest vs before
+JxlEncodeE3/icon                  13        0.6     1.01     0.47    2%    0   13   1.00 [0.98, 1.11] icon_16-actions_address_book_new-16x16.raw
+JxlEncodeE3/1mp                   23        5.3     0.83     0.89    0%   17    5   0.70 [0.69, 0.70] test-kodim23-768x512.raw
+JxlEncodeE3/large                  7        4.4     0.80     0.70    3%    7    0   0.74 [0.71, 0.82] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+JxlEncodeE7/icon                  13        0.2     1.00     0.60    3%    0   13   0.99 [0.97, 1.04] textures_pk-_0mod_button1-64x64.raw
+JxlEncodeE7/1mp                   23        1.0     0.83     0.83    1%   12   11   0.57 [0.53, 0.58] photo_kodak-kodim03-768x512.raw
+JxlEncodeE7/large                  7        1.3     0.81     1.02    2%    6    1   0.69 [0.69, 0.71] photo_wikipedia-001-1276x850.raw
+all                               86        1.3     0.87     0.74         42   43

@@ -2,15 +2,22 @@
 
 `src/jxl/encode.zig` and `src/jxl/encode_*.zig`: a lossless Modular encoder
 written from ISO/IEC 18181-1. The rest of `src/jxl/` is the decoder, owned
-by the JPEG XL orb; the encoder keeps private copies of what it needs from
-it (below). Measurements: `results/jxl-encode-20261102.md`.
+by the JPEG XL orb; the encoder uses its predictors, weighted predictor,
+and alias table (below). Measurements: `results/jxl-encode-20261102.md` (stage 1) and
+`results/jxl-encode2-20261102.md` (stage 2).
 
 ## Status
 
-Stage 1 (this branch): a working encoder at three efforts, decoding bit for
-bit in libjxl, jxl-oxide, and our decoder, at about cjxl's sizes for its
-speed. LZ77 was written and measured, and is not kept: it saved nothing on
-the corpus (results file, "LZ77").
+Stage 1: a working encoder at three efforts, decoding bit for bit in
+libjxl, jxl-oxide, and our decoder, at about cjxl's sizes for its speed.
+LZ77 was written and measured, and is not kept: it saved nothing on the
+corpus (results file, "LZ77"). `default` is the default effort (decision
+56).
+
+Stage 2 (`wave5-jxl-encode2`): the oracle under a minute in oracle-ci,
+tree learning faster on small images and in a third of the memory up to a
+megapixel, and larger trees at fast and default, which closed most of the
+gap on photos.
 
 ## What it writes
 
@@ -45,7 +52,9 @@ the corpus (results file, "LZ77").
   scored by the entropy of its clamped-gradient residuals on row segments
   spread over the image (about `rct_pixels` pixels: as many segments as
   each is wide). The first version sampled whole rows, so a fast encode of
-  a 768-wide photo saw one row and picked badly (Kodak +20–50%).
+  a 768-wide photo saw one row and picked badly (Kodak +20–50%). The 42
+  transforms' 126 channels are 15 distinct functions of R, G, and B; each
+  is scored once, and a transform costs its three channels' sum.
 
 ## Tree learning
 
@@ -61,14 +70,24 @@ the tree fit only that corner.
 - Thresholds per property: every distinct value when there are few;
   otherwise half at quantiles of the samples and half spread over the
   distinct values, so that a long tail gets some. They are chosen from a
-  sixteenth of the samples, between 1024 and 4096, and samples are bucketed
-  with a vector compare.
+  sixteenth of the samples, between 1024 and 4096, sorted by counting when
+  a property's values span fewer than 4096 (most do).
+- Samples keep a byte per property, its bucket, not the i32 value. An image
+  of at most 2^15 samples is sampled once with whole properties, which are
+  then bucketed. A larger one is sampled twice over the same rows: first a
+  random one pixel in `cap / 4096` with whole properties, to choose the
+  thresholds from, then every sampled pixel straight into buckets. In a
+  profile of a Kodak photo at default, sampling, both passes, took 10% of
+  the time. A strided first
+  pass, as the thresholds were taken before, made best 0.6% larger on the
+  corpus: one pixel in 512 lands in the same column of a 256-wide group.
 - Nodes are split breadth first, up to `max_leaves`. A node counts each
   token (hybrid-integer tokens, capped at 64) per property bucket and
   predictor. A scan over the buckets with running entropies finds the split
   that saves the most bits, when each side takes its best predictor. Counts
-  are u16. A node clears what it counted, so a small node costs as little as
-  it holds.
+  are u16, and each row of them has a 64-bit mask of its nonzero entries,
+  which the scan walks. A node clears what it counted, so a small node
+  costs as little as it holds.
 - A split must save `split_cost` bits in the whole image's terms. It must
   also beat a noise penalty of one bit per token in use, in the samples'
   terms: splitting samples at random lowers their entropy by about that
@@ -100,17 +119,19 @@ are kept between the passes; otherwise the second pass makes them again.
 | reference channels                | 0        | 2                             | 3      |
 | samples                           | 2^15     | 2^18                          | 2^19   |
 | thresholds per property           | 16       | 32                            | 64     |
-| leaves                            | 64       | 512                           | 2048   |
+| leaves                            | 256      | 2048                          | 2048   |
 | split cost (bits)                 | 64       | 48                            | 40     |
 | split judged on                   | 4096     | 16384                         | 16384  |
 | predictors a split is judged with | 1        | 2                             | 14     |
 | palette colors                    | 256      | 1024                          | 1024   |
 | RCT pixels                        | 2^10     | 2^15                          | 2^16   |
 
-Against cjxl, on the 43-file corpus: fast is about e3's size and speed,
-default sits between e6 and e7, and best is about e8's size in less time.
-The results file has the per-class tables. Recommended default: `default`
-(the owner decides).
+Against cjxl, on the 43-file corpus (stage 2): fast is 2.3% smaller than
+e3 at 0.89 and 0.71 of its speed up to and above a megapixel; default is
+e7's size (1.003 of its total) at 0.82 and 1.01 of its speed; best is
+e8's size (0.998) at 0.59 and 1.55 of its speed. Icons run at 0.46, 0.60,
+and 0.20 of those efforts' speed. The results files have the per-class
+tables.
 
 ## Work memory
 
@@ -123,10 +144,11 @@ for the worst source, 16-bit RGBA. The parts:
 - the samples and learning tables;
 - the histograms and codes.
 
-That comes to about 25 B/px for large images at every effort. Small images
-pay for fixed tables: 1.3, 5.6, and 11 MiB at 16×16 for fast, default, and
-best, and 3, 8, and 14 MiB at 64×64. Most of it is never touched; the bench
-reports peak RSS. A bump allocator (`encode_mem.zig`) hands it out, and
+That comes to about 25 B/px for large images at every effort (50–80 B/px
+at a megapixel, where the token store is not yet capped). Small images pay
+for fixed tables, sized by the most leaves the image's tree may have: 3.8,
+5.7, and 8.3 MiB at 16×16 for fast, default, and best, and 5.5, 8.9, and
+12 MiB at 64×64. Most of it is never touched; the bench reports peak RSS. A bump allocator (`encode_mem.zig`) hands it out, and
 running out returns `error.WorkTooSmall`, which would be a bug in `Sizes`.
 
 The output bound: a sample costs at most 45 bits. That is a prefix code's
@@ -135,15 +157,16 @@ The output bound: a sample costs at most 45 bits. That is a prefix code's
 because the weighted predictor's guesses are not bounded by the samples'
 range. The decoder reconstructs modulo 2^32, and so do we.
 
-## Copies of decoder code
+## Shared with the decoder
 
-`encode_modular.zig` repeats the decoder's predictors, properties, and
-weighted predictor (private in `modular.zig`), and `encode_entropy.zig`
-inverts its alias-table slot assignment (private in `entropy.zig`). Both
-must agree with the decoder bit for bit. The unit tests round-trip through
-the decoder's `entropy.zig` and the whole decoder. Request to the JPEG XL
-orb: make `Predictor`, the property and weighted-predictor computation, and
-the alias-table builder `pub`, so the encoder can use them instead.
+The encoder uses the decoder's `Predictor`, `Neighbours` and `neighbours`,
+`clampedGradient`, `predictOne`, and `Wp` from `modular.zig`, and `Alias`
+and `initAlias` from `entropy.zig` (made `pub` by the JPEG XL orb in
+638be00). `Wp.init` takes the decoder's `Arena`, so `encode_modular.zig`
+hands it one over a slice of its `Bump`. Properties 2 to 14 still repeat
+the specification's in `pixelProps`, as the decoder computes them inline
+in its hot loop; the JPEG XL orb will share them with its speed work.
+Switching changed no file on the corpus at any effort.
 
 ## Checks
 
@@ -168,19 +191,23 @@ the alias-table builder `pub`, so the encoder can use them instead.
 
 ## Next
 
-- Photos: 3–4% larger than cjxl e7 at `default`, and Kodak is the largest
-  class of loss. A per-cluster hybrid-integer configuration is worth
-  0.1–0.25% (one global configuration tried on kodim01 and kodim03), so
-  the rest is in prediction and the tree.
-- Memory up to a megapixel: the learning samples hold i32 properties (112
-  bytes a sample at `best`). Choose thresholds from a subsample first and
-  keep u8 bucket indices.
+- Photos: at default, 1–2% larger than cjxl e7 on Kodak (3–4% in stage
+  1). Twice the samples (2^19) makes default 1.2% smaller on the corpus,
+  0.99× e7's total, for 28% more time; not taken, the owner may want it.
+  Judging splits with all four predictors: 0.4% smaller on photos for 20%
+  more time.
+- Screenshots: apple.com and amazon.com are 4–7% larger than e7 at
+  default.
+- Learning time: counting each sample's tokens per property bucket is
+  about half of a default encode of a Kodak photo in a profile. Deriving
+  a child's
+  counts from its parent's and its sibling's could save up to half of
+  that. Counting property by property instead of sample by sample was
+  12% slower.
 - Choose prefix codes when they cost less, as they may for small images:
   no ANS state per stream, cheaper histograms.
 - LZ77, if it comes back: it needs an exact cost guard (a second write
-  pass) and pays only on synthetic images (`lz77.patch` in the results).
-- Small images: a 64×64 icon takes 5× (fast against e3), 3× (default
-  against e7), and 6.5× (best against e8) cjxl's time. The time goes to tree
-  learning: a scan per node over property buckets × predictors × tokens.
-  Also the RCT search and the fixed tables; size the tables by the image,
-  not the worst case.
+  pass) and pays only on synthetic images (`lz77.patch` in the stage 1
+  results).
+- Small images: tables sized by the image rather than the effort (the
+  histogram codes' alias tables are 8 KiB a cluster).

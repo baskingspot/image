@@ -63,6 +63,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.jxl.encode` writes smaller files at `.fast` (2.7% on the benchmark corpus) and `.default` (0.9%, cjxl e7's size) at about 0.8× the speed above icon size, encodes icons 1.2–1.7× faster, and touches far less memory up to a megapixel (peak over the corpus 158 to 124 MiB at `.default`, 255 to 144 MiB at `.best`).
 - `image.png.Decoder` decodes an APNG whose default image's fcTL gives a region smaller than the canvas as a frame of the whole canvas, as libpng and libspng show it, instead of failing with `error.BadChunk`.
 - `image.webp.encodeAlpha` writes alpha planes 5–9% smaller and faster at every effort (at effort 1, 8.8% smaller in 18% less time), and effort 9 is now its smallest; the output is a different, still lossless stream.
 - `image.gif.encode` quantizes small images faster with `Quantizer.wu`: 1.16× on 32×32 and 64×64 icons and icon animations, with the same palettes.
