@@ -123,9 +123,8 @@ with peak RSS level. The gaps:
 Notes on the arms:
 
 - zune-ppm skips FF bytes at the start of a raster as header whitespace, so
-  it fails on an image whose first pixel is white; the CNN screenshot is
-  out of the bench corpus for that (`bench/corpus/netpbm.sh`), since
-  `bench-compare` cannot drop one arm's row.
+  it fails on an image whose first pixel is white, and `bench-compare`
+  skips its row for the CNN screenshot.
 - image-rs writes PPM only from 8-bit samples, so it has no 16-bit encode
   row; stb_image and Wuffs encode nothing.
 - Decode rows are `same` (identical pixels across arms) except PFM, which

@@ -3,9 +3,7 @@
 # with an 8-byte header (width and height, little-endian u32) in
 # raw-<format>/. The 50-megapixel mosaic is left out of the 16-bit, PAM,
 # plain, and PFM rows and their raw inputs, which would take gigabytes.
-# The CNN screenshot is left out: its raster starts with FF bytes, which
-# zune-ppm skips as header whitespace, so it fails the row and bench-compare
-# cannot drop one arm's row. Sourced by bench/corpus/generate.
+# Sourced by bench/corpus/generate.
 mkdir -p "$dst"/{ppm,pgm,pbm,ppm16,pam,plain,pfm,raw-rgb8,raw-gray8,raw-rgba8,raw-rgb16}
 # The 8-byte header of a W x H image.
 dims() {
@@ -15,7 +13,6 @@ dims() {
 }
 for f in "$src"/*/*.png; do
   cat=$(basename "$(dirname "$f")")
-  [ "$(basename "$f")" = cnn_com.png ] && continue
   wh=$(size "$f")
   name="$cat-$(basename "$f" .png)-$wh"
   magick "$f" -alpha off -depth 8 "ppm:$dst/ppm/$name.ppm"
