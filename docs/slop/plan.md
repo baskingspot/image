@@ -330,6 +330,12 @@ owning the files adding-a-format.md assigns to its format plus
   libjpeg-turbo, with the same bytes: baseline over 1 MP 1.18× (4:2:0) and
   1.26× (4:4:4), 2.16× over all rows. No zmm in the encoder; the source is
   prefetched 4 rows ahead.
+- **JPEG for TIFF stage 2** (landed): `Decoder.frameParams()`;
+  `Options.tables` reads tables streams as libjpeg's header reader does
+  (SOFn dropped, DNL skipped, RSTn and TEM ignored); `keptTables()` and
+  `Options.prior` carry DQT and DHT across strips, as libjpeg does, with DAC
+  and DRI reset at each SOI; 2-component streams decode as gray_alpha8 or
+  gray_alpha16 (JCS_UNKNOWN in the oracle).
 - **WebP lossless encode** (branch `wave5-webp-encode`, the performance
   orb): `src/webp/encode.zig` and any new `src/webp/encode_*.zig` files, the
   webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
@@ -343,7 +349,7 @@ owning the files adding-a-format.md assigns to its format plus
   on flat few-color images, and 2–3% larger on icons from effort 3. Effort 5
   is 1.2% smaller than libwebp's default `-z 6` at 1.1–2.9× its speed. The
   oracle leaves out Wuffs for VP8X files: Wuffs 0.4 decodes no VP8L inside
-  VP8X. Stage 2, on the same branch: low-effort speed on flat images, work
+  VP8X. Stage 2, on `wave5-webp-encode2`: low-effort speed on flat images, work
   memory's fixed part on icons, and no zmm in the code-length builder.
 - **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
