@@ -6,8 +6,7 @@ it does where the specifications leave room, and why. Results:
 `results/webp-20261102.md`.
 
 Stage 1 decodes lossless (VP8L) files, simple and extended; stage 2 adds
-lossy (VP8) files with ALPH alpha. Animation (ANIM/ANMF) is `Unsupported`
-until stage 3.
+lossy (VP8) files with ALPH alpha; stage 3 adds animation (ANIM/ANMF).
 
 ## Shape
 
@@ -15,7 +14,9 @@ until stage 3.
   `std.Io.Reader`: the first chunk is VP8L, VP8, or VP8X; after VP8X, chunks
   up to the image chunk are read in any order (ICCP, EXIF, and XMP go to the
   blob sink and the first of each into `Config.metadata`; the rest are
-  skipped). `decodeConfig` stops after the VP8L chunk's 5-byte header, which
+  skipped). The first of each kind that comes only after the image, or
+  between and after an animation's frames, is set by `applyTrailer`, so
+  `image.Decoder.finalConfig` has it (plan.md decision 10). `decodeConfig` stops after the VP8L chunk's 5-byte header, which
   gives the size and so `work_len`; for a lossy image it stops after the
   VP8 frame header, or at an ALPH chunk's header, sizing the work from the
   VP8X canvas and the bytes left in the payload.
@@ -186,7 +187,8 @@ state is O(W), not O(W·H).
   read; past that, they are consumed, the chunks after the image are lost,
   and the rest of the payload is skipped. Kept partitions are bounded by
   the payload, so a partition past the RIFF payload's end is cut there
-  (`Truncated`, where libwebp may decode).
+  (`Truncated`, where libwebp may decode). An animation's frames stay
+  inside their chunks, as libwebp's demuxer hands them over.
 - Wuffs matches libwebp on opaque lossy files, but not everywhere under
   an alpha of 0 in files with ALPH.
 - ALPH errors: as libwebp does, the last ALPH chunk before the image is
@@ -203,6 +205,66 @@ state is O(W), not O(W·H).
   window, so this decoder rejects those (`Truncated`), as Wuffs does. Every
   other lossless stream fails if it reads past its end at all, in libwebp
   too.
+
+## Animation
+
+An animated file (the VP8X flag) is read as libwebp's animation decoder
+reads it, through its demuxer, and its frames come out under the `Frame`
+contract: `decodeFrame` writes each frame into its region of the caller's
+canvas, and the caller disposes of a frame's region before the next call.
+
+- **Config.** `decodeConfig` reads through the ANIM chunk: `loop_count` is
+  its loop count (0 for forever), `background` its color (as RGBA; a hint
+  this decoder never applies, as libwebp's animation decoder does not),
+  and `frame_count` is null, since only the end of the file says. The
+  native format is RGBA8. Flags the format does not define, or an image
+  chunk or ANMF before ANIM, fail, as libwebp's demuxer fails them.
+- **Frames.** An ANMF chunk's body is its 16 bytes of fields, then an
+  optional ALPH chunk and a VP8 or VP8L chunk, which must lie inside it;
+  anything after them in the body is read as the file's own chunks, and a
+  body that starts with neither is skipped, as the demuxer does. A frame's
+  size is its bitstream's (the demuxer ignores the ANMF's), and it must fit
+  the canvas at twice the ANMF's offsets. An ALPH chunk comes before its
+  VP8 chunk, and the demuxer reads both before decoding, but this decoder
+  streams: it decodes the alpha plane at the ANMF's size and fails
+  (`BadHeader`) a frame whose bitstream is another size. Metadata chunks
+  between and after frames go to the blob sink.
+- **decodeFrameConfig** (plan.md decision 11) reads the chunks up to the
+  next ANMF, its fields, and its first image chunk's header, peeking a VP8
+  or VP8L header for the frame's size and alpha, and keeps them for the
+  `decodeFrame` call that draws it; with an ALPH chunk first, the frame is
+  reported at the ANMF's size, which the bitstream must then have. A still
+  image's frame is the canvas, opaque as the config says.
+- **Compositing**, as libwebp's animation decoder does it, given a caller
+  that disposes to transparent black (as libwebp does, ignoring the
+  background color):
+  - The first frame clears the canvas outside its region to transparent
+    black.
+  - A key frame in libwebp's sense (the first; a full-canvas frame without
+    alpha or that does not blend; or a frame after one disposed to the
+    background that covered the canvas or was itself a key frame) is
+    copied into its region: the canvas is transparent there. Its
+    `Frame.blend` is `src`.
+  - Any other frame that blends is composited over the canvas in RGBA8,
+    the canvas row converted from and back to `dst`'s format when that is
+    another: an opaque pixel replaces, a transparent one keeps the canvas,
+    and the rest follow RFC 9649's formula rounded as libwebp rounds it,
+    dst_a' = dst_a·(256 − src_a) >> 8, alpha = src_a + dst_a', and each
+    channel (src·src_a + dst·dst_a')·⌊2^24 / alpha⌋ >> 24. Its
+    `Frame.blend` is `src_over`. Where the previous frame was disposed to
+    the background, libwebp copies the frame's pixels rather than blending
+    them, and so does this decoder.
+- **Work memory**: two RGBA rows of the canvas's width for blending, then
+  what a canvas-sized frame of either kind needs: a lossless frame's
+  memory for the canvas's size, or a lossy frame's with an alpha plane,
+  with its partition buffer bounded by what is left of the payload after
+  ANIM.
+- **Streaming.** libwebp's demuxer checks every chunk of the file before
+  the first frame; this decoder checks each chunk as it reaches it, so a
+  file that breaks the rules after frame k returns k frames, then the
+  error. The oracle (test/oracle/webp.zig) plays the whole animation and
+  compares the last canvas with libwebp's, so every frame counts; a file
+  that breaks the rules anywhere is rejected by both.
 
 ## Speed
 

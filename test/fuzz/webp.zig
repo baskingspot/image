@@ -3,7 +3,8 @@
 //! transform, prefix code form, color cache size, entropy image, and
 //! backward reference; lossy key frames with every header setting and
 //! random macroblock data; and ALPH chunks, raw or lossless, with each
-//! filter; inside simple and extended containers with metadata chunks.
+//! filter; inside simple and extended containers with metadata chunks,
+//! and animations of frames of both kinds.
 
 const std = @import("std");
 const image = @import("image");
@@ -25,7 +26,56 @@ pub const corpus = [_][]const u8{
 pub const extensions = [_][]const u8{".webp"};
 
 pub fn check(input: []const u8, choice: u64) !void {
-    return harness.checkDecoder(image.webp.Decoder, input, choice);
+    try harness.checkDecoder(image.webp.Decoder, input, choice);
+    try checkFrameConfig(input);
+}
+
+var canvas: [harness.limits.max_pixels * 4]u8 = undefined;
+var work: [harness.limits.max_work]u8 = undefined;
+
+const Drawn = struct { frame: image.Frame, hash: u64 };
+
+/// `decodeFrameConfig` changes nothing: asked before every frame, it
+/// reports the frame `decodeFrame` then returns, the pixels are the same,
+/// and the decode ends the same way, frame for frame, as without it.
+fn checkFrameConfig(input: []const u8) !void {
+    var plain: [harness.limits.max_frames]Drawn = undefined;
+    var r: std.Io.Reader = .fixed(input);
+    var d = image.webp.Decoder.init(&r, .{ .limits = harness.limits });
+    const c = d.decodeConfig() catch return;
+    const dst = image.PixelBuffer.init(&canvas, .rgba8, c.width, c.height) catch unreachable;
+    const len = dst.stride * dst.height;
+    @memset(canvas[0..len], 0);
+    var n: usize = 0;
+    const end: u16 = while (n < plain.len) : (n += 1) {
+        const f = (d.decodeFrame(dst, work[0..c.work_len]) catch |e| break @intFromError(e)) orelse break 0;
+        plain[n] = .{ .frame = f, .hash = std.hash.Wyhash.hash(0, canvas[0..len]) };
+    } else 0;
+
+    r = .fixed(input);
+    d = .init(&r, .{ .limits = harness.limits });
+    _ = d.decodeConfig() catch return error.FrameConfigDiffers;
+    @memset(canvas[0..len], 0);
+    for (plain[0..n]) |want| {
+        const next = (d.decodeFrameConfig() catch return error.FrameConfigDiffers) orelse
+            return error.FrameConfigDiffers;
+        const f = (d.decodeFrame(dst, work[0..c.work_len]) catch return error.FrameConfigDiffers) orelse
+            return error.FrameConfigDiffers;
+        const got: Drawn = .{ .frame = f, .hash = std.hash.Wyhash.hash(0, canvas[0..len]) };
+        if (!std.meta.eql(next, f) or !std.meta.eql(got, want)) return error.FrameConfigDiffers;
+    }
+    if (n == plain.len) return;
+    // The end: null from both, or the same error; the config may report a
+    // frame whose pixels then fail.
+    const next = d.decodeFrameConfig();
+    const last: u16 = if (d.decodeFrame(dst, work[0..c.work_len])) |f|
+        (if (f != null) return error.FrameConfigDiffers else 0)
+    else |e|
+        @intFromError(e);
+    if (last != end) return error.FrameConfigDiffers;
+    if (next) |f| {
+        if (f == null and end != 0) return error.FrameConfigDiffers;
+    } else |e| if (@intFromError(e) != end) return error.FrameConfigDiffers;
 }
 
 /// VP8L's bit order: values least significant bit first. Bits past the
@@ -609,10 +659,65 @@ fn alphChunk(r: std.Random, w: u32, h: u32) []u8 {
     return alph_buf[0 .. 1 + b.written()];
 }
 
-/// A WebP file: usually a valid lossless image, simple or extended with
-/// metadata chunks around it, sometimes broken.
+/// An animation: VP8X with the flag, ANIM, and a few frames of either
+/// kind at even offsets in the canvas, sometimes past it, sometimes broken.
+fn animation(r: std.Random, buf: []u8) []u8 {
+    var o: Out = .{ .buf = buf };
+    o.put("RIFF");
+    o.int(u32, 0);
+    o.put("WEBP");
+    const cw = 1 + r.uintLessThan(u32, 40);
+    const ch = 1 + r.uintLessThan(u32, 40);
+    var x: [10]u8 = @splat(0);
+    x[0] = 0x02 | (r.int(u8) & if (r.uintLessThan(u8, 16) == 0) @as(u8, 0xff) else 0x3c);
+    std.mem.writeInt(u24, x[4..7], @intCast(cw - 1), .little);
+    std.mem.writeInt(u24, x[7..10], @intCast(ch - 1), .little);
+    o.chunk(r, "VP8X", &x);
+    if (r.boolean()) o.chunk(r, "ICCP", "an icc profile");
+    var anim: [6]u8 = undefined;
+    r.bytes(&anim);
+    if (r.uintLessThan(u8, 32) != 0) o.chunk(r, "ANIM", &anim);
+    for (0..1 + r.uintLessThan(u32, 4)) |_| {
+        const fx = r.uintLessThan(u32, (cw - 1) / 2 + 1);
+        const fy = r.uintLessThan(u32, (ch - 1) / 2 + 1);
+        var fw = 1 + r.uintLessThan(u32, cw - 2 * fx);
+        var fh = 1 + r.uintLessThan(u32, ch - 2 * fy);
+        if (r.uintLessThan(u8, 32) == 0) fw += 1;
+        if (r.uintLessThan(u8, 32) == 0) fh += 1;
+        const start = o.len;
+        o.put("ANMF");
+        o.int(u32, 0);
+        var f: [16]u8 = undefined;
+        std.mem.writeInt(u24, f[0..3], @intCast(fx), .little);
+        std.mem.writeInt(u24, f[3..6], @intCast(fy), .little);
+        std.mem.writeInt(u24, f[6..9], @intCast(fw - 1), .little);
+        std.mem.writeInt(u24, f[9..12], @intCast(fh - 1), .little);
+        std.mem.writeInt(u24, f[12..15], r.uintLessThan(u24, 1000), .little);
+        f[15] = r.int(u8) & if (r.uintLessThan(u8, 16) == 0) @as(u8, 0xff) else 3;
+        o.put(&f);
+        if (r.boolean()) {
+            if (r.boolean()) o.chunk(r, "ALPH", alphChunk(r, fw, fh));
+            o.chunk(r, "VP8 ", keyFrame(r, fw, fh));
+        } else {
+            var b: Bits = .{ .out = &bits_buf };
+            b.put(0x2f, 8);
+            bitstream(&b, r, fw, fh);
+            b.flush();
+            o.chunk(r, "VP8L", bits_buf[0..b.written()]);
+        }
+        if (r.uintLessThan(u8, 16) == 0) o.chunk(r, "abcd", "unknown");
+        if (o.len >= start + 8) std.mem.writeInt(u32, buf[start + 4 ..][0..4], @intCast(o.len - start - 8), .little);
+    }
+    if (r.boolean()) o.chunk(r, "XMP ", "<x:xmpmeta/>");
+    if (o.len >= 8) std.mem.writeInt(u32, buf[4..8], @intCast(o.len - 8), .little);
+    return buf[0..o.len];
+}
+
+/// A WebP file: usually a valid image, simple, extended with metadata
+/// chunks around it, or animated, sometimes broken.
 pub fn generate(random: std.Random, buf: []u8) []u8 {
     std.debug.assert(buf.len >= 64);
+    if (random.uintLessThan(u8, 4) == 0) return animation(random, buf);
     const w = 1 + random.uintLessThan(u32, if (random.uintLessThan(u8, 8) == 0) 300 else 24);
     const h = 1 + random.uintLessThan(u32, if (random.uintLessThan(u8, 8) == 0) 70 else 24);
     const lossy = random.boolean();
