@@ -322,18 +322,20 @@ const Bool = struct {
         const shift: u6 = @intCast(b.bits);
         const split = (b.range * prob) >> 8;
         const v: u32 = @truncate(b.value >> shift);
-        var bit: u1 = 0;
+        // As in `Hot.read`: each arm renormalizes on its own.
         if (v > split) {
-            b.range -= split + 1;
             b.value -= @as(u64, split + 1) << shift;
-            bit = 1;
-        } else {
-            b.range = split;
+            b.renorm(b.range - split);
+            return 1;
         }
-        const n: u5 = @clz(@as(u8, @intCast(b.range + 1)));
-        b.range = ((b.range + 1) << n) - 1;
+        b.renorm(split + 1);
+        return 0;
+    }
+
+    inline fn renorm(b: *Bool, r: u32) void {
+        const n: u5 = @clz(@as(u8, @intCast(r)));
+        b.range = (r << n) - 1;
         b.bits -= n;
-        return bit;
     }
 
     fn literal(b: *Bool, n: u5) u32 {
@@ -388,21 +390,25 @@ const Hot = struct {
         const shift: u6 = @intCast(h.bits);
         const split = (h.range * prob) >> 8;
         const v: u32 = @truncate(h.value >> shift);
-        var bit: u1 = 0;
         if (v > split) {
             // A branch, not a select: a token's bits are mostly the likely
             // one, and a predicted branch does not wait on the comparison.
+            // Each arm renormalizes on its own, so the caller's test of the
+            // bit folds into this branch.
             @branchHint(.unlikely);
-            h.range -= split + 1;
             h.value -= @as(u64, split + 1) << shift;
-            bit = 1;
-        } else {
-            h.range = split;
+            h.renorm(h.range - split);
+            return 1;
         }
-        const n: u5 = @clz(@as(u8, @intCast(h.range + 1)));
-        h.range = ((h.range + 1) << n) - 1;
+        h.renorm(split + 1);
+        return 0;
+    }
+
+    /// Takes the new range, not less one, and shifts it back to 128 or more.
+    inline fn renorm(h: *Hot, r: u32) void {
+        const n: u5 = @clz(@as(u8, @intCast(r)));
+        h.range = (r << n) - 1;
         h.bits -= n;
-        return bit;
     }
 
     /// `v`, negated if the next even-odds bit is set, without a branch:
