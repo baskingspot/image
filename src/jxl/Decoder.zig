@@ -220,6 +220,9 @@ fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
     // Rows of reference properties and the weighted predictor.
     total += 1088 * @as(u128, h.width) + 65536;
     if (d.icc_size) |s| total = @max(total, icc.workLen(s) + entropy_budget + 4 * @as(u128, @min(s, window)) + 65536);
+    // The arena starts each array of 4096 bytes or more on a cache line,
+    // wasting at most 63 bytes, under 1/64 of it.
+    total += total / 64;
     return std.math.cast(usize, total) orelse error.WorkTooLarge;
 }
 

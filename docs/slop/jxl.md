@@ -106,6 +106,10 @@ writing past it. Its terms, in `Decoder.workBound`:
   code, and the LF frames' planes at each level when frames may use them.
 - Upsampled planes, noise's planes, and the patch and spline budgets, for
   the features the frame header turns on.
+- A 64th of all that: the arena starts each array of 4096 bytes or more on
+  a cache line (64 bytes), wasting under a 64th of it. Planes that started
+  wherever the allocations before them ended cost 2–4% of VarDCT decoding
+  when they landed off a line.
 
 When `decodeConfig` has peeked a single last frame, the frame term is that
 frame's exactly (`frameBound`); otherwise it covers any frame of up to twice

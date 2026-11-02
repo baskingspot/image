@@ -25,8 +25,11 @@ pub fn init(buf: []u8) Arena {
 pub fn alloc(a: *Arena, comptime T: type, n: usize) Error![]T {
     // Aligned in memory: the caller's buffer may start anywhere.
     const base = @intFromPtr(a.buf.ptr);
-    const start = std.mem.alignForward(usize, base + a.used, @alignOf(T)) - base;
     const bytes = std.math.mul(usize, n, @sizeOf(T)) catch return error.TooComplex;
+    // Arrays of a page or more start on a cache line, so vector loads of
+    // their rows do not straddle two.
+    const al: usize = if (bytes >= 4096) @max(64, @alignOf(T)) else @alignOf(T);
+    const start = std.mem.alignForward(usize, base + a.used, al) - base;
     const end = std.math.add(usize, start, bytes) catch return error.TooComplex;
     if (end > a.buf.len) return error.TooComplex;
     a.used = end;
@@ -60,4 +63,9 @@ test Arena {
     try testing.expectError(error.TooComplex, a.alloc(u8, 40));
     a.release(m);
     _ = try a.alloc(u8, 40);
+    // A page or more starts on a cache line, wherever the buffer does.
+    var big: [8192]u8 align(64) = undefined;
+    var b: Arena = .init(big[4..]);
+    _ = try b.alloc(u8, 1);
+    try testing.expect(@intFromPtr((try b.alloc(f32, 1024)).ptr) % 64 == 0);
 }

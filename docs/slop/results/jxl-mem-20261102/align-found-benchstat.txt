@@ -1,0 +1,11 @@
+                                                           │   before   │               after               │
+                                                           │    MP/s    │    MP/s     vs base               │
+JxlDecode/photo_kodak-kodim01-768x512.jxl                    19.22 ± 1%   19.11 ± 2%       ~ (p=0.064 n=20)
+JxlDecode/photo_kodak-kodim02-768x512.jxl                    19.56 ± 1%   18.79 ± 3%  -3.96% (p=0.000 n=20)
+JxlDecode/photo_kodak-kodim03-768x512.jxl                    19.14 ± 2%   18.67 ± 2%  -2.43% (p=0.003 n=20)
+JxlDecode/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.jxl   16.61 ± 2%   16.46 ± 3%       ~ (p=0.417 n=20)
+JxlDecode/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.jxl   17.72 ± 3%   17.38 ± 4%       ~ (p=0.425 n=20)
+JxlDecode/test-kodim10-512x768.jxl                           19.41 ± 2%   19.09 ± 2%  -1.65% (p=0.007 n=20)
+JxlDecode/test-kodim23-768x512.jxl                           18.86 ± 3%   18.44 ± 2%       ~ (p=0.080 n=20)
+JxlDecode/textures_plants-plant_02-1024x1316.jxl             8.415 ± 4%   8.180 ± 1%       ~ (p=0.051 n=20)
+geomean                                                      16.86        16.51       -2.05%
