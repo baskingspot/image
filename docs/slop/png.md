@@ -75,8 +75,18 @@ records what it does where the specification leaves room, and why. Results:
   get it yet; that is an owner decision (an `Options` flag), noted in the
   wave-1 report. Its IDAT chunks are skipped wherever they are, even when
   another chunk splits them, as Wuffs skips them, since they are never
-  decoded. When an fcTL comes before IDAT, the IDAT image is frame 0
-  and its fcTL must cover the canvas.
+  decoded. When an fcTL comes before IDAT, the IDAT image is frame 0,
+  and it is the whole canvas whatever the fcTL's region (plan.md decision
+  59): the image data is always the canvas's size, as Wuffs, libpng, and
+  libspng all require (data the size of a smaller region is rejected by
+  all three), and the frame takes the fcTL's duration, disposal, and
+  blend. libpng and libspng show all of that image, which this package
+  does. Wuffs draws only the fcTL's region, filled from the image's
+  top-left corner, and leaves the rest transparent, so on such a file it
+  is the oracle split (test/oracle/png.zig); fuzzed input 406632 was the
+  first. Until then the region had to cover the canvas, and such a file
+  was `BadChunk`. A region outside the canvas is still `BadChunk`, as
+  Wuffs has it (libpng and libspng accept it).
 - **APNG frames.** `decodeFrame` writes each frame into its region of the
   caller's canvas. `Frame.blend` is `src_over` only for a frame after the
   first whose fcTL says blend over and whose image has alpha; otherwise

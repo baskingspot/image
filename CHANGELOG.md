@@ -62,6 +62,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.png.Decoder` decodes an APNG whose default image's fcTL gives a region smaller than the canvas as a frame of the whole canvas, as libpng and libspng show it, instead of failing with `error.BadChunk`.
 - `image.webp.encodeAlpha` writes alpha planes 5–9% smaller and faster at every effort (at effort 1, 8.8% smaller in 18% less time), and effort 9 is now its smallest; the output is a different, still lossless stream.
 - `image.gif.encode` quantizes small images faster with `Quantizer.wu`: 1.16× on 32×32 and 64×64 icons and icon animations, with the same palettes.
 - `image.gif.Dither.floyd_steinberg` passes on no error from a pixel within 1 a channel of its palette entry: 1.3% smaller files on photos and screenshots (up to 14% on graphics), with PSNR +0.36 dB and SSIM +0.003.

@@ -15,6 +15,12 @@
 //!   package decode its first frame. Its answer still counts, since it is
 //!   the only oracle that checks the APNG chunks of such a file when this
 //!   package rejects them.
+//! - An fcTL before IDAT whose region is smaller than the canvas: Wuffs
+//!   draws only that region of the default image, filled from its
+//!   top-left corner, and leaves the rest transparent; libpng, libspng,
+//!   and this package decode the whole default image (plan.md decision
+//!   59). Wuffs rejects such a region outside the canvas, as this package
+//!   does, and libpng and libspng accept it.
 //! - Wuffs rejects a malformed fcTL in a file without acTL; libspng and
 //!   this package read such a file as a still image and skip the APNG
 //!   chunks as unknown ones.

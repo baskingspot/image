@@ -762,24 +762,31 @@ fn sequence(d: *Decoder) Error!void {
     d.seq += 1;
 }
 
-/// fcTL's 26 bytes. The default image's must cover the canvas.
+/// fcTL's 26 bytes. The default image is frame 0 at the canvas's size
+/// whatever its fcTL's region (plan.md decision 59): its image data is
+/// always the canvas's, and libpng and libspng show all of it.
 fn parseFctl(d: *Decoder, b: *const [26]u8, default_image: bool) Error!FrameControl {
     const be = std.builtin.Endian.big;
     if (std.mem.readInt(u32, b[0..4], be) != d.seq) return error.BadChunk;
     d.seq += 1;
     d.controls += 1;
     if (d.controls > d.num_frames) return error.BadChunk;
-    const w = std.mem.readInt(u32, b[4..8], be);
-    const h = std.mem.readInt(u32, b[8..12], be);
-    const x = std.mem.readInt(u32, b[12..16], be);
-    const y = std.mem.readInt(u32, b[16..20], be);
+    var w = std.mem.readInt(u32, b[4..8], be);
+    var h = std.mem.readInt(u32, b[8..12], be);
+    var x = std.mem.readInt(u32, b[12..16], be);
+    var y = std.mem.readInt(u32, b[16..20], be);
     const num = std.mem.readInt(u16, b[20..22], be);
     const den = std.mem.readInt(u16, b[22..24], be);
     const dispose = b[24];
     const blend = b[25];
     if (w == 0 or h == 0 or dispose > 2 or blend > 1) return error.BadChunk;
     if (@as(u64, x) + w > d.ihdr.width or @as(u64, y) + h > d.ihdr.height) return error.BadChunk;
-    if (default_image and (x != 0 or y != 0 or w != d.ihdr.width or h != d.ihdr.height)) return error.BadChunk;
+    if (default_image) {
+        w = d.ihdr.width;
+        h = d.ihdr.height;
+        x = 0;
+        y = 0;
+    }
     const first = d.controls == 1;
     return .{
         .width = w,
@@ -2027,6 +2034,41 @@ test "an eXIf after the image data reaches the final config, other late chunks d
 }
 
 const ImageDecoder = @import("../Decoder.zig");
+
+test "an APNG default image is the whole canvas whatever its fcTL's region" {
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    // A 4 by 3 canvas whose default image's fcTL says 2 by 2 at (1, 1),
+    // and one that says 4 by 2 at (0, 0), as fuzzed input 406632 did:
+    // Wuffs draws only that region, libpng and libspng the whole image.
+    var px: [4 * 3 * 4]u8 = undefined;
+    random.bytes(&px);
+    for ([_][4]u32{ .{ 2, 2, 1, 1 }, .{ 4, 2, 0, 0 } }) |region| {
+        var t: TestPng = .{};
+        defer t.deinit();
+        var seq: u32 = 0;
+        var fseq: u32 = 0;
+        try t.head(4, 3, 8, 6, false);
+        try t.chunk("acTL", "\x00\x00\x00\x01\x00\x00\x00\x00");
+        try t.fctl(&fseq, region[0], region[1], region[2], region[3], 1, 1);
+        try t.image("IDAT", &px, 4, 3, 32, false, random, 20, &seq);
+        try t.chunk("IEND", "");
+        var out: [4 * 3 * 4]u8 = undefined;
+        var r: Io.Reader = .fixed(t.bytes.items);
+        var d: Decoder = .init(&r, .{});
+        const config = try d.decodeConfig();
+        const work = try testing.allocator.alloc(u8, config.work_len);
+        defer testing.allocator.free(work);
+        const f = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 4, 3), work)).?;
+        try testing.expectEqual(decode.Frame{
+            .width = 4,
+            .height = 3,
+            .duration = decode.flicks_per_second / 10,
+            .disposal = .background,
+        }, f);
+        try testing.expectEqualSlices(u8, &px, &out);
+    }
+}
 
 test "an APNG canvas has alpha, and frame 0 clears what it does not cover" {
     const a = testing.allocator;
