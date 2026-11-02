@@ -294,6 +294,12 @@ orb asks for a change to them, or for text in this file, in its report.
 - **PNG LaxDiffers fix** (landed at `33cca5f`): the fuzz check compared
   `?anyerror` values, the Zig 0.16 Debug miscompile again; it compares error
   codes now. Compare optional errors only through `errorCode`.
+- **Harness pass 2** (branch `wave2-harness2`, the harness orb): the
+  harness cores, `build.zig`, the justfile, `bench/c/arm.c`,
+  adding-a-format.md, and `test/fuzz/wbmp_encode.zig` and
+  `test/oracle/qoi_encode.zig`, for the encoder hook, the oracle encode op,
+  the bench encode-input convention, oracle-build's rename, and a rotating
+  icon bench row.
 - **Decoder contract** (branch `wave2-metadata-hook`, the BMP/ICO orb):
   `finalConfig` (decision 10), `decodeFrameConfig` (decision 11), and
   `Blob.len` as `?u64` (decision 13, with the harness's sinks) in
@@ -385,6 +391,15 @@ orb asks for a change to them, or for text in this file, in its report.
     call carries the final length, its bytes possibly empty; formats that
     know the length up front pass it on every piece as before. For GIF's ICC
     and XMP the blob is the payload, not the stored bytes.
+14. **JPEG block smoothing. Decided by the owner: no.** libjpeg-turbo's
+    estimate of low AC coefficients in truncated progressive files follows
+    no specification, and matching it would mean translating its source.
+    The oracle turns it off.
+15. **CMYK. Decided by the owner:** CMYK and YCCK decode to RGB by the
+    naive conversion by default, and the raw inks are available. Shared
+    `cmyk8` and `cmyk16` pixel formats make the inks native for JPEG and
+    TIFF, with the naive RGB in `image.convert`; added after the performance
+    pass releases `src/convert.zig`.
 
 ## Harness requests
 
@@ -409,5 +424,5 @@ not yet made:
   fails a running `just oracle` with ETXTBSY; write and rename.
 - A bench row rotating through many distinct icons, so the branch predictor
   cannot memorize one tiny file.
-- A shared `cmyk8` and `cmyk16` pixel format, so JPEG's and TIFF's raw inks
-  are native and `image.convert` does the naive RGB (JPEG request).
+- `cmyk8` and `cmyk16` pixel formats with their `image.convert` kernels
+  (decision 15), once the performance pass lands.
