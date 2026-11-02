@@ -1,0 +1,6 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libtiff image-rs     zune       go
+tiff-decode-none          338.2        -        -        -        -        -        -        -        -    341.4    677.7        -    777.7
+tiff-decode-lzw           255.0        -        -        -        -        -        -        -        -    257.9    594.8        -    667.2
+tiff-decode-deflate       253.4        -        -        -        -        -        -        -        -    256.6    593.0        -    675.8
+tiff-decode-packbits      332.5        -        -        -        -        -        -        -        -    335.5    671.9        -    756.6
+tiff-decode-g4             32.8        -        -        -        -        -        -        -        -     35.8     73.3        -    135.5

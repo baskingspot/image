@@ -58,5 +58,10 @@ jpeg-decode-lossless	JpegDecodeLossless	jpeg/lossless	3	own
 jpeg-decode-cmyk	JpegDecodeCmyk	jpeg/cmyk	3	own
 webp-decode-lossless	WebpDecodeLossless	webp/lossless	4	same
 webp-decode-lossless-large	WebpDecodeLosslessLarge	webp/lossless-large	4	same
+tiff-decode-none	TiffDecodeNone	tiff/none	4	same
+tiff-decode-lzw	TiffDecodeLZW	tiff/lzw	4	same
+tiff-decode-deflate	TiffDecodeDeflate	tiff/deflate	4	same
+tiff-decode-packbits	TiffDecodePackBits	tiff/packbits	4	same
+tiff-decode-g4	TiffDecodeG4	tiff/g4	4	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own

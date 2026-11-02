@@ -13,3 +13,4 @@ FORMAT(netpbm) // link: MagickWand
 FORMAT(gif) // link: -lgif
 FORMAT(wbmp) // link: MagickWand
 FORMAT(webp) // link: libwebp libwebpdemux
+FORMAT(tiff) // link: libtiff-4 zlib
