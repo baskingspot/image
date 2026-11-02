@@ -230,7 +230,7 @@ pub const Jpeg = struct {
 
     fn onBlock(ctx: *anyopaque, s: *const Shared, b: QuantBlock) Error!void {
         const j: *Jpeg = @ptrCast(@alignCast(ctx));
-        if (b.strategy != .dct8 or s.base_x != 0 or s.base_b != 0) return error.NotJpeg;
+        if (b.strategy != .dct8 or s.base_x != 0 or s.base_b != 0 or s.color_factor != 84) return error.NotJpeg;
         if (!j.got_quant) {
             const t = s.raw_dct8 orelse return error.NotJpeg;
             for (0..3) |c| for (0..64) |k| {
@@ -1224,6 +1224,14 @@ test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
     try testing.expectError(error.NotJpeg, d2.decodeJpeg(&coefs, work));
     // With extra_precision 1 (byte 614, bit 3) each DC is the LF halved
     // toward zero (79 to 39, -3 to -1), as djxl rebuilds the same file.
+    // A colour factor of 256 instead of 84 (byte 575, bit 3): not a JPEG's
+    // chroma from luma, which djxl will not rebuild either.
+    var factor = file[0..file.len].*;
+    factor[575] |= 1 << 3;
+    var r4: std.Io.Reader = .fixed(&factor);
+    var d4: Decoder = .init(&r4, .{});
+    _ = try d4.decodeConfig();
+    try testing.expectError(error.NotJpeg, d4.decodeJpeg(&coefs, work));
     var halved = file[0..file.len].*;
     halved[614] |= 1 << 3;
     var r3: std.Io.Reader = .fixed(&halved);
