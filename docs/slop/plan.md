@@ -464,8 +464,18 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   images): `fast` vs -m 2 −4.5%/−1.2% at 1.10–1.22× its speed; `default` vs
   -m 4 −1.1%/−4.6% at 1.15–1.46×; `best` vs -m 6 +0.8%/−4.3% at 1.00–1.08×.
   RGBA, visible PSNR: −3.6% vs -m 4. Peak RSS below libwebp's except RGBA
-  ≤1 MP (31.0 vs 30.1 MiB). Next: trellis and SNS-like tuning; `fast` is
-  1.3× slower than cwebp -m 0.
+  ≤1 MP (31.0 vs 30.1 MiB). Pass 2 (`wave5-webp-lossy3`,
+  results/webp-lossy-trellis-20261102.md): trellis quantization
+  (`vp8_encode_trellis.zig`) on the chosen modes at `default` and in every
+  choice at `best`, at 10/16 of the mode-decision lambda for luma and 5/16
+  for chroma. Below `best`, 4×4 is skipped when the 16×16 choice costs under
+  64 bits' worth. Tokens are counted by class, the token partition is coded
+  once into the level store's spare room, and modes are ranked by strip
+  SATD. Alpha uses efforts 1/1/8 (decision 65). SNS-like tuning found
+  nothing that gained on both PSNR and SSIM. `default` is 2.7%/4.4% smaller
+  than -m 4 at equal PSNR/SSIM, at 1.28–1.38× its speed (0.96× on icons);
+  `fast` is 0.92× -m 0's speed over 1 MP with 17.5% smaller files; `best` is
+  0.6× -m 6. Next: icon speed at `default`, and trellis speed at `best`.
 - **Shared types for JPEG XL** (landed; results/convert-f32-20261102.md):
   decision 29's metadata fields (`Transfer` bt709, dci, pq, and hlg;
   `Metadata.primaries` replacing `chromaticities`; `intensity_target`;
