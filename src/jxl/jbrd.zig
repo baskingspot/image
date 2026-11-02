@@ -552,17 +552,8 @@ pub fn split(j: *Jbrd, compressed: []const u8, out: []u8) Error!void {
 /// bytes. The stream must end at its last byte: libjxl rejects bytes after
 /// it.
 pub fn decompressExact(compressed: []const u8, out: []u8) Error!void {
-    const n = brotli.decode.decompress(compressed, out) catch return error.BadJbrd;
-    if (n != out.len) return error.BadJbrd;
-    // Without its last byte the stream must not decode; `out` is the
-    // scratch target again.
-    if (compressed.len > 1) {
-        if (brotli.decode.decompress(compressed[0 .. compressed.len - 1], out)) |_| {
-            return error.BadJbrd;
-        } else |_| {
-            _ = brotli.decode.decompress(compressed, out) catch return error.BadJbrd;
-        }
-    }
+    const got = brotli.decode.decompressCounted(compressed, out) catch return error.BadJbrd;
+    if (got.target_len != out.len or got.source_len != compressed.len) return error.BadJbrd;
 }
 
 /// A marker's length field (its second and third bytes) counts the bytes
@@ -1182,6 +1173,18 @@ const State = struct {
         st.nbe = 0;
     }
 };
+
+test "a Brotli stream must fill the box and the payload exactly" {
+    // An uncompressed meta-block of "ab", then the empty last one.
+    const stream = "\x10\x00\x10ab\x03";
+    var out: [2]u8 = undefined;
+    try decompressExact(stream, &out);
+    try testing.expectEqualStrings("ab", &out);
+    try testing.expectError(error.BadJbrd, decompressExact(stream ++ "\x00", &out));
+    try testing.expectError(error.BadJbrd, decompressExact(stream, out[0..1]));
+    var more: [3]u8 = undefined;
+    try testing.expectError(error.BadJbrd, decompressExact(stream, &more));
+}
 
 test "bits and fields" {
     // LSB first: selector 1, then 3 bits holding 6 (block_dist adds 1),

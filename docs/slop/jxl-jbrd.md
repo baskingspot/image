@@ -66,11 +66,12 @@ on the corpus:
   a scan refines AC coefficients), and the coefficients, whose bytes take
   the compressed `brob` contents first.
 - **Brotli in one shot.** `compress`'s streaming Reader needs a 4 to 16 MiB
-  window; the one-shot `decompress` into the exactly sized payload needs
-  none. It ignores bytes after the stream's end, which libjxl rejects, so
-  `decompressExact` checks that the stream without its last byte fails,
-  at the cost of decoding twice. A consumed-bytes result from `compress`
-  would remove that (requested).
+  window; the one-shot decode into the exactly sized payload needs none.
+  `decompressCounted` (compress 9d32dee) reports the stream's length, so
+  bytes after the stream, which libjxl rejects, are refused in the same
+  pass. compress has a 64-tree cap per meta-block category (the format
+  allows 256), which brotli 1.2.0 at q5 exceeds on 1 MiB inputs; a `brob`
+  box that large would fail `BadJbrd`.
 - **Errors.** `BadJbrd` for any broken constraint, `Unsupported` for more
   than one Exif or XMP marker or a second `jbrd` box (as libjxl), `NoJbrd`
   for a file with no box, and the codestream decoder's errors for its
@@ -116,5 +117,3 @@ in a container, usually with a generated codestream.
   `jpeg_upsampling` factors as JPEG h and v; and a work bound for the
   coefficient pass.
 - `test/fuzz/harness.zig`: export `Trickle`, which jxl_jbrd.zig copies.
-- `compress`: a consumed-bytes result or a trailing-data check from the
-  one-shot Brotli decoder.
