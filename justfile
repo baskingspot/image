@@ -225,20 +225,41 @@ bench-compare ROUNDS="10" *OPS: bench-corpus bench-build
         grep '^# SKIP [^ ]*/' "$out/check-$arm.txt" | sed 's/^# SKIP /          skipped /' || true
     done
     [ "$status" = 0 ] || exit 1
-    # Peak RSS of one pass over each operation's inputs: the inputs and
-    # output buffers, which every arm holds alike, plus the arm's runtime
-    # and any memory its library allocates.
+    # Peak RSS of one pass over each operation's inputs (`check`), then of
+    # each size class's inputs on their own (`serve`, one timed call each;
+    # the classes bench/summary.awk reports): the inputs and output buffers,
+    # which every arm holds alike, plus the arm's runtime and any memory its
+    # library allocates. A class row takes each arm's inputs it did not skip.
+    class_inputs() {
+        { grep "^$2/" "$out/check-$1.txt" || true; } | cut -f1 | sed "s|^$2/||" | awk -v c="$3" '{
+            n = split($0, p, "-"); split(p[n], d, "x"); px = d[1] * (d[2] + 0)
+            if ((px <= 4096 ? "icon" : px <= 1048576 ? "1mp" : "large") == c) print
+        }'
+    }
     echo
     {
-        printf '%-22s' "peak RSS (MiB)"; printf '%9s' "${arms[@]}"; echo
+        printf '%-26s' "peak RSS (MiB)"; printf '%9s' "${arms[@]}"; echo
         for op in ${ops[@]:-$(grep -v '^#' bench/ops.tsv | cut -f1)}; do
-            printf '%-22s' "$op"
+            printf '%-26s' "$op"
             for arm in "${arms[@]}"; do
                 command time -f %M -o "$out/rss-run.txt" zig-out/bin/bench-$arm check "$op" > "$out/rss-check.txt" 2> /dev/null
                 if grep -q '^# SKIP Benchmark' "$out/rss-check.txt"; then printf '%9s' -; continue; fi
                 awk '{ printf "%9.1f", $1 / 1024 }' "$out/rss-run.txt"
             done
             echo
+            row=$(awk -F'\t' -v op="$op" '$1 == op { print $2 }' bench/ops.tsv)
+            for class in icon 1mp large; do
+                [ -n "$(class_inputs image "$row" "$class")" ] || continue
+                printf '%-26s' "  $class"
+                for arm in "${arms[@]}"; do
+                    inputs=$(class_inputs "$arm" "$row" "$class")
+                    if [ -z "$inputs" ]; then printf '%9s' -; continue; fi
+                    sed "s|^|$op |; s|\$| 1|" <<< "$inputs" |
+                        command time -f %M -o "$out/rss-run.txt" zig-out/bin/bench-$arm serve > /dev/null 2>&1
+                    awk '{ printf "%9.1f", $1 / 1024 }' "$out/rss-run.txt"
+                done
+                echo
+            done
         done
     } | tee "$out/rss.txt"
     echo

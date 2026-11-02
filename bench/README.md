@@ -79,6 +79,8 @@ and `qoi-decode-icons` rotate through 64 icons at 16, 32, and 64 pixels
    are listed, not failed).
 2. **Peak RSS** of one pass over each operation's inputs, by GNU time: the
    inputs and outputs every arm holds alike, plus the library's own memory.
+   Under each operation, a row per size class (icon, up to a megapixel,
+   larger) gives the peak of that class's inputs alone, through `serve`.
 3. **Rounds.** Each arm runs as a server pinned to the last core. Each row is
    timed by every arm that has it back to back, in an order that rotates from
    row to row and round to round, so all arms' samples of a row see the same
