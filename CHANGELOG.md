@@ -53,4 +53,6 @@ All notable changes to image are recorded here. The format follows
 - `image.qoi.Decoder` checks one count per chunk instead of two bounds: about 1.03× faster, up to 1.16× on run- and INDEX-heavy images.
 - `image.qoi.Decoder` decodes images of every size with one loop and takes RGBA chunks on their own branch: a stream of distinct icons decodes 1.07–1.75× faster and other images up to 1.28×, while one 16×16 or 32×32 icon decoded again and again is up to 1.5× slower.
 - `image.qoi.Decoder` decodes about 1.2× faster, up to 2.2× on screenshots made mostly of INDEX chunks and runs.
+- `image.webp.Decoder` decodes lossless (VP8L) files about 1.24× faster (1.37× on icons, up to 2.1× on palette screenshots with long runs), by adding green back and copying backward references in SIMD blocks, building prefix tables without scanning unused lengths, and specializing the pixel loop; no more work memory.
+- `image.webp.Decoder` decodes lossy (VP8) files about 1.25× faster (1.31× on icons, 1.20× over 1 MP), with a faster boolean decoder and YUV-to-RGB conversion in 16-bit lanes that keeps the CPU out of 512-bit vectors; pixels are unchanged.
 - `image.netpbm.Decoder` reads plain (ASCII) PBM, PGM, and PPM samples about 1.75× faster, and headers about 1.4× faster, which shows on 16×16 files.
