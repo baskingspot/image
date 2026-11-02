@@ -310,15 +310,16 @@ test "a decoder that can move back is checked with a seeker" {
 }
 
 /// A reader that hands over at most `step` bytes per read, into a buffer
-/// of `image.min_buffer_len` bytes, and can seek.
-const Trickle = struct {
+/// of `image.min_buffer_len` bytes, and can seek. Initialize it in place
+/// (`init`), since `reader` points into it, and read from `&t.reader`.
+pub const Trickle = struct {
     data: []const u8,
     at: usize = 0,
     step: usize,
     buffer: [image.min_buffer_len]u8 = undefined,
     reader: Io.Reader,
 
-    fn init(t: *Trickle, data: []const u8, step: usize) void {
+    pub fn init(t: *Trickle, data: []const u8, step: usize) void {
         t.* = .{
             .data = data,
             .step = step,
@@ -335,7 +336,7 @@ const Trickle = struct {
         return n;
     }
 
-    fn seeker(t: *Trickle) image.Seeker {
+    pub fn seeker(t: *Trickle) image.Seeker {
         return .{ .context = t, .seek = seek };
     }
 

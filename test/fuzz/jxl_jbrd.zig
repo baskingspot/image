@@ -215,43 +215,7 @@ fn coefficient(random: std.Random) i16 {
     };
 }
 
-/// A reader that hands over at most `step` bytes per read and can seek,
-/// as the harness's private one.
-const Trickle = struct {
-    data: []const u8,
-    at: usize = 0,
-    step: usize,
-    buffer: [image.min_buffer_len]u8 = undefined,
-    reader: Io.Reader,
-
-    fn init(t: *Trickle, data: []const u8, step: usize) void {
-        t.* = .{
-            .data = data,
-            .step = step,
-            .reader = .{ .vtable = &.{ .stream = stream }, .buffer = &t.buffer, .seek = 0, .end = 0 },
-        };
-    }
-
-    fn stream(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
-        const t: *Trickle = @fieldParentPtr("reader", r);
-        const rest = t.data[t.at..];
-        if (rest.len == 0) return error.EndOfStream;
-        const n = try w.write(rest[0..limit.minInt(@min(t.step, rest.len))]);
-        t.at += n;
-        return n;
-    }
-
-    fn seeker(t: *Trickle) image.Seeker {
-        return .{ .context = t, .seek = seek };
-    }
-
-    fn seek(context: *anyopaque, offset: u64) error{ReadFailed}!void {
-        const t: *Trickle = @ptrCast(@alignCast(context));
-        t.at = @intCast(@min(offset, t.data.len));
-        t.reader.seek = 0;
-        t.reader.end = 0;
-    }
-};
+const Trickle = harness.Trickle;
 
 /// Bits, least significant first, as the box stores them.
 const BitWriter = struct {
