@@ -1,0 +1,23 @@
+image/arm, geomean              rows image MP/s   before    wuffs image-rs     zune     ±   <1    ~   slowest vs before
+NetpbmDecodePPM/icon              13     9333.7     1.32     3.99     1.57     1.36    2%    0    0   1.21 [1.17, 1.41] icon_64-actions_contact_new-64x64.ppm
+NetpbmDecodePPM/1mp               23     7273.3     1.00     1.12     2.12     1.48    1%    0   19   0.97 [0.94, 1.09] icon_512-actions_address_book_new-512x512.ppm
+NetpbmDecodePPM/large              7     3823.8     1.00     1.14     2.56     1.89    3%    0    7   1.00 [0.98, 1.00] textures_plants-plant_02-1024x1316.ppm
+NetpbmDecodePPMRGBA/icon          13     4700.0     1.18     2.78     3.46        -    3%    0    2   1.05 [0.92, 1.08] textures_pk-_0mod_button1-64x64.ppm
+NetpbmDecodePPMRGBA/1mp           23     4985.3     1.00     1.17     4.26        -    2%    0   23   0.97 [0.84, 1.07] textures_plants-plant_01-166x1022.ppm
+NetpbmDecodePPMRGBA/large          7     2736.7     1.02     1.02     4.61        -    2%    0    7   0.97 [0.95, 1.02] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.ppm
+NetpbmDecodePGM/icon              13    11415.5     1.38     4.35     1.42     1.26    3%    0    1   1.29 [0.88, 1.32] icon_64-actions_bookmark_new-64x64.pgm
+NetpbmDecodePGM/1mp               23    36434.0     1.02     1.67     2.15     1.60    2%    0   19   1.00 [0.95, 1.10] pngimg-air_pump_PNG5-999x772.pgm
+NetpbmDecodePGM/large              7    14598.4     1.00     1.13     2.12     1.87    3%    0    7   0.99 [0.95, 1.03] photo_mosaic-50mp-8192x6144.pgm
+NetpbmDecodePPM16/icon            13     3601.6     1.15        -     1.44    81.90    3%    0    4   1.05 [1.03, 1.06] icon_64-actions_address_book_new-64x64.ppm
+NetpbmDecodePPM16/1mp             23     1966.8     1.00        -     1.68    47.25    1%    0   22   0.99 [0.94, 1.08] photo_wikipedia-003-1436x730.ppm
+NetpbmDecodePPM16/large            6     1250.1     1.00        -     1.78    31.08    3%    0    6   0.94 [0.84, 1.09] textures_plants-plant_02-1024x1316.ppm
+NetpbmDecodePAM/icon              13     3615.4     1.00        -     2.11     1.42    2%    0   12   0.98 [0.79, 1.01] icon_32-actions_appointment_new-32x32.pam
+NetpbmDecodePAM/1mp               23     5000.4     1.00        -     2.09     1.52    1%    0   22   0.98 [0.91, 1.05] icon_512-actions_bookmark_new-512x512.pam
+NetpbmDecodePAM/large              6     3193.5     1.01        -     2.15     1.57    3%    0    6   0.97 [0.93, 1.11] screenshot_web-amazon_com-1313x6097.pam
+NetpbmDecodePBM/icon              13     1572.4     1.06        -     5.45        -    3%    0    5   1.01 [0.97, 1.05] icon_64-actions_bookmark_new-64x64.pbm
+NetpbmDecodePBM/1mp               23     2656.8     1.01        -     9.68        -    1%    0   20   0.96 [0.84, 1.01] screenshot_game-20XX_Menu_picture-634x406.pbm
+NetpbmDecodePBM/large              7     2658.2     1.01        -     9.25        -    2%    0    6   1.00 [0.99, 1.02] screenshot_web-apple_com-1313x4755.pbm
+NetpbmDecodePlain/icon            13       82.1     1.74        -     1.57        -    3%    0    0   1.59 [1.45, 1.64] icon_16-actions_appointment_new-16x16.ppm
+NetpbmDecodePlain/1mp             23       90.7     1.79        -     1.61        -    2%    0    0   1.67 [1.54, 1.75] pngimg-academy_awards_PNG9-447x1192.ppm
+NetpbmDecodePlain/large            6       91.2     1.75        -     1.67        -    5%    0    0   1.70 [1.64, 1.73] screenshot_web-amazon_com-1313x6097.ppm
+all                              298     2817.5     1.14     1.73     2.55     3.63          0  188

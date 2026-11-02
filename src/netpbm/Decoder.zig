@@ -285,11 +285,21 @@ fn isBlank(c: u8) bool {
 // The headers.
 
 fn readHeader(r: *Io.Reader) Error!Header {
-    if (try take(r) != 'P') return error.BadSignature;
-    const magic: Magic = switch (try take(r)) {
+    // Bytes from the buffer, not `take`: a byte read's error union goes
+    // through the stack with a store-forwarding stall, a dozen cycles each.
+    r.fill(2) catch |e| switch (e) {
+        error.EndOfStream => {},
+        error.ReadFailed => return error.ReadFailed,
+    };
+    const sig = r.buffered();
+    if (sig.len == 0) return error.Truncated;
+    if (sig[0] != 'P') return error.BadSignature;
+    if (sig.len == 1) return error.Truncated;
+    const magic: Magic = switch (sig[1]) {
         '1'...'7', 'F', 'f' => |c| @enumFromInt(c),
         else => return error.BadSignature,
     };
+    r.toss(2);
     return switch (magic) {
         .pam => readPam(r),
         .pfm, .pfm_gray => readPfm(r, magic),
@@ -392,18 +402,27 @@ fn readPnm(r: *Io.Reader, magic: Magic) Error!Header {
         maxval = try number(r);
     }
     // A comment may come before the one whitespace character that ends
-    // the header; it ends at a CR or LF, which is that character.
-    if (try peek(r) == '#') try skipComment(r);
-    if (!isSpace(try take(r))) return error.BadHeader;
+    // the header; it ends at a CR or LF, which is that character. `number`
+    // left the byte after the digits buffered.
+    if (r.buffered()[0] == '#') try skipComment(r);
+    const end = r.takeByte() catch |e| return mapRead(e);
+    if (!isSpace(end)) return error.BadHeader;
     const layout: Layout = switch (magic) {
         .plain_ppm, .ppm => .rgb,
         else => .gray,
     };
+    // `dimension` and `maxvalue`'s checks, in order, without their error
+    // unions.
+    if (width == 0) return error.BadHeader;
+    if (width > std.math.maxInt(u32)) return error.ImageTooLarge;
+    if (height == 0) return error.BadHeader;
+    if (height > std.math.maxInt(u32)) return error.ImageTooLarge;
+    if (maxval == 0 or maxval > std.math.maxInt(u16)) return error.BadHeader;
     return .{
         .magic = magic,
-        .width = try dimension(width),
-        .height = try dimension(height),
-        .maxval = try maxvalue(maxval),
+        .width = @intCast(width),
+        .height = @intCast(height),
+        .maxval = @intCast(maxval),
         .depth = layout.count(),
         .layout = layout,
     };
@@ -842,11 +861,17 @@ fn readPlain(r: *Io.Reader, ras: *const Raster, out: []u8, n: usize) Error!void 
     const count = n * ras.channels;
     var j: usize = 0;
     while (j < count) {
-        // Samples of up to 5 digits, 8 bytes at a time, while the buffer
-        // holds them; then one sample the slow way, which takes comments,
-        // longer numbers, and samples the buffer splits.
+        // Samples of up to 5 digits, 64 bytes and then 8 at a time, while
+        // the buffer holds them; then one sample the slow way, which takes
+        // comments, longer numbers, and samples the buffer splits.
         const buf = r.buffered();
         var i: usize = 0;
+        while (j < count and i + 64 + 8 <= buf.len) {
+            const block = try plainBlock(ras, out, j, count, buf[i..]);
+            if (block.bytes == 0) break;
+            j += block.samples;
+            i += block.bytes;
+        }
         while (j < count and i + 8 <= buf.len) {
             const c = buf[i];
             if (isSpace(c)) {
@@ -867,6 +892,55 @@ fn readPlain(r: *Io.Reader, ras: *const Raster, out: []u8, n: usize) Error!void 
             j += 1;
         }
     }
+}
+
+/// What `plainBlock` took.
+const Block = struct { samples: usize, bytes: usize };
+
+/// Plain samples from the 64 bytes `buf` starts with, found together: a
+/// mask of the digits and one of the whitespace give each run of digits'
+/// first and last byte, so a sample's position does not wait on the sample
+/// before it. Takes the runs before the first byte that is neither, each
+/// followed by whitespace, as samples `j` on, up to `count`, and returns
+/// what it took: 0 bytes when the slow path must take the next sample (a
+/// comment, a sample of more than 5 digits, or one the block splits).
+/// `buf` holds 8 bytes past the block, which `digitValue` may read, and
+/// starts after a sample or whitespace, not within a run of digits.
+fn plainBlock(ras: *const Raster, out: []u8, j: usize, count: usize, buf: []const u8) Error!Block {
+    const V = @Vector(64, u8);
+    const v: V = buf[0..64].*;
+    const digits = laneMask(v -% @as(V, @splat('0')) < @as(V, @splat(10)));
+    // Space, and tab to CR (9 to 13).
+    const spaces = laneMask((v == @as(V, @splat(' '))) | (v -% @as(V, @splat(9)) < @as(V, @splat(5))));
+    const other = ~(digits | spaces);
+    if (other == 0 and digits == 0) return .{ .samples = 0, .bytes = 64 };
+    // A run counts if the byte after it is in the block and before
+    // `other`'s first byte, so whitespace.
+    const limit: u7 = @ctz(other);
+    if (limit < 2) return .{ .samples = 0, .bytes = 0 };
+    var ends = digits & ~(digits >> 1) & ((@as(u64, 1) << @intCast(limit - 1)) - 1);
+    var starts = digits & ~(digits << 1);
+    var k = j;
+    var taken: usize = 0;
+    while (ends != 0 and k < count) {
+        const first = @ctz(starts);
+        const last = @ctz(ends);
+        const len = last - first + 1;
+        if (len > 5) break;
+        try putSample(ras, out, k, digitValue(buf[first..][0..8], @intCast(len)));
+        k += 1;
+        taken = last + 1;
+        starts &= starts - 1;
+        ends &= ends - 1;
+    }
+    return .{ .samples = k - j, .bytes = taken };
+}
+
+/// A bit per lane, lane 0 in the low bit. A bool vector's bit cast puts
+/// lane 0 in the top bit on a big-endian target.
+fn laneMask(m: @Vector(64, bool)) u64 {
+    const bits: u64 = @bitCast(m);
+    return if (builtin.cpu.arch.endian() == .big) @bitReverse(bits) else bits;
 }
 
 /// How many of the 8 bytes `b` starts with are ASCII digits. A byte that
@@ -1204,6 +1278,68 @@ test "a reader with a small buffer" {
         d = .init(&trickle.reader, .{});
         _ = try d.decodeFrame(try PixelBuffer.init(got[0..len], .rgba16, config.width, config.height), &.{});
         try testing.expectEqualSlices(u8, want[0..len], got[0..len]);
+    }
+}
+
+test "plain samples read in blocks" {
+    // Plain rasters long enough for the 64-byte scan, with every kind of
+    // whitespace, comments, leading zeros, and the odd bad byte, against
+    // the same files through a reader too small for the scan.
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    var file_buf: [8192]u8 = undefined;
+    var samples: [600]u16 = undefined;
+    const spaces = " \t\n\r\x0b\x0c";
+    for (0..400) |iter| {
+        const maxval: u16 = ([_]u16{ 255, 9, 1000, 65535 })[iter % 4];
+        const channels: usize = if (iter % 8 >= 4) 3 else 1;
+        const width = 1 + random.uintLessThan(u32, 50);
+        const count = width * 4 * channels;
+        const magic: u8 = if (channels == 3) 3 else 2;
+        var len = (try std.fmt.bufPrint(&file_buf, "P{d} {d} 4 {d}\n", .{ magic, width, maxval })).len;
+        for (samples[0..count]) |*sample| {
+            sample.* = random.uintAtMost(u16, maxval);
+            const zeros = if (random.uintLessThan(u8, 16) == 0) random.uintAtMost(usize, 4) else 0;
+            @memset(file_buf[len..][0..zeros], '0');
+            len += zeros;
+            len += (try std.fmt.bufPrint(file_buf[len..], "{d}", .{sample.*})).len;
+            for (0..1 + random.uintLessThan(usize, 3)) |_| {
+                file_buf[len] = spaces[random.uintLessThan(usize, spaces.len)];
+                len += 1;
+            }
+            if (random.uintLessThan(u8, 32) == 0) {
+                @memcpy(file_buf[len..][0..4], "#c \n");
+                len += 4;
+            }
+        }
+        const bad = iter % 5 == 0;
+        if (bad) file_buf[12 + random.uintLessThan(usize, len - 12)] = 'x';
+        const file = file_buf[0..len];
+        const wide = maxval > 255;
+        const native: PixelFormat = if (channels == 3)
+            (if (wide) .rgb16 else .rgb8)
+        else
+            (if (wide) .gray16 else .gray8);
+        const out_len = PixelBuffer.len(native, width, 4).?;
+        var want: [600 * 2]u8 = undefined;
+        var got: [600 * 2]u8 = undefined;
+        var buffer: [decode.min_buffer_len]u8 = undefined;
+        var trickle: Trickle = .{
+            .data = file,
+            .reader = .{ .vtable = &.{ .stream = Trickle.stream }, .buffer = &buffer, .seek = 0, .end = 0 },
+        };
+        var d: Decoder = .init(&trickle.reader, .{});
+        const slow = d.decodeFrame(try PixelBuffer.init(want[0..out_len], native, width, 4), &.{});
+        var r: Io.Reader = .fixed(file);
+        d = .init(&r, .{});
+        const fast_result = d.decodeFrame(try PixelBuffer.init(got[0..out_len], native, width, 4), &.{});
+        if (slow) |_| {
+            _ = try fast_result;
+            try testing.expectEqualSlices(u8, want[0..out_len], got[0..out_len]);
+            if (maxval == 255 and !bad) {
+                for (samples[0..count], got[0..count]) |sample, g| try testing.expectEqual(sample, g);
+            }
+        } else |e| try testing.expectError(e, fast_result);
     }
 }
 
