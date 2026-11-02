@@ -568,10 +568,13 @@ pub const LearnOptions = struct {
 
 /// Samples for learning a tree: each sampled pixel's properties and the
 /// token of its residual under every candidate predictor (capped at
-/// `learn_tokens - 1`).
+/// `learn_tokens - 1`). Until `thr` is set, properties are kept whole, for
+/// choosing thresholds from; after, only their buckets, a byte each.
 pub const Samples = struct {
     props: []i32,
+    buckets: []u8,
     tokens: []u8,
+    thr: ?*const Thresholds = null,
     num_pred: usize,
     /// Properties per sample: 16 and four per reference channel.
     nprops: usize,
@@ -582,20 +585,127 @@ pub const Samples = struct {
     /// Take one pixel of every `stride`.
     stride: u32 = 1,
     phase: u32 = 0,
+    /// When not 0, the state of a generator that picks the pixels instead,
+    /// so that their positions do not repeat with the stride.
+    random: u32 = 0,
 
-    pub fn memory(cap: usize, num_pred: usize, refs: usize) usize {
-        return cap * ((num_props + 4 * refs) * 4 + num_pred) + 64;
+    /// For up to `cap` samples, `whole` of them with whole properties.
+    pub fn memory(cap: usize, whole: usize, num_pred: usize, refs: usize) usize {
+        const nprops = num_props + 4 * refs;
+        return whole * nprops * 4 + cap * (nprops + num_pred) + 64;
     }
 
-    pub fn init(mem: *Bump, cap: usize, num_pred: usize, refs: usize) !Samples {
+    pub fn init(mem: *Bump, cap: usize, whole: usize, num_pred: usize, refs: usize) !Samples {
         const nprops = num_props + 4 * refs;
         return .{
-            .props = try mem.alloc(i32, cap * nprops),
+            .props = try mem.alloc(i32, whole * nprops),
+            .buckets = try mem.alloc(u8, cap * nprops),
             .tokens = try mem.alloc(u8, cap * num_pred),
             .num_pred = num_pred,
             .nprops = nprops,
             .cap = cap,
         };
+    }
+
+    /// Replaces the whole properties taken so far with their buckets.
+    pub fn bucketize(s: *Samples, thr: *const Thresholds) void {
+        s.thr = thr;
+        const np = s.nprops;
+        for (0..s.len) |i| thr.bucketsOf(s.props[i * np ..][0..np], s.buckets[i * np ..][0..np]);
+    }
+};
+
+/// Each property's thresholds, which divide its values into buckets.
+pub const Thresholds = struct {
+    count: [max_props]u32 = @splat(0),
+    /// Ascending, then padded with the largest value, so that a value's
+    /// bucket is how many lie below it.
+    values: [max_props][max_buckets - 1]i32 = @splat(@splat(std.math.maxInt(i32))),
+    /// The lanes worth comparing: 16, 32, or 64.
+    lanes: u32 = 16,
+
+    fn bucketsOf(t: *const Thresholds, props: []const i32, out: []u8) void {
+        switch (t.lanes) {
+            16 => t.bucketsIn(16, props, out),
+            32 => t.bucketsIn(32, props, out),
+            else => t.bucketsIn(64, props, out),
+        }
+    }
+
+    inline fn bucketsIn(t: *const Thresholds, comptime lanes: u32, props: []const i32, out: []u8) void {
+        const V = @Vector(lanes, i32);
+        const Mask = @Int(.unsigned, lanes);
+        for (props, out, 0..) |v, *o, p| {
+            const tv: V = t.values[p][0..lanes].*;
+            const below: Mask = @bitCast(tv < @as(V, @splat(v)));
+            o.* = @popCount(below);
+        }
+    }
+
+    /// Chooses thresholds from an even share of `m` of `s`'s whole
+    /// properties.
+    pub fn choose(s: *const Samples, m_max: usize, options: *const LearnOptions) Thresholds {
+        var t: Thresholds = .{};
+        const max_thr: usize = @min(options.max_thresholds, max_buckets - 1);
+        t.lanes = if (max_thr <= 16) 16 else if (max_thr <= 32) 32 else 64;
+        const n = s.len;
+        if (n == 0) return t;
+        const nprops = s.nprops;
+        const m = @min(n, m_max, max_threshold_samples);
+        var hist: [sort_range]u32 = undefined;
+        var sort_buf: [max_threshold_samples]i32 = undefined;
+        for (0..nprops) |p| {
+            if (p == 1 or (p == wp_prop and !options.wp_prop)) continue;
+            const sorted = sort_buf[0..m];
+            for (sorted, 0..) |*v, i| v.* = s.props[(i * n / m) * nprops + p];
+            sortValues(sorted, &hist);
+            // Thresholds: every distinct value when there are few, else half
+            // at even quantiles of the samples and half spread over the
+            // distinct values, so that a long tail still gets some. A
+            // threshold splits values above it from the rest, so the largest
+            // value is never one.
+            var cand: [2 * max_buckets]i32 = undefined;
+            var nc: usize = 0;
+            const top = sorted[m - 1];
+            // Quantiles of the samples, before `sorted` loses its repeats.
+            const half = max_thr / 2;
+            var quant: [max_buckets]i32 = undefined;
+            const nq = max_thr - half;
+            for (quant[0..nq], 0..) |*v, q| v.* = sorted[(q * 2 + 1) * m / (nq * 2)];
+            var u: usize = 0;
+            for (sorted) |v| {
+                if (u == 0 or sorted[u - 1] != v) {
+                    sorted[u] = v;
+                    u += 1;
+                }
+            }
+            // `sorted` is now the distinct values.
+            if (u - 1 <= max_thr) {
+                for (sorted[0 .. u - 1]) |v| {
+                    cand[nc] = v;
+                    nc += 1;
+                }
+            } else {
+                for (0..half) |q| {
+                    cand[nc] = sorted[(q * 2 + 1) * (u - 1) / (half * 2)];
+                    nc += 1;
+                }
+                @memcpy(cand[nc..][0..nq], quant[0..nq]);
+                nc += nq;
+            }
+            std.sort.pdq(i32, cand[0..nc], {}, std.sort.asc(i32));
+            var vals: [max_buckets - 1]i32 = @splat(std.math.maxInt(i32));
+            var k: u32 = 0;
+            for (cand[0..nc]) |v| {
+                if (v >= top) continue;
+                if (k > 0 and vals[k - 1] >= v) continue;
+                vals[k] = v;
+                k += 1;
+            }
+            t.count[p] = k;
+            t.values[p] = vals;
+        }
+        return t;
     }
 };
 
@@ -636,10 +746,20 @@ pub fn sample(
             var wp_pred: i64 = 0;
             if (uses_wp) wp_pred = wp.predict(x, y, n, &props[wp_prop]);
             const v = d[y * w + x];
-            s.phase += 1;
+            if (s.random != 0) {
+                // xorshift32: one pixel in `stride` at random.
+                s.random ^= s.random << 13;
+                s.random ^= s.random >> 17;
+                s.random ^= s.random << 5;
+                if (s.random % s.stride == 0) s.phase = s.stride;
+            } else s.phase += 1;
             if (s.phase >= s.stride and s.len < s.cap) {
                 s.phase = 0;
-                @memcpy(s.props[s.len * s.nprops ..][0..s.nprops], props[0..s.nprops]);
+                if (s.thr) |thr| {
+                    thr.bucketsOf(props[0..s.nprops], s.buckets[s.len * s.nprops ..][0..s.nprops]);
+                } else {
+                    @memcpy(s.props[s.len * s.nprops ..][0..s.nprops], props[0..s.nprops]);
+                }
                 const tk = s.tokens[s.len * s.num_pred ..][0..s.num_pred];
                 for (options.predictors, tk) |pr, *t| {
                     const tok = options.config.split(residual(v, predictOne(pr, n, wp_pred))).token;
@@ -656,10 +776,11 @@ pub fn sample(
 /// Tokens counted in learning: larger tokens share the last.
 const learn_tokens = 64;
 /// Samples the thresholds are chosen from: a sixteenth of the samples,
-/// between 1024 and 4096.
-fn thresholdSamples(n: usize) usize {
-    return @min(n, std.math.clamp(n / 16, 1024, 4096));
+/// between 1024 and `max_threshold_samples`.
+pub fn thresholdSamples(n: usize) usize {
+    return @min(n, std.math.clamp(n / 16, 1024, max_threshold_samples));
 }
+pub const max_threshold_samples = 4096;
 const max_predictors = 14;
 const max_buckets = 65;
 
@@ -693,9 +814,7 @@ inline fn xlog(c: u32) f32 {
 pub fn learnMemory(cap: usize, options: LearnOptions) usize {
     const np = options.predictors.len;
     const nprops = num_props + 4 * options.refs;
-    return cap * (nprops + 4) + // buckets, indices
-        nprops * max_buckets * 4 + 64 + // thresholds
-        cap * 4 + // sort scratch
+    return cap * 4 + // indices
         nprops * max_buckets * np * learn_tokens * 2 + // counts
         nprops * max_buckets * np * 8 + // their masks
         nprops * max_buckets * 4 + // samples per bucket
@@ -706,6 +825,7 @@ const Range = struct { begin: u32, end: u32 };
 
 /// Learns a tree from `s`. `scale` is the pixels each sample stands for.
 pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []Node) !Tree {
+    const thr = s.thr.?;
     const n = s.len;
     const np = options.predictors.len;
     const nprops = s.nprops;
@@ -716,76 +836,8 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         t.numberLeaves();
         return t;
     }
-    // Thresholds per property, from the samples' distribution.
-    const nthr = try mem.alloc(u32, nprops);
-    const thr = try mem.alloc(i32, nprops * max_buckets);
-    const buckets = try mem.alloc(u8, n * nprops);
-    const sort_buf = try mem.alloc(i32, thresholdSamples(n));
-    const max_thr: usize = @min(options.max_thresholds, max_buckets - 1);
-    var hist: [sort_range]u32 = undefined;
-    for (0..nprops) |p| {
-        nthr[p] = 0;
-        if (p == 1 or (p == wp_prop and !options.wp_prop)) continue;
-        // From an even share of the samples.
-        const m = thresholdSamples(n);
-        const sorted = sort_buf[0..m];
-        for (sorted, 0..) |*v, i| v.* = s.props[(i * n / m) * nprops + p];
-        sortValues(sorted, &hist);
-        // Thresholds: every distinct value when there are few, else half
-        // at even quantiles of the samples and half spread over the
-        // distinct values, so that a long tail still gets some. A
-        // threshold splits values above it from the rest, so the largest
-        // value is never one.
-        const t = thr[p * max_buckets ..][0..max_buckets];
-        var cand: [2 * max_buckets]i32 = undefined;
-        var nc: usize = 0;
-        const top = sorted[m - 1];
-        // Quantiles of the samples, before `sorted` loses its repeats.
-        const half = max_thr / 2;
-        var quant: [max_buckets]i32 = undefined;
-        const nq = max_thr - half;
-        for (quant[0..nq], 0..) |*v, q| v.* = sorted[(q * 2 + 1) * m / (nq * 2)];
-        var u: usize = 0;
-        for (sorted) |v| {
-            if (u == 0 or sorted[u - 1] != v) {
-                sorted[u] = v;
-                u += 1;
-            }
-        }
-        // `sorted` is now the distinct values.
-        if (u - 1 <= max_thr) {
-            for (sorted[0 .. u - 1]) |v| {
-                cand[nc] = v;
-                nc += 1;
-            }
-        } else {
-            for (0..half) |q| {
-                cand[nc] = sorted[(q * 2 + 1) * (u - 1) / (half * 2)];
-                nc += 1;
-            }
-            @memcpy(cand[nc..][0..nq], quant[0..nq]);
-            nc += nq;
-        }
-        std.sort.pdq(i32, cand[0..nc], {}, std.sort.asc(i32));
-        var k: u32 = 0;
-        for (cand[0..nc]) |v| {
-            if (v >= top) continue;
-            if (k > 0 and t[k - 1] >= v) continue;
-            t[k] = v;
-            k += 1;
-        }
-        nthr[p] = k;
-        // The bucket: how many thresholds lie below the value, counted
-        // across a vector of them padded with the largest value.
-        var tv: [max_buckets - 1]i32 = @splat(std.math.maxInt(i32));
-        @memcpy(tv[0..k], t[0..k]);
-        const vt: @Vector(max_buckets - 1, i32) = tv;
-        for (0..n) |i| {
-            const v = s.props[i * nprops + p];
-            const below: u64 = @bitCast(vt < @as(@Vector(max_buckets - 1, i32), @splat(v)));
-            buckets[i * nprops + p] = @popCount(below);
-        }
-    }
+    const buckets = s.buckets;
+    const nthr = &thr.count;
     // Tokens per predictor, capped for counting, and their extra bits.
     const toks = s.tokens;
     const config = options.config;
@@ -1006,7 +1058,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         }
         nodes[cur] = .{
             .property = @intCast(best_p),
-            .value = thr[best_p * max_buckets + best_j],
+            .value = thr.values[best_p][best_j],
             .child = @intCast(num_nodes),
         };
         nodes[num_nodes] = .{};

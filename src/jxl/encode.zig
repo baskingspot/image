@@ -244,7 +244,7 @@ const Sizes = struct {
             .rows = @max(gw, pal) * max_bpp,
             .tokens = stream_samples * @sizeOf(Token) + @max(stream_samples, (2 * leaves + 1) * 5) * 4,
             .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
-            .samples = mod.Samples.memory(sampleCap(p, w, h), p.predictors.len, p.refs),
+            .samples = samplesMemory(p, w, h),
             .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, p.max_leaves)),
             .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
             .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
@@ -264,6 +264,48 @@ const Sizes = struct {
         return t;
     }
 };
+
+fn samplesMemory(p: Params, w: u32, h: u32) usize {
+    const cap = sampleCap(p, w, h);
+    const whole = if (cap <= single_pass_samples) cap else mod.thresholdSamples(cap);
+    return mod.Samples.memory(cap, whole, p.predictors.len, p.refs);
+}
+
+/// Images with at most this many samples choose thresholds from all of
+/// them.
+const single_pass_samples = 1 << 15;
+
+/// Samples a band of rows from every stream into `smp`, one pixel in its
+/// stride, up to its cap. A band is `share` of a channel's rows, at an
+/// offset that moves from stream to stream.
+fn sampleStreams(
+    mem: *Bump,
+    c: *Ctx,
+    smp: *mod.Samples,
+    lo: *const mod.LearnOptions,
+    max_refs: u32,
+    plane_list: *[max_channels + 1]Plane,
+    share: f64,
+) !void {
+    const lay = &c.lay;
+    const ns = numStreams(lay);
+    const has_pal = c.tr.palette != null;
+    var k: u32 = 0;
+    while (k < ns) : (k += 1) {
+        const s = streamAt(lay, k, has_pal);
+        const n = buildPlanes(c, s, plane_list);
+        for (plane_list[0..n], 0..) |pl, ci| {
+            // The palette is sampled whole.
+            const meta = s.meta and ci == 0;
+            const want: u32 = @intFromFloat(@ceil(share * @as(f64, @floatFromInt(pl.h))));
+            const rows: u32 = if (meta) pl.h else @max(1, want);
+            const y0: u32 = if (rows >= pl.h) 0 else @intCast((@as(u64, k) * 2654435761) % (pl.h - rows + 1));
+            var rb: [mod.max_refs]Plane = undefined;
+            const refs = refsOf(plane_list[0..n], ci, s.meta, max_refs, &rb);
+            try mod.sample(mem, smp, pl, @intCast(ci), s.id, lo, refs, y0, y0 + rows);
+        }
+    }
+}
 
 /// The samples a tree is learned from: the effort's, or every sample of a
 /// smaller image.
@@ -814,28 +856,41 @@ fn encodeImpl(
         defer mem.release(m);
         const lo = learnOptions(p, leaves);
         const cap = sampleCap(p, lay.w, lay.h);
-        var smp: mod.Samples = try .init(mem, cap, p.predictors.len, p.refs);
-        // Sample a band of rows from every stream, as tall as the share
-        // of the image the samples can cover, at an offset that moves
-        // from group to group.
+        // Thresholds come from samples with whole properties: all of
+        // them for a small image, else a first, smaller set, after which
+        // the samples keep only buckets.
+        const single = cap <= single_pass_samples;
+        const whole = if (single) cap else mod.thresholdSamples(cap);
+        var smp: mod.Samples = try .init(mem, cap, whole, p.predictors.len, p.refs);
         const total_px = pixels * (if (has_pal) 1 else nch);
+        // A band of rows from every stream, as tall as the share of the
+        // image the samples can cover.
         const budget: u64 = @as(u64, cap) * 4;
         const share: f64 = @min(1.0, @as(f64, @floatFromInt(budget)) / @as(f64, @floatFromInt(total_px)));
-        smp.stride = @intCast(@max(1, @min(total_px, budget) / cap));
-        var k: u32 = 0;
-        while (k < ns) : (k += 1) {
-            const s = streamAt(&lay, k, has_pal);
-            const n = buildPlanes(&c, s, &plane_list);
-            for (plane_list[0..n], 0..) |pl, ci| {
-                // The palette is sampled whole.
-                const meta = s.meta and ci == 0;
-                const want: u32 = @intFromFloat(@ceil(share * @as(f64, @floatFromInt(pl.h))));
-                const rows: u32 = if (meta) pl.h else @max(1, want);
-                const y0: u32 = if (rows >= pl.h) 0 else @intCast((@as(u64, k) * 2654435761) % (pl.h - rows + 1));
-                var rb: [mod.max_refs]Plane = undefined;
-                const refs = refsOf(plane_list[0..n], ci, s.meta, p.refs, &rb);
-                try mod.sample(mem, &smp, pl, @intCast(ci), s.id, &lo, refs, y0, y0 + rows);
-            }
+        const stride: u32 = @intCast(@max(1, @min(total_px, budget) / cap));
+        var thr: mod.Thresholds = undefined;
+        if (!single) {
+            // The same pixels, more sparsely.
+            smp.cap = whole;
+            smp.stride = stride * @as(u32, @intCast((cap + whole - 1) / whole));
+            smp.random = 0x9e3779b9;
+            try sampleStreams(mem, &c, &smp, &lo, p.refs, &plane_list, share);
+            thr = .choose(&smp, smp.len, &lo);
+            smp = .{
+                .props = smp.props,
+                .buckets = smp.buckets,
+                .tokens = smp.tokens,
+                .thr = &thr,
+                .num_pred = smp.num_pred,
+                .nprops = smp.nprops,
+                .cap = cap,
+            };
+        }
+        smp.stride = stride;
+        try sampleStreams(mem, &c, &smp, &lo, p.refs, &plane_list, share);
+        if (single) {
+            thr = .choose(&smp, mod.thresholdSamples(smp.len), &lo);
+            smp.bucketize(&thr);
         }
         // Samples stand for the whole image.
         smp.seen = total_px;
