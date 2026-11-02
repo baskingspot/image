@@ -199,6 +199,10 @@ refuses, the decoder does the same, found by the oracle and pinned by it:
 - CCITT codes cut off by the end of the data are read with zeros added,
   and a code that starts past the end is `error.NotEnoughData`, as libtiff
   pads its bit buffer.
+- In Group 4 and 2D Group 3 rows, b1 after a pass mode, while the row has
+  no change yet, is the change after b2 on the row above even when it is
+  at a0 itself (after an empty run there), as libtiff takes it; past the
+  row's first change, b1 is the first change after a0, as T.4 defines it.
 
 ## JPEG (compression 7)
 

@@ -314,12 +314,21 @@ pub const Decoder = struct {
         var black = false;
         var j: usize = 0;
         var k: usize = 0;
+        var passed = false;
         while (a0 < w) {
-            // b1: the first change on the row above past a0 to the color
-            // opposite a0's; changes at even indices are to black.
-            while (j > 0 and ref[j - 1] > a0) j -= 1;
-            while (ref[j] <= a0) j += 1;
-            if ((j & 1 == 1) != black) j += 1;
+            if (passed and k == 0) {
+                // Until a row has a change, libtiff takes b1 after a pass
+                // to be the change after b2, even one at b2 itself (after
+                // an empty run), not the first one past a0.
+                j += 2;
+            } else {
+                // b1: the first change on the row above past a0 to the
+                // color opposite a0's; changes at even indices are to
+                // black.
+                while (j > 0 and ref[j - 1] > a0) j -= 1;
+                while (ref[j] <= a0) j += 1;
+                if ((j & 1 == 1) != black) j += 1;
+            }
             const b1: i64 = ref[j];
             const b2: i64 = ref[j + 1];
             const m = mode_table[@intCast(try d.peek(7))];
@@ -328,7 +337,10 @@ pub const Decoder = struct {
             switch (@as(Mode, @enumFromInt(m >> 4))) {
                 .invalid => unreachable,
                 .extension => return error.Unsupported,
-                .pass => a0 = b2,
+                .pass => {
+                    a0 = b2;
+                    passed = true;
+                },
                 .horizontal => {
                     const start: u32 = @intCast(@max(a0, 0));
                     const r1 = try d.run(black, w - start);
@@ -510,6 +522,27 @@ test "group 3 with EOLs, fill bits, damage, and 2D rows; group 4" {
         defer testing.allocator.free(data);
         try testDecode(data, if (g4) .g4 else .g3, true, w, &.{ &row1, &row2 });
     }
+}
+
+test "group 4: after a pass at a row's start, b1 may be an empty run's change at a0, as in libtiff" {
+    const w = 64;
+    // Row 1: horizontal (3 white, 60 black), VL1 to an empty white run at
+    // 63, V0: changes 3, 63, 63, 64.
+    var row1: [8]u8 = @splat(0);
+    setBits(&row1, 3, 64);
+    // Row 2: a pass to 63, where libtiff's b1 is the empty run's change at
+    // 63, so V0 ends the white run there; then V0 to the width.
+    var row2: [8]u8 = @splat(0);
+    setBits(&row2, 63, 64);
+    var t: TestBits = .{};
+    try t.put("001");
+    try t.runs(false, 3);
+    try t.runs(true, 60);
+    try t.put("010" ++ "1");
+    try t.put("0001" ++ "1" ++ "1");
+    const data = try t.bytes();
+    defer testing.allocator.free(data);
+    try testDecode(data, .g4, true, w, &.{ &row1, &row2 });
 }
 
 test "malformed rows" {
