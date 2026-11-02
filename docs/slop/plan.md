@@ -625,8 +625,7 @@ orb asks for a change to them, or for text in this file, in its report.
    most 0.17 dB; bounded Floyd–Steinberg has the best blurred PSNR of every
    encoder measured (51.17 dB; ImageMagick's Floyd–Steinberg 50.93, gifski
    q100 46.92) at 2.1 dB less PSNR than no dither and 20% more bytes.
-   Recommended defaults `.wu`, `refine = 0`, `.floyd_steinberg`; the owner
-   decides.
+   Decided by the owner (decision 43).
 7. **Dropping alpha. Decided by the owner: drop it, never composite.**
    Converting to a format without alpha keeps the stored colors, as qoi.h,
    stb_image, ImageMagick's RGB export, libpng's `strip_alpha`, Pillow, and
@@ -785,6 +784,13 @@ orb asks for a change to them, or for text in this file, in its report.
 42. **WebP lossless effort. Decided by the owner:** `image.webp.encode`
     defaults to effort 5: 1.2% smaller than cwebp's lossless default
     (`-z 6`) at 1.1–2.9× libwebp's speed.
+43. **GIF quantization. Decided by the owner:** defaults `.wu`, `refine = 0`,
+    `.floyd_steinberg` with its error bounded at 16 a channel; `.none` is
+    documented for smaller files and screen content.
+44. **GIF animation frames. Decided by the owner:** `AnimationFrame` has no
+    `blend`; a frame composites over the previous one, as PNG's `.over`, and
+    a caller whose frame clears pixels disposes the previous frame to
+    background. Documented, not detected.
 
 ## Harness requests
 
