@@ -133,6 +133,19 @@ height)` saying how much work memory to pass, and `image.EncodeError` as
   gate. `just ci` runs each target once over its seeds (in `just test`), an
   orb runs `just fuzz` before it pushes a format, and
   `.github/workflows/fuzz.yml` fuzzes daily and by hand (`just fuzz-scheduled`, 240 seconds per target; `just fuzz N/target` gives every target N seconds), failing with the inputs as an artifact.
+- **Oracle pass**: the oracle answers with each image's length and XXH64,
+  not its pixels, and compare.zig gives our decoder its work memory per
+  input. Fuzzed inputs mutate corpus files of at most 2^18 pixels, and one
+  time in 16 any corpus file; every corpus file is still compared whole, and
+  corpus files are taken in path order, so a seed gives the same inputs, and
+  a mismatch the same id, on every machine (results/oracle-pass-20261102.md:
+  the pass fell from 299 s to 123 s, and size-gated mutants still fail it).
+  CI runs oracle-ci as its own job and uploads a failing run's mismatch
+  inputs. `harness.checkDecoder` checks `decodeFrameConfig` against every
+  `decodeFrame` where a decoder has one, and checks a decoder that can move
+  back with a seeker too. `just test` also runs the unit tests in
+  ReleaseFast, where `undefined` memory is not filled with 0xaa. `just
+bench-compare` reports peak RSS per operation and per size class.
 
 ## Benchmarks
 
@@ -380,6 +393,12 @@ orb asks for a change to them, or for text in this file, in its report.
   `just oracle N SEED FORMAT...`; raw encode inputs sized from their names;
   oracle-build renaming into place; rotating icon rows
   (results/icon-rotation-20261102.md).
+- **Harness pass 3** (landed at `346a22a`; results/oracle-pass-20261102.md):
+  hashed oracle answers, per-input work memory (the WebP OOM), small
+  mutation bases, the sorted corpus walk, `PF_CMYK8`/`PF_CMYK16` in the
+  oracle protocol, `checkDecoder`'s `decodeFrameConfig` and seeker passes,
+  per-class peak RSS, ReleaseFast unit tests, and oracle-ci as its own job
+  uploading mismatches. Agree counts moved once with the sort.
 - **Decoder contract** (landed at `5b7b9f4`): `image.Decoder.finalConfig`
   with an optional `applyTrailer` (decision 10); `decodeFrameConfig`
   (decision 11), forwarded when a format has one, synthesized for formats of
@@ -515,23 +534,6 @@ not yet made:
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
 - `src/encode.zig`: take the source as a const pixel view.
-- `test/oracle/compare.zig`'s `ours()` takes each input's work memory from
-  the batch arena, whose pages pile up across batches; WebP's worst-case
-  bound got the oracle OOM-killed, and `test/oracle/webp.zig` works around
-  it with a threadlocal buffer. Allocate work per input outside the arena,
-  or one buffer per worker.
-- A per-size-class peak RSS column in `just bench-compare`.
-- Sort the corpus walk in harness.zig's loader: unsorted directory order
-  makes the mutated inputs depend on the filesystem, so a CI mismatch id
-  cannot be regenerated locally and agree counts differ by machine.
-- `PF_CMYK8` and `PF_CMYK16` in test/oracle/oracle.h and oracle.c, so
-  tiff-raw and JPEG's oracle answer CMYK natively.
-- `harness.checkDecoder` passing a `Seeker.fixed` itself (TIFF's fuzz
-  target does it privately). Avoid `threadlocal` in fuzz targets: in Zig
-  0.16 Debug it broke png's zig-fuzz test.
-- A generic `decodeFrameConfig` fuzz property in `test/fuzz/harness.zig`,
-  replacing ICO's, PNG's, and Netpbm's copies.
-- `just ci`'s oracle pass is about 270 s of 419 s (wbmp 64 s, jpeg 60 s,
-  qoi 59 s); profile wbmp and qoi.
-- `cmyk8` and `cmyk16` pixel formats with their `image.convert` kernels
-  (decision 15), once the performance pass lands.
+- An `artifacts` key per job in baskingspot/gh-actions' ci.yml (a
+  gh-actions change, release, and pin bump), so oracle-ci can move back into
+  `.github/ci.yaml` from its own job in `.github/workflows/ci.yml`.
