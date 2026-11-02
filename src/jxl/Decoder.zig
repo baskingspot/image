@@ -409,6 +409,8 @@ fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     while (true) {
         const fh = if (d.next_frame) |f| f else try headers.FrameHeader.read(&d.br, &d.image, false);
         d.next_frame = null;
+        // Displayed frames past the limit fail before they are drawn.
+        if (shownFrame(&fh)) try d.options.limits.checkFrames(@as(u64, d.index) + 1);
         defer st.arena.release(st.frame_mark);
         var blended = false;
         const shown = try d.oneFrame(&fh, dst, &blended);
@@ -467,6 +469,12 @@ fn needsBlending(fh: *const headers.FrameHeader, num_ec: u32) bool {
     return fh.have_crop or !replace_all;
 }
 
+/// Whether `fh` starts a displayed frame: a regular frame that is the last
+/// or has a duration.
+fn shownFrame(fh: *const headers.FrameHeader) bool {
+    return (fh.kind == .regular or fh.kind == .skip_progressive) and (fh.is_last or fh.duration > 0);
+}
+
 /// Decodes one frame, composites it, saves it for reference, and writes
 /// it to `dst` if it is displayed; returns whether it was, and sets
 /// `blended` when it went through the canvas.
@@ -483,7 +491,7 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
     const padded = @as(u64, dims.xsize_blocks) * dims.ysize_blocks * 64;
     if (padded > frame_scale * paddedCanvas(image)) return error.TooComplex;
     const toc = try frame.readToc(&d.br, &st.arena, &dims, fh.passes.num);
-    const shown = (fh.kind == .regular or fh.kind == .skip_progressive) and (fh.is_last or fh.duration > 0);
+    const shown = shownFrame(fh);
     if (shown) {
         d.visible +%= 1;
         d.nonvisible = 0;

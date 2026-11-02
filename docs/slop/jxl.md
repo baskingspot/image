@@ -131,6 +131,19 @@ the canvas instead of whole planes.
 - **Spot colors** are extra channels and are not rendered into the color
   channels, as libjxl does with `JxlDecoderSetRenderSpotcolors(false)`; the
   shared pixel formats have nowhere to put extra channels yet.
+- **No `decodeFrameConfig` yet** (plan.md decision 11), so
+  `image.Decoder.decodeFrameConfig` is `Unsupported` for animations and
+  answers from `Config` for one frame. Reaching the next displayed frame's
+  header can mean decoding an ICC profile, a preview, or frames blended in
+  without being shown, and all of those need work memory, which the call
+  does not take. An earlier version answered only when the header was next
+  and was `Unsupported` otherwise; `harness.announced` rightly counts that
+  as announcing an error `decodeFrame` does not return. Coalesced frames
+  always cover the canvas with `disposal = .none`, so no caller needs it to
+  save a region.
+- **Frame limit.** `Config.frame_count` is null for animations, and
+  `decodeFrame` fails with `TooManyFrames` before drawing a displayed
+  frame past `Limits.max_frames`.
 - **Orientation** is reported, not applied, as for every other format.
 - **Preview frames** are skipped, but count as non-visible frames for
   noise's seed, as the specification says.
