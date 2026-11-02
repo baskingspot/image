@@ -31,7 +31,7 @@ ratio and interval.
 | `magick`        | ImageMagick's MagickWand                 | `bench/c/magick-*.c`                                |
 | `libtiff`       | libtiff                                  | `bench/c/libtiff-*.c`                               |
 | `libjxl`        | libjxl                                   | `bench/c/libjxl-*.c`                                |
-| `image-rs`      | Rust's `image` crate                     | `bench/rust`, feature `image-rs`                    |
+| `image-rs`      | Rust's `image` and `tiff` crates         | `bench/rust`, feature `image-rs`                    |
 | `zune`          | the zune crates                          | `bench/rust`, feature `zune`                        |
 | `jxl-oxide`     | the jxl-oxide crate                      | `bench/rust`, feature `jxl-oxide`                   |
 | `go`            | Go's `image` packages                    | `bench/go`                                          |

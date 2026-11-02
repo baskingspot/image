@@ -14,13 +14,14 @@ path = "src/lib.rs"
 crate-type = ["staticlib"]
 
 [features]
-image-rs = ["dep:image", "dep:qoi"]
+image-rs = ["dep:image", "dep:qoi", "dep:tiff"]
 zune = ["dep:zune-core", "dep:zune-qoi", "dep:zune-png", "dep:zune-bmp", "dep:zune-ppm", "dep:zune-jpeg"]
 jxl-oxide = ["dep:jxl-oxide"]
 
 [dependencies]
 image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "gif", "bmp", "ico", "tga", "pnm", "jpeg", "webp", "tiff"], optional = true }
 qoi = { version = "=0.4.1", optional = true }
+tiff = { version = "=0.10.3", optional = true }
 zune-core = { version = "=0.5.3", optional = true }
 zune-qoi = { version = "=0.5.2", optional = true }
 zune-png = { version = "=0.5.2", optional = true }

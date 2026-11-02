@@ -25,6 +25,8 @@ mod image_tga;
 #[cfg(feature = "image-rs")]
 mod image_tiff;
 #[cfg(feature = "image-rs")]
+mod image_tiff_encode;
+#[cfg(feature = "image-rs")]
 mod image_webp;
 #[cfg(feature = "image-rs")]
 mod image_webp_encode;
@@ -101,6 +103,8 @@ pub extern "C" fn bench_init() {
         image_tiff::OPS,
         #[cfg(feature = "image-rs")]
         image_webp_encode::OPS,
+        #[cfg(feature = "image-rs")]
+        image_tiff_encode::OPS,
         #[cfg(feature = "zune")]
         zune_bmp::OPS,
         #[cfg(feature = "zune")]

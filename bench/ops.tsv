@@ -74,6 +74,10 @@ tiff-decode-deflate	TiffDecodeDeflate	tiff/deflate	4	same
 tiff-decode-packbits	TiffDecodePackBits	tiff/packbits	4	same
 tiff-decode-jpeg	TiffDecodeJPEG	tiff/jpeg	4	own
 tiff-decode-g4	TiffDecodeG4	tiff/g4	4	own
+tiff-encode-none	TiffEncodeNone	qoi_encode	5	own
+tiff-encode-packbits	TiffEncodePackBits	qoi_encode	6	own
+tiff-encode-lzw	TiffEncodeLZW	qoi_encode	7	own
+tiff-encode-deflate	TiffEncodeDeflate	qoi_encode	6	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own
 jxl-decode	JxlDecode	jxl/lossy	8	own

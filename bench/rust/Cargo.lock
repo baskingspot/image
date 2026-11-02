@@ -36,6 +36,7 @@ dependencies = [
  "image",
  "jxl-oxide",
  "qoi",
+ "tiff",
  "zune-bmp",
  "zune-core 0.5.3",
  "zune-jpeg 0.5.15",
