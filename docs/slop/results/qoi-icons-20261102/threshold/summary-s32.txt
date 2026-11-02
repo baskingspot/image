@@ -1,0 +1,3 @@
+image/arm, geomean              rows image MP/s       s0 qoicrate    wuffs     ±   <1    ~   slowest vs s0
+QoiDecodeIcons/icon                3      281.1     0.93     1.11     1.68    1%    2    1   0.81 [0.78, 0.82] rotate64-16x16
+all                                3      281.1     0.93     1.11     1.68          2    1

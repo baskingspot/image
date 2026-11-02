@@ -1,0 +1,2 @@
+peak RSS (MiB)              s64      s32       s0 qoicrate    wuffs
+qoi-decode-icons            2.6      2.6      2.6      3.4      3.4

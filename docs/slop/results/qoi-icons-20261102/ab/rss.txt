@@ -1,0 +1,4 @@
+peak RSS (MiB)            image   before    wuffs     qoih image-rs     zune
+qoi-decode                257.7    257.7    258.4    403.1    258.3    258.4
+qoi-decode-bgra           257.8    257.7    258.4        -        -        -
+qoi-decode-icons            2.7      2.6      3.4      2.9      3.4      3.5

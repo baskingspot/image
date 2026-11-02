@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before image-rs     ±   <1    ~   slowest vs before
+QoiDecode/icon                    12      350.6     0.70     0.69    2%   10    2   0.44 [0.43, 0.47] icon_16-actions_appointment_new-16x16.qoi
+QoiDecode/1mp                      5      618.8     0.98     1.02    4%    1    4   0.93 [0.90, 0.96] test-testcard_rgba-256x256.qoi
+QoiDecodeIcons/icon                3      304.0     1.12     1.19    2%    0    1   1.00 [0.90, 1.03] rotate64-64x64
+all                               20      395.6     0.82     0.83         11    7

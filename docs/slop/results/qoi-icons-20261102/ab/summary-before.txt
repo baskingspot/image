@@ -1,0 +1,9 @@
+image/arm, geomean              rows image MP/s    wuffs     qoih image-rs     zune     ±   <1    ~   slowest vs wuffs
+QoiDecode/icon                    13      491.7     1.88     1.44     0.97     3.70    2%    0    0   1.28 [1.21, 1.36] icon_64-actions_appointment_new-64x64.qoi
+QoiDecode/1mp                     23      501.3     1.82     1.77     1.11     2.71    2%    0    0   1.17 [1.12, 1.48] textures_pk-_pkf_water1-128x128.qoi
+QoiDecode/large                    8      322.9     1.63     1.59     1.14     2.27    2%    0    0   1.40 [1.36, 1.52] photo_mosaic-50mp-8192x6144.qoi
+QoiDecodeBGRA/icon                13      395.7     1.50        -        -        -    4%    0    0   1.13 [1.06, 1.24] textures_pk-_0mod_button1-64x64.qoi
+QoiDecodeBGRA/1mp                 23      437.1     1.58        -        -        -    3%    0    0   1.08 [1.06, 1.31] textures_pk-_pkf_water1-128x128.qoi
+QoiDecodeBGRA/large                8      300.5     1.51        -        -        -    2%    0    0   1.37 [1.35, 1.39] photo_mosaic-50mp-8192x6144.qoi
+QoiDecodeIcons/icon                3      273.1     1.62     1.39     1.08     2.32    5%    0    0   1.55 [1.53, 1.73] rotate64-32x32
+all                               91      420.9     1.67     1.61     1.07     2.84          0    0

@@ -1,0 +1,9 @@
+image/arm, geomean              rows image MP/s   before    wuffs     qoih image-rs     zune     ±   <1    ~   slowest vs before
+QoiDecode/icon                    13      357.8     0.72     1.35     1.03     0.70     2.65    3%    8    5   0.44 [0.44, 0.45] icon_16-actions_appointment_new-16x16.qoi
+QoiDecode/1mp                     23      501.7     0.99     1.81     1.76     1.10     2.69    1%    2   20   0.94 [0.93, 0.96] test-testcard_rgba-256x256.qoi
+QoiDecode/large                    8      327.8     1.00     1.63     1.60     1.14     2.25    2%    0    8   0.99 [0.94, 1.00] screenshot_web-cnn_com-1313x5241.qoi
+QoiDecodeBGRA/icon                13      309.1     0.77     1.15        -        -        -    4%    8    3   0.54 [0.53, 0.56] icon_16-actions_appointment_new-16x16.qoi
+QoiDecodeBGRA/1mp                 23      439.8     0.99     1.57        -        -        -    1%    4   18   0.91 [0.88, 0.92] test-testcard_rgba-256x256.qoi
+QoiDecodeBGRA/large                8      303.9     1.00     1.52        -        -        -    1%    0    8   1.00 [0.98, 1.02] screenshot_web-cnn_com-1313x5241.qoi
+QoiDecodeIcons/icon                3      306.0     1.12     1.82     1.53     1.20     2.61    1%    0    1   1.00 [0.99, 1.01] rotate64-64x64
+all                               91      391.3     0.92     1.53     1.48     0.98     2.59         22   63

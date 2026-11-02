@@ -1,0 +1,15 @@
+--- /tmp/qv/Decoder.ff.zig	2026-11-02 06:03:55.935868085 +0000
++++ /tmp/qv/Decoder.fe.zig	2026-11-02 06:16:09.348267016 +0000
+@@ -325,9 +325,9 @@
+                 continue;
+             }
+             const next = std.mem.readInt(u32, buf[p + 1 ..][0..4], .little);
+-            if (b == 0xff) {
+-                px = next;
+-                p += 5;
++            if (b >= 0xfe) {
++                px = if (b == 0xff) next else (px & 0xff00_0000) | (next & 0x00ff_ffff);
++                p += b - 0xfa;
+                 index[hash(px)] = px;
+                 put(out, i, px, o);
+                 i += 1;

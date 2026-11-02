@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s       ff   before image-rs     ±   <1    ~   slowest vs ff
+QoiDecode/icon                    12      451.2     1.02     0.91     0.89    2%    0    7   0.93 [0.83, 1.16] icon_16-actions_appointment_new-16x16.qoi
+QoiDecode/1mp                      5      651.8     1.01     1.03     1.07    3%    2    1   0.91 [0.87, 0.97] photo_kodak-kodim01-768x512.qoi
+QoiDecodeIcons/icon                3      337.0     0.94     1.24     1.33    2%    2    1   0.93 [0.91, 0.95] rotate64-32x32
+all                               20      473.5     1.01     0.98     0.99          4    9

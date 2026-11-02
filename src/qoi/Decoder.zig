@@ -148,21 +148,13 @@ fn pixels(d: *Decoder, dst: PixelBuffer) Error!void {
             if (b >= 0xc0 and b < 0xfe) s.index[hash(s.px)] = s.px;
         } else |_| {}
     }
-    if (@as(u64, h.width) * h.height < small) {
-        try d.pixelsAs(dst, &s, direct, true);
-    } else {
-        try d.pixelsAs(dst, &s, direct, false);
-    }
+    try d.pixelsAs(dst, &s, direct);
     if (s.run != 0) return error.RunPastEnd;
     const footer = d.reader.takeArray(8) catch |e| return mapRead(e);
     if (!std.mem.eql(u8, footer, "\x00\x00\x00\x00\x00\x00\x00\x01")) return error.BadFooter;
 }
 
-/// Images with fewer pixels than this decode with a branch per chunk kind,
-/// larger ones without (`span`).
-const small = 64 * 64;
-
-fn pixelsAs(d: *Decoder, dst: PixelBuffer, s: *Stream, direct: ?Out, comptime branchy: bool) Error!void {
+fn pixelsAs(d: *Decoder, dst: PixelBuffer, s: *Stream, direct: ?Out) Error!void {
     const h = d.header;
     if (direct) |out| switch (out) {
         inline else => |o| {
@@ -170,9 +162,9 @@ fn pixelsAs(d: *Decoder, dst: PixelBuffer, s: *Stream, direct: ?Out, comptime br
             if (dst.stride == row_len) {
                 // Packed rows are one span: no setup per row, and runs
                 // cross rows freely.
-                try span(d.reader, s, dst.pixels[0 .. row_len * h.height], o, branchy);
+                try span(d.reader, s, dst.pixels[0 .. row_len * h.height], o);
             } else {
-                for (0..h.height) |y| try span(d.reader, s, dst.row(@intCast(y)), o, branchy);
+                for (0..h.height) |y| try span(d.reader, s, dst.row(@intCast(y)), o);
             }
         },
     } else {
@@ -185,9 +177,9 @@ fn pixelsAs(d: *Decoder, dst: PixelBuffer, s: *Stream, direct: ?Out, comptime br
             while (x < h.width) {
                 const n: usize = @min(256, h.width - x);
                 if (h.channels == 4) {
-                    try span(d.reader, s, buf[0 .. n * 4], .rgba, branchy);
+                    try span(d.reader, s, buf[0 .. n * 4], .rgba);
                 } else {
-                    try span(d.reader, s, buf[0 .. n * 3], .rgb, branchy);
+                    try span(d.reader, s, buf[0 .. n * 3], .rgb);
                 }
                 conv.run(row[x * dst.format.bytesPerPixel() ..], &buf, n);
                 x += n;
@@ -283,15 +275,19 @@ inline fn addBytes(x: u32, y: u32) u32 {
 
 /// Decodes `out.len / bytes-per-pixel` pixels into `out`.
 ///
-/// Unless `branchy`, chunks other than runs and INDEX decode without
-/// branching on their kind, through `ops`: on photos the kind is close to
-/// random, and a mispredicted branch per pixel costs more than the table
-/// lookups. Below 64 by 64 the branch per kind measured faster (docs/slop/
-/// results/wbmp-qoi-20261101.md). INDEX takes its own branch so that it
-/// skips the index store, whose address hangs off the pixel just loaded
-/// and which later index loads must follow; that measured up to 1.75× on
-/// index-heavy screenshots (docs/slop/results/qoi-perf-20261102.md).
-fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy: bool) Error!void {
+/// DIFF, LUMA, and RGB chunks decode without branching on their kind,
+/// through `ops`: the kind is close to random, and a mispredicted branch
+/// per pixel costs more than the table lookups. That holds for icons too
+/// unless one file is decoded again and again, so that the branch
+/// predictor learns it (docs/slop/results/qoi-icons-20261102.md). INDEX
+/// takes its own branch so that it skips the index store, whose address
+/// hangs off the pixel just loaded and which later index loads must
+/// follow; that measured up to 1.75× on index-heavy screenshots
+/// (docs/slop/results/qoi-perf-20261102.md). RGBA takes its own branch
+/// so that its pixel does not wait on the one before, as it would through
+/// the table: up to 1.7× on icons with alpha, where RGBA chunks are common,
+/// and opaque images have none (qoi-icons-20261102.md).
+fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out) Error!void {
     const bpp = if (o == .rgb) 3 else 4;
     const n = out.len / bpp;
     var i: usize = 0;
@@ -310,71 +306,42 @@ fn span(r: *Io.Reader, s: *Stream, out: []u8, comptime o: Out, comptime branchy:
         var p: usize = 0;
         while (i < n and buf.len - p >= 5) {
             const b = buf[p];
-            if (branchy) {
-                if (b == 0xfe) {
-                    px = (px & 0xff00_0000) | std.mem.readInt(u24, buf[p + 1 ..][0..3], .little);
-                    p += 4;
-                } else if (b == 0xff) {
-                    px = std.mem.readInt(u32, buf[p + 1 ..][0..4], .little);
-                    p += 5;
-                } else switch (@as(u2, @intCast(b >> 6))) {
-                    0 => {
-                        px = index[b];
-                        if (px == 0) index[0] = 0;
-                        put(out, i, px, o);
-                        i += 1;
-                        p += 1;
-                        continue;
-                    },
-                    1 => {
-                        px = addBytes(px, ops[b].delta);
-                        p += 1;
-                    },
-                    2 => {
-                        px = addBytes(px, addBytes(ops[b].delta, luma_rb[buf[p + 1]]));
-                        p += 2;
-                    },
-                    3 => {
-                        // A run of 1 to 62; 63 and 64 would be 0xfe and 0xff.
-                        const count: usize = (b & 0x3f) + 1;
-                        const m = @min(count, n - i);
-                        fill(out, n, i, m, px, o);
-                        i += m;
-                        s.run = @intCast(count - m);
-                        p += 1;
-                        continue;
-                    },
-                }
-            } else {
-                if (b < 64) {
-                    // INDEX: the entry already sits at its own hash, so
-                    // the store after every pixel would rewrite it; only
-                    // an entry never written (zero, whose hash is 0) moves.
-                    px = index[b];
-                    if (px == 0) index[0] = 0;
-                    put(out, i, px, o);
-                    i += 1;
-                    p += 1;
-                    continue;
-                }
-                if (b >= 0xc0 and b < 0xfe) {
-                    // A run of 1 to 62; 63 and 64 would be 0xfe and 0xff.
-                    const count: usize = (b & 0x3f) + 1;
-                    const m = @min(count, n - i);
-                    fill(out, n, i, m, px, o);
-                    i += m;
-                    s.run = @intCast(count - m);
-                    p += 1;
-                    continue;
-                }
-                const next = std.mem.readInt(u32, buf[p + 1 ..][0..4], .little);
-                const op = ops[b];
-                const from_index: u32 = 0 -% @as(u32, @intFromBool(b < 64));
-                const base = (index[b & 63] & from_index) | (px & ~from_index);
-                const delta = addBytes(op.delta, luma_rb[next & 0xff] & op.luma);
-                px = addBytes((base & op.keep) | (next & ~op.keep), delta);
-                p += op.len;
+            if (b < 64) {
+                // INDEX: the entry already sits at its own hash, so the
+                // store after every pixel would rewrite it; only an entry
+                // never written (zero, whose hash is 0) moves.
+                px = index[b];
+                if (px == 0) index[0] = 0;
+                put(out, i, px, o);
+                i += 1;
+                p += 1;
+                continue;
             }
+            if (b >= 0xc0 and b < 0xfe) {
+                // A run of 1 to 62; 63 and 64 would be 0xfe and 0xff.
+                const count: usize = (b & 0x3f) + 1;
+                const m = @min(count, n - i);
+                fill(out, n, i, m, px, o);
+                i += m;
+                s.run = @intCast(count - m);
+                p += 1;
+                continue;
+            }
+            const next = std.mem.readInt(u32, buf[p + 1 ..][0..4], .little);
+            if (b == 0xff) {
+                px = next;
+                p += 5;
+                index[hash(px)] = px;
+                put(out, i, px, o);
+                i += 1;
+                continue;
+            }
+            const op = ops[b];
+            const from_index: u32 = 0 -% @as(u32, @intFromBool(b < 64));
+            const base = (index[b & 63] & from_index) | (px & ~from_index);
+            const delta = addBytes(op.delta, luma_rb[next & 0xff] & op.luma);
+            px = addBytes((base & op.keep) | (next & ~op.keep), delta);
+            p += op.len;
             index[hash(px)] = px;
             put(out, i, px, o);
             i += 1;
@@ -448,16 +415,11 @@ test "the index holds every decoded pixel" {
 test "an INDEX chunk of an entry never written stores its zero pixel" {
     // (0, 0, 0, 64) hashes to 0; INDEX 5 reads an empty entry, (0, 0, 0,
     // 0), whose hash is also 0, so it replaces the first pixel there and
-    // INDEX 0 reads it back. The second file is 64 by 64, which decodes
-    // without a branch per chunk kind; runs fill the rest.
-    const chunks = "\xff\x00\x00\x00\x40" ++ "\x05" ++ "\x00";
-    const want = [_]u8{ 0, 0, 0, 64 } ++ [_]u8{0} ** 8;
-    var out: [64 * 64 * 4]u8 = undefined;
-    _ = try testDecode(testHeader(3, 1, 4) ++ chunks ++ end, .rgba8, out[0..12]);
-    try testing.expectEqualSlices(u8, &want, out[0..12]);
-    _ = try testDecode(testHeader(64, 64, 4) ++ chunks ++ "\xfd" ** 66 ++ "\xc0" ++ end, .rgba8, &out);
-    try testing.expectEqualSlices(u8, &want, out[0..12]);
-    try testing.expect(std.mem.allEqual(u8, out[12..], 0));
+    // INDEX 0 reads it back.
+    const file = testHeader(3, 1, 4) ++ "\xff\x00\x00\x00\x40" ++ "\x05" ++ "\x00" ++ end;
+    var out: [12]u8 = undefined;
+    _ = try testDecode(file, .rgba8, &out);
+    try testing.expectEqualSlices(u8, &([_]u8{ 0, 0, 0, 64 } ++ [_]u8{0} ** 8), &out);
 }
 
 test "three channels: alpha is opaque whatever the chunks say" {

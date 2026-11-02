@@ -1,0 +1,3 @@
+QoiDecodeIcons/rotate64-16x16	len=65536 fnv=6a4ecfdaef66047e
+QoiDecodeIcons/rotate64-32x32	len=262144 fnv=29cc579dcd95b46b
+QoiDecodeIcons/rotate64-64x64	len=1048576 fnv=98d4408f3eb4617c

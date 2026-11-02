@@ -1,0 +1,3 @@
+peak RSS (MiB)               ff       s0   before image-rs
+qoi-decode                257.7    257.7    257.7    258.3
+qoi-decode-icons            2.7      2.6      2.6      3.4

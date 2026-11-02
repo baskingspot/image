@@ -1,0 +1,17 @@
+--- Decoder.s0.zig	2026-11-02 06:01:08.533951040 +0000
++++ Decoder.ff.zig	2026-11-02 06:03:55.935868085 +0000
+@@ -325,6 +325,14 @@
+                 continue;
+             }
+             const next = std.mem.readInt(u32, buf[p + 1 ..][0..4], .little);
++            if (b == 0xff) {
++                px = next;
++                p += 5;
++                index[hash(px)] = px;
++                put(out, i, px, o);
++                i += 1;
++                continue;
++            }
+             const op = ops[b];
+             const from_index: u32 = 0 -% @as(u32, @intFromBool(b < 64));
+             const base = (index[b & 63] & from_index) | (px & ~from_index);
