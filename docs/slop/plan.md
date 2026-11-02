@@ -793,6 +793,16 @@ orb asks for a change to them, or for text in this file, in its report.
     `blend`; a frame composites over the previous one, as PNG's `.over`, and
     a caller whose frame clears pixels disposes the previous frame to
     background. Documented, not detected.
+45. **JPEG XL lossy comparison. Decided by the owner:** the harness gets a
+    per-input tolerance hook (`toleranceFor(input) ?u16`); lossless answers
+    stay exact, lossy frames get 3 (float evaluation in the sRGB curve's
+    linear segment), and frames that draw splines get the conformance bound
+    (peak 262, RMS ≤ 1e-4). Lossy frames stay out until the hook lands; no
+    coarse erf to sit nearer libjxl.
+46. **JPEG XL XYB with ICC. Decided by the owner:** the pixels are reported
+    as they are (`transfer = .linear`, sRGB `primaries`); the ICC is still
+    delivered and documented as the original's space (libjxl's original
+    profile), not the pixels'.
 
 ## Harness requests
 
