@@ -495,6 +495,13 @@ orb asks for a change to them, or for text in this file, in its report.
   oracle protocol, `checkDecoder`'s `decodeFrameConfig` and seeker passes,
   per-class peak RSS, ReleaseFast unit tests, and oracle-ci as its own job
   uploading mismatches. Agree counts moved once with the sort.
+- **Harness pass 5** (landed at `ab2e128`): a format's oracle module may
+  declare `pub const tolerance: u16 = N`, and compare.zig then compares its
+  pixels within N (u8 or u16 units; N/65535 for floats) instead of hashes; no
+  format declares one yet (jxl's lossy frames, tried at 1, show 162
+  mismatches with differences up to 52, for the JPEG XL orb). The Go bench
+  arm unmaps each row's buffers when the next loads (a full serve run went
+  from OOM at 6.2 GiB to 1.5 GiB). `harness.Trickle` is public.
 - **Decoder contract** (landed at `5b7b9f4`): `image.Decoder.finalConfig`
   with an optional `applyTrailer` (decision 10); `decodeFrameConfig`
   (decision 11), forwarded when a format has one, synthesized for formats of
