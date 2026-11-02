@@ -1507,12 +1507,8 @@ fn decodeFrame(st: *State, sink: Sink) Error!void {
             }
 
             reconstruct(&sc, &mb, &coef, codes_y, codes_uv, mbx, mby, mbw, top_y, top_u, top_v);
-            if (!skip) {
-                const codes = @as(u64, codes_y) << 16 | codes_uv;
-                for (&coef, 0..) |*blk, n| {
-                    if (codes >> @intCast(46 - 2 * n) & 3 != 0) blk.* = @splat(0);
-                }
-            }
+            // All 24 blocks: cheaper than a branch per block on its code.
+            if (!skip) coef = @splat(@splat(0));
 
             // Into the frame rows, and the bottom row kept for prediction.
             for (0..16) |r| @memcpy(ybuf[(8 + r) * w16 + 16 * mbx ..][0..16], sc.y[y0 + r * ys ..][0..16]);
