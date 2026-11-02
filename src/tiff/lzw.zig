@@ -10,7 +10,9 @@
 //! bit is in the second byte's low bit, which a new-style stream (first
 //! byte 0x80) cannot, so the first two bytes tell them apart.
 //!
-//! The table is in the caller's work memory (`work_len`). A string longer
+//! The table is in the caller's work memory (`work_len`). Each entry holds
+//! its string's last block of up to 8 bytes and the entry for the rest, so
+//! a string is written out 8 bytes a step. A string longer
 //! than what is left of the caller's buffer is written to a stash in the
 //! same memory and copied out over later calls.
 
@@ -37,14 +39,21 @@ const none: u16 = 0xffff;
 
 /// Work memory for the table and the stash, with a byte to align the
 /// 16-bit arrays.
-pub const work_len = table_len * (2 + 2 + 1 + 1) + table_len + 1;
+pub const work_len = table_len * (2 + 2 + block) + table_len + 1;
+
+/// A table entry's string is held as its last block of up to this many
+/// bytes and the entry holding the rest, so writing a string out takes a
+/// step per block, not per byte.
+const block = 8;
 
 pub const Decoder = struct {
     src: *Io.Reader,
+    /// The entry whose string is this one's without its last block.
     prefix: *[table_len]u16,
     length: *[table_len]u16,
-    suffix: *[table_len]u8,
-    first: *[table_len]u8,
+    /// The last block: the bytes from the last multiple of `block` before
+    /// the string's end.
+    tail: *[table_len][block]u8,
     stash: *[table_len]u8,
     /// The unread part of the stash.
     stash_at: u16 = 0,
@@ -54,6 +63,8 @@ pub const Decoder = struct {
     width: u4 = 9,
     next: u16 = first_free,
     prev: u16 = none,
+    /// The first byte of the previous code's string.
+    prev_first: u8 = 0,
     old: bool = false,
     /// The style the caller has decided, or null to tell from the data.
     style: ?bool,
@@ -69,14 +80,12 @@ pub const Decoder = struct {
             .style = style,
             .prefix = @ptrCast(@alignCast(work[0 .. 2 * table_len])),
             .length = @ptrCast(@alignCast(work[2 * table_len .. 4 * table_len])),
-            .suffix = work[4 * table_len ..][0..table_len],
-            .first = work[5 * table_len ..][0..table_len],
-            .stash = work[6 * table_len ..][0..table_len],
+            .tail = @ptrCast(work[4 * table_len ..][0 .. block * table_len]),
+            .stash = work[(4 + block) * table_len ..][0..table_len],
         };
         for (0..256) |c| {
             d.length[c] = 1;
-            d.suffix[c] = @intCast(c);
-            d.first[c] = @intCast(c);
+            d.tail[c][0] = @intCast(c);
         }
         return d;
     }
@@ -91,46 +100,127 @@ pub const Decoder = struct {
             i = n;
         }
         if (!d.started) try d.start();
+        // The state lives in locals here, since stores to `dst` could
+        // otherwise alias it.
+        const prefix = d.prefix;
+        const length = d.length;
+        const tail = d.tail;
+        const old = d.old;
+        var bits = d.bits;
+        var nbits = d.nbits;
+        var width = d.width;
+        var next = d.next;
+        var prev = d.prev;
+        var prev_first = d.prev_first;
+        var cleared = d.cleared;
+        defer {
+            d.cleared = cleared;
+            d.bits = bits;
+            d.nbits = nbits;
+            d.width = width;
+            d.next = next;
+            d.prev = prev;
+            d.prev_first = prev_first;
+        }
         while (i < dst.len) {
-            const code = try d.nextCode();
+            if (nbits < width) {
+                const avail = d.src.buffered();
+                if (avail.len >= 8) {
+                    // Whole bytes, as many as fit beside the bits left.
+                    const k: u6 = @intCast((63 - nbits) / 8);
+                    if (old) {
+                        const w = std.mem.readInt(u64, avail[0..8], .little);
+                        bits |= (w & ((@as(u64, 1) << 8 * k) - 1)) << @intCast(nbits);
+                    } else {
+                        const w = std.mem.readInt(u64, avail[0..8], .big);
+                        bits = bits << 8 * k | w >> @intCast(64 - @as(u7, 8) * k);
+                    }
+                    d.src.toss(k);
+                    nbits += 8 * @as(u7, k);
+                } else while (nbits < width) {
+                    const b = d.src.takeByte() catch |e| switch (e) {
+                        error.EndOfStream => return error.NotEnoughData,
+                        error.ReadFailed => return error.ReadFailed,
+                    };
+                    if (old) {
+                        bits |= @as(u64, b) << @intCast(nbits);
+                    } else {
+                        bits = bits << 8 | b;
+                    }
+                    nbits += 8;
+                }
+            }
+            const mask = (@as(u64, 1) << width) - 1;
+            nbits -= width;
+            var code: u16 = undefined;
+            if (old) {
+                code = @intCast(bits & mask);
+                bits >>= width;
+            } else code = @intCast(bits >> @intCast(nbits) & mask);
+            if (code < 256 and prev != none) {
+                // A literal, the common case.
+                if (next < table_len) {
+                    add(prefix, length, tail, next, prev, @intCast(code));
+                    next += 1;
+                    if (next + @intFromBool(!old) >= @as(u16, 1) << width and width < 12) width += 1;
+                }
+                dst[i] = @intCast(code);
+                i += 1;
+                prev = code;
+                prev_first = @intCast(code);
+                continue;
+            }
             if (code == clear) {
-                d.next = first_free;
-                d.width = 9;
-                d.prev = none;
-                d.cleared = true;
+                next = first_free;
+                width = 9;
+                prev = none;
+                cleared = true;
                 continue;
             }
             if (code == eoi) return error.NotEnoughData;
-            if (!d.cleared) return error.BadLzw;
-            if (d.prev == none) {
+            if (!cleared) return error.BadLzw;
+            if (prev == none) {
                 if (code >= 256) return error.BadLzw;
                 dst[i] = @intCast(code);
                 i += 1;
-                d.prev = code;
+                prev = code;
+                prev_first = @intCast(code);
                 continue;
             }
-            if (code > d.next or code == d.next and d.next == table_len) return error.BadLzw;
-            if (d.next < table_len) {
-                // The new entry: the previous string and the first byte of
-                // this one, which is the previous string's own first byte
-                // when this code is the entry being made.
-                const n = d.next;
-                d.prefix[n] = d.prev;
-                d.suffix[n] = if (code == n) d.first[d.prev] else d.first[code];
-                d.first[n] = d.first[d.prev];
-                d.length[n] = d.length[d.prev] + 1;
-                d.next += 1;
-                const grow: u16 = if (d.old) 0 else 1;
-                if (d.next + grow >= @as(u16, 1) << d.width and d.width < 12) d.width += 1;
+            if (code > next or code == next and next == table_len) return error.BadLzw;
+            // The new entry is the previous string and the first byte of
+            // this one; when this code is that entry, its first byte is the
+            // previous string's.
+            const n = next;
+            const len = if (code == n) length[prev] + 1 else length[code];
+            if (n < table_len) {
+                add(prefix, length, tail, n, prev, prev_first);
+                next += 1;
+                if (next + @intFromBool(!old) >= @as(u16, 1) << width and width < 12) width += 1;
             }
-            d.prev = code;
-            const len = d.length[code];
+            prev = code;
+            // The string's blocks are written whole, last first, as far as
+            // `dst` (or the stash) has room; bytes past the string's end are
+            // overwritten by the strings after it.
             const room = dst.len - i;
+            const out = if (len <= room) dst[i..] else d.stash;
+            var c = code;
+            var at: usize = (len - 1) / block * block;
+            if (at + block <= out.len) {
+                out[at..][0..block].* = tail[c];
+            } else for (out[at..len], tail[c][0 .. len - at]) |*o, t| {
+                o.* = t;
+            }
+            while (at > 0) {
+                c = prefix[c];
+                at -= block;
+                out[at..][0..block].* = tail[c];
+            }
+            prev_first = out[0];
+            if (n < table_len) tail[n][(length[n] - 1) % block] = prev_first;
             if (len <= room) {
-                writeString(d, dst[i..][0..len], code);
                 i += len;
             } else {
-                writeString(d, d.stash[0..len], code);
                 @memcpy(dst[i..], d.stash[0..room]);
                 d.stash_at = @intCast(room);
                 d.stash_end = len;
@@ -139,15 +229,25 @@ pub const Decoder = struct {
         }
     }
 
-    fn writeString(d: *const Decoder, out: []u8, string: u16) void {
-        var c = string;
-        var k = out.len;
-        while (k > 1) {
-            k -= 1;
-            out[k] = d.suffix[c];
-            c = d.prefix[c];
+    /// Makes entry `n` the string of `prev` and then `byte`.
+    inline fn add(
+        prefix: *[table_len]u16,
+        length: *[table_len]u16,
+        tail: *[table_len][block]u8,
+        n: u16,
+        prev: u16,
+        byte: u8,
+    ) void {
+        const len = length[prev];
+        length[n] = len + 1;
+        if (len % block != 0) {
+            prefix[n] = prefix[prev];
+            tail[n] = tail[prev];
+            tail[n][len % block] = byte;
+        } else {
+            prefix[n] = prev;
+            tail[n][0] = byte;
         }
-        out[0] = @intCast(c);
     }
 
     fn start(d: *Decoder) Error!void {
@@ -161,30 +261,6 @@ pub const Decoder = struct {
             error.ReadFailed => return error.ReadFailed,
         };
         d.old = head[0] == 0 and head[1] & 1 != 0;
-    }
-
-    /// The next code, refilling the bit buffer a byte at a time.
-    fn nextCode(d: *Decoder) Error!u16 {
-        while (d.nbits < d.width) {
-            const b = d.src.takeByte() catch |e| switch (e) {
-                error.EndOfStream => return error.NotEnoughData,
-                error.ReadFailed => return error.ReadFailed,
-            };
-            if (d.old) {
-                d.bits |= @as(u64, b) << @intCast(d.nbits);
-            } else {
-                d.bits = d.bits << 8 | b;
-            }
-            d.nbits += 8;
-        }
-        const mask = (@as(u64, 1) << d.width) - 1;
-        d.nbits -= d.width;
-        if (d.old) {
-            const c: u16 = @intCast(d.bits & mask);
-            d.bits >>= d.width;
-            return c;
-        }
-        return @intCast(d.bits >> @intCast(d.nbits) & mask);
     }
 };
 
