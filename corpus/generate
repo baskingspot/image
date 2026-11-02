@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates corpus/vendor/generated/ from PngSuite with the dev shell's
-# ImageMagick, qoiconv, libjpeg-turbo's cjpeg, and libtiff's tiffcp: the formats whose public
+# ImageMagick, qoiconv, libjpeg-turbo's cjpeg (and tjbench for CMYK and
+# YCCK), and libtiff's tiffcp: the formats whose public
 # suites leave cases uncovered (Netpbm's every type, TGA's every image type,
 # ICO and CUR with BMP and PNG entries, WBMP, small QOI files, and JPEG's
 # arithmetic, 12-bit, and lossless processes). Each format's cases are a

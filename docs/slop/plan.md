@@ -217,7 +217,10 @@ owning the files adding-a-format.md assigns to its format plus
   `decodeConfig` states for that frame header; `multi_scan = false` bounds
   single-scan streams only) and `Options.crop` (edge tiles into a top-left
   page-buffer view), and builds the CMYK converter only for CMYK images
-  (results/jpeg-tiff-20261102.md, icons +4.6%).
+  (results/jpeg-tiff-20261102.md, icons +4.6%). JPEG's oracle compares `.raw` CMYK and
+  YCCK decodes with libjpeg-turbo's JCS_CMYK output as cmyk8 and cmyk16, and
+  corpus/gen/jpeg.sh adds ten CMYK and YCCK files from tjbench across every
+  process.
 - **WebP decode** (landed at `a7f586e`; webp.md, results/webp-20261102.md):
   lossless (VP8L) from RFC 9649, lossy (VP8) from RFC 6386 with ALPH (raw or
   lossless, every filter), and animation (ANIM/ANMF) under the Frame
