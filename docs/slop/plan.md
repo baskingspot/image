@@ -204,10 +204,21 @@ owning the files adding-a-format.md assigns to its format plus
 - **bmp-stb determinism** (landed at `56024dd`): stb_image reads its
   uninitialized on-stack palette for some BMPs; bmp-stb now skips those, and
   BMP split counts are stable between runs.
-- **Performance pass** (branch `wave2-perf`): `src/convert.zig`, `src/tga/`,
-  and `src/netpbm/` now; `src/png/` (decoder) once `wave1-png-strict` lands
-  and `src/qoi/` once `wave1-wbmp-qoi` lands; inflate in baskingspot/compress
-  on a branch there. PNG decode against Wuffs first.
+- **Performance pass 1** (landed at `0469a46`, with compress at `1cdd3d8`):
+  conversion row tails go through the SIMD kernels, and RGB↔BGR stores whole
+  cache lines. PNG unfilters rows from the inflate window, pairs Average and
+  Paeth rows, folds the CRC with PCLMULQDQ, and expands 8-bit palettes with
+  one loop per layout: 1.19× Wuffs with compress's faster inflate (0.82× on
+  fd03d72), at 239.5 MiB peak RSS against Wuffs's 384.2. Netpbm scans plain
+  samples with 64-byte digit and whitespace masks and reads headers from the
+  buffer. QOI takes INDEX without the index store and fills runs 8 pixels a
+  store: 0.99–1.18× the `qoi` crate and 1.64–1.83× Wuffs. Results:
+  convert-tails, png-perf, netpbm-perf, and qoi-perf (20261102). A
+  `@Vector(N, bool)` bit cast puts lane 0 in the top bit on big-endian; use
+  a helper that reverses it there.
+- **Performance pass 2** (branch `wave2-perf`): `src/convert.zig` (with the
+  `cmyk8` and `cmyk16` kernels, decision 15) and `src/qoi/`; then whatever
+  the full bench-compare shows below 1.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
@@ -301,12 +312,14 @@ orb asks for a change to them, or for text in this file, in its report.
   `test/oracle/qoi_encode.zig`, for the encoder hook, the oracle encode op,
   the bench encode-input convention, oracle-build's rename, and a rotating
   icon bench row.
-- **Decoder contract** (branch `wave2-metadata-hook`, the BMP/ICO orb):
-  `finalConfig` (decision 10), `decodeFrameConfig` (decision 11), and
-  `Blob.len` as `?u64` (decision 13, with the harness's sinks) in
-  `src/decode.zig`, `src/Decoder.zig`, and adding-a-format.md. Wiring TGA's
-  footer and PNG's late chunks waits for the performance pass to release
-  `src/tga/` and `src/png/`.
+- **Decoder contract** (landed at `5b7b9f4`): `image.Decoder.finalConfig`
+  with an optional `applyTrailer` (decision 10); `decodeFrameConfig`
+  (decision 11), forwarded when a format has one, synthesized for formats of
+  at most one frame, and `Unsupported` otherwise; `Blob.len` as `?u64` with
+  `Blob.endsAt` (decision 13).
+- **Contract wiring** (branch `wave2-contract-wiring`, the BMP/ICO orb):
+  `src/tga/`, `src/png/` (decoder), and `src/netpbm/` for `applyTrailer` in
+  TGA and PNG, and `decodeFrameConfig` in APNG and Netpbm.
 - **GIF follow-ups** (landed at `e6e0414`; results/gif-options-20261102.md):
   decision 12. `loop_count` is 1 without a loop extension, and
   `gif.Decoder.Options.ignore_too_much_data` matches Wuffs's quirk, including
@@ -409,9 +422,6 @@ orb asks for a change to them, or for text in this file, in its report.
 Changes the format orbs asked for in files the orchestrating thread owns,
 not yet made:
 
-- `image.convert`'s kernels cost about 25 ns per call in their tails, half a
-  166-pixel row; narrow 24- and 32-bit BMPs run 0.69× Wuffs from it
-  (performance pass).
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
 - `harness.checkEncoder`: a hook mapping the source to its expected decode
