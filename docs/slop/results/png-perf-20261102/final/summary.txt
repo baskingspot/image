@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before  imgonly     base    wuffs     ±   <1    ~   slowest vs before
+PngDecode/icon                    17       95.3     1.08     1.57     1.77     1.22    1%    0    3   1.05 [1.02, 1.07] variant_gray_alpha-actions_address_book_new-64x64.png
+PngDecode/1mp                     27      173.8     1.06     1.37     1.61     1.18    1%    1    8   0.96 [0.90, 0.98] test-testcard_rgba-256x256.png
+PngDecode/large                    8      143.3     1.09     1.51     1.65     1.18    6%    0    1   1.05 [0.54, 1.08] screenshot_web-apple_com-1313x4755.png
+all                               52      138.6     1.07     1.46     1.66     1.19          1   12

@@ -1,0 +1,4 @@
+before      52 rows, 0 differ from image
+imgonly     52 rows, 0 differ from image
+base        52 rows, 0 differ from image
+wuffs       52 rows, 0 differ from image

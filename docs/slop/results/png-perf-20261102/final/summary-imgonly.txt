@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s     base    wuffs     ±   <1    ~   slowest vs base
+PngDecode/icon                    17       60.7     1.12     0.78    2%    0    6   1.06 [0.86, 1.30] icon_16-actions_appointment_new-16x16.png
+PngDecode/1mp                     27      126.7     1.17     0.86    2%    0    1   1.06 [1.05, 1.10] test-wikipedia_008-1152x858.png
+PngDecode/large                    8       95.1     1.09     0.78    2%    0    1   1.04 [1.01, 1.04] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.png
+all                               52       95.3     1.14     0.82          0    8

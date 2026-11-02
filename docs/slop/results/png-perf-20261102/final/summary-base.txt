@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s    wuffs     ±   <1    ~   slowest vs wuffs
+PngDecode/icon                    17       54.0     0.69    2%   16    1   0.57 [0.55, 0.70] variant_palette-actions_address_book_new-64x64.png
+PngDecode/1mp                     27      108.2     0.74    4%   22    3   0.56 [0.56, 0.57] textures_pk-_pkf_water1-128x128.png
+PngDecode/large                    8       87.1     0.71    2%    7    1   0.56 [0.54, 0.67] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.png
+all                               52       83.4     0.72         45    5

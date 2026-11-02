@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s  imgonly     base    wuffs     ±   <1    ~   slowest vs imgonly
+PngDecode/icon                    17       88.0     1.45     1.62     1.12    3%    0    0   1.32 [1.13, 1.51] variant_gray-actions_address_book_new-64x64.png
+PngDecode/1mp                     27      163.6     1.29     1.52     1.12    1%    0    2   1.04 [0.64, 1.06] screenshot_game-3dbrick2-320x240.png
+PngDecode/large                    8      131.6     1.38     1.51     1.08    2%    0    0   1.26 [1.20, 1.31] photo_mosaic-50mp-8192x6144.png
+all                               52      129.2     1.36     1.55     1.11          0    2
