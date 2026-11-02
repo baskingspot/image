@@ -129,8 +129,8 @@ pub fn init(reader: *Io.Reader, options: Options) Decoder {
 /// canvas can be transparent wherever a frame does not cover it.
 /// `frame_count` is null (GIF does not say), and `loop_count` is the
 /// NETSCAPE2.0 count as a number of plays (the count plus one, or 0 for
-/// forever) when one comes before the first frame, and null otherwise (an
-/// animation without one plays once). Calling it again returns the same
+/// forever) when one comes before the first frame, and 1 otherwise, as
+/// browsers play such a file once. Calling it again returns the same
 /// config.
 pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     if (d.err) |e| return e;
@@ -141,7 +141,7 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
         .width = d.width,
         .height = d.height,
         .native = .rgba8,
-        .loop_count = d.loop_count,
+        .loop_count = d.loop_count orelse 1,
         .work_len = work_len,
         .background = d.background,
     };
@@ -658,6 +658,8 @@ test "a still image, in order and interlaced, through any reader" {
                 .width = w,
                 .height = h,
                 .native = .rgba8,
+                // No loop extension: the file plays once.
+                .loop_count = 1,
                 .work_len = work_len,
                 .background = .{ colors[0][0], colors[0][1], colors[0][2], 255 },
             }, config);

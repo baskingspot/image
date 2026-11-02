@@ -92,7 +92,8 @@ specifications leave room, and why. Results: `results/gif-20261101.md`.
   it is skipped, as are comments and unknown application extensions. The
   loop count is read from NETSCAPE2.0 or ANIMEXTS1.0 before the first
   frame: `Config.loop_count` is the count plus one plays (0 forever), or
-  null when there is none (such a file plays once). One after the first
+  1 when there is none, as browsers play such a file once (decision 12;
+  a first version reported null). One after the first
   frame is skipped, since the config is already returned. ICC (`ICCRGBG1012`)
   and XMP (`XMP DataXMP`) application extensions are skipped, not passed to
   the blob sink: a blob is announced with its length, and a GIF extension's
