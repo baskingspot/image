@@ -162,7 +162,10 @@ few-bytes-at-a-time writer, for a target's own checks.
   gives our decoder its work memory per input and frees it, so a module need
   not manage work memory itself. Fuzzed inputs mutate corpus files of at most
   2^18 pixels, and one time in 16 any corpus file, so large files in
-  `corpus` cost the corpus pass, not every mutation. `just oracle
+  `corpus` cost the corpus pass, not every mutation. Corpus files are read
+  from disk as batches need them, and `adapt` is called once per input and
+  op, so an `adapt` that copies its input costs one copy per op, not one
+  per pixel format; return the input itself when it needs no change. `just oracle
 100000` runs every format, and `just oracle 20000 1 <fmt>` one; the gate is
   0 mismatches.
 - **MagickWand.** An oracle that reads through ImageMagick calls

@@ -454,6 +454,18 @@ pub const Corpus = struct {
     too_large: usize,
 };
 
+/// The paths `loadCorpus` would read, each its directory joined with the
+/// file's path under it, without reading the files.
+pub const CorpusPaths = struct {
+    paths: []const []const u8,
+    too_large: usize,
+
+    pub fn deinit(c: CorpusPaths, gpa: std.mem.Allocator) void {
+        for (c.paths) |p| gpa.free(p);
+        gpa.free(c.paths);
+    }
+};
+
 /// The files under `dirs` (relative to the working directory, and skipped
 /// when missing) whose names end in one of `extensions`, leaving out any of
 /// `max_len` bytes or more, such as bench/corpus-gen's 50-megapixel inputs.
@@ -466,7 +478,23 @@ pub fn loadCorpus(
     extensions: []const []const u8,
     max_len: usize,
 ) !Corpus {
-    var files: std.ArrayList([]const u8) = .empty;
+    const listed = try listCorpus(gpa, io, dirs, extensions, max_len);
+    defer listed.deinit(gpa);
+    const files = try gpa.alloc([]const u8, listed.paths.len);
+    for (files, listed.paths) |*f, p| f.* = try Io.Dir.cwd().readFileAlloc(io, p, gpa, .limited(max_len));
+    return .{ .files = files, .too_large = listed.too_large };
+}
+
+/// `loadCorpus`'s files, in its order, as paths: for a caller that reads
+/// each file when it needs it rather than holding them all.
+pub fn listCorpus(
+    gpa: std.mem.Allocator,
+    io: Io,
+    dirs: []const []const u8,
+    extensions: []const []const u8,
+    max_len: usize,
+) !CorpusPaths {
+    var all: std.ArrayList([]const u8) = .empty;
     var too_large: usize = 0;
     for (dirs) |path| {
         var dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
@@ -495,10 +523,10 @@ pub fn loadCorpus(
                 too_large += 1;
                 continue;
             }
-            try files.append(gpa, try dir.readFileAlloc(io, p, gpa, .limited(max_len)));
+            try all.append(gpa, try Io.Dir.path.join(gpa, &.{ path, p }));
         }
     }
-    return .{ .files = try files.toOwnedSlice(gpa), .too_large = too_large };
+    return .{ .paths = try all.toOwnedSlice(gpa), .too_large = too_large };
 }
 
 test loadCorpus {

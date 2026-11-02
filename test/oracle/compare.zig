@@ -175,22 +175,29 @@ fn batchBytes(comptime F: type, input: []const u8) usize {
 fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
     const start: std.Io.Timestamp = .now(io, .awake);
     const T = F.fuzz;
-    const loaded = try fuzz.harness.loadCorpus(gpa, io, &T.corpus, &T.extensions, max_corpus_len);
+    // The corpus stays on disk: each file is read into the batch that
+    // compares or mutates it, and only the small mutation bases are held.
+    const corpus = try fuzz.harness.listCorpus(gpa, io, &T.corpus, &T.extensions, max_corpus_len);
+    defer corpus.deinit(gpa);
     const dir = "zig-out/oracle/" ++ F.name;
     try std.Io.Dir.cwd().createDirPath(io, dir);
     var bases: std.ArrayList([]const u8) = .empty;
-    defer bases.deinit(gpa);
-    for (loaded.files) |file| {
+    defer {
+        for (bases.items) |b| gpa.free(b);
+        bases.deinit(gpa);
+    }
+    for (corpus.paths) |path| {
+        const file = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(max_corpus_len));
         var rd: std.Io.Reader = .fixed(file);
         var d = F.Decoder.init(&rd, .{ .limits = .{ .max_pixels = max_pixels } });
         const ok = if (d.decodeConfig()) |c| @as(u64, c.width) * c.height <= max_base_pixels else |_| true;
-        if (ok) try bases.append(gpa, file);
+        if (ok) try bases.append(gpa, file) else gpa.free(file);
     }
     var run: Run(F) = .{
         .oracle = oracle,
-        .corpus = loaded.files,
+        .corpus = corpus.paths,
         .bases = bases.items,
-        .total = loaded.files.len + n,
+        .total = corpus.paths.len + n,
         .prng = .init(seed),
     };
     // Batches run on every core; each worker takes the next batch, its
@@ -201,7 +208,7 @@ fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
     for (threads[0..workers]) |*t| t.* = try std.Thread.spawn(.{}, Run(F).work, .{&run});
     for (threads[0..workers]) |t| t.join();
     if (run.err) |e| return e;
-    run.stats.print(F, loaded, n, start.untilNow(io, .awake));
+    run.stats.print(F, corpus, n, start.untilNow(io, .awake));
     return run.stats.mismatches;
 }
 
@@ -214,6 +221,7 @@ fn Run(comptime F: type) type {
         const encodes = @hasDecl(F, "encode");
 
         oracle: Oracle,
+        /// The corpus files' paths.
         corpus: []const []const u8,
         /// The corpus files to mutate, most of the time (`max_base_pixels`).
         bases: []const []const u8,
@@ -256,6 +264,10 @@ fn Run(comptime F: type) type {
             // format, the image our decoder reads from it: its source, or
             // null when there is none.
             const sources = try arena.alloc([F.formats.len]?image.PixelBuffer, if (encodes) inputs.len else 0);
+            // A request whose input is the previous one's sends no copy
+            // (Oracle.run), so a decoder's requests go op by op, each op's
+            // adapted input made once: an input goes to the oracle once per
+            // op that rewrites it, not once per pixel format.
             var requests: std.ArrayList(Oracle.Request) = .empty;
             for (inputs, 0..) |input, i| {
                 if (!encodes) {
@@ -338,7 +350,7 @@ fn Run(comptime F: type) type {
                 count += 1;
                 defer bytes += batchBytes(F, input.*);
                 if (i < r.corpus.len) {
-                    input.* = r.corpus[i];
+                    input.* = try readFile(r.corpus[i], 0, arena);
                     continue;
                 }
                 const buf = try arena.alloc(u8, 1 << 16);
@@ -346,10 +358,15 @@ fn Run(comptime F: type) type {
                 if (r.corpus.len > 0 and random.boolean()) {
                     const any = r.bases.len == 0 or random.uintLessThan(u8, big_base_odds) == 0;
                     const pool = if (any) r.corpus else r.bases;
-                    const base = pool[random.uintLessThan(usize, pool.len)];
-                    const big = try arena.alloc(u8, base.len + 4096);
-                    @memcpy(big[0..base.len], base);
-                    len = fuzz.harness.mutate(random, big, base.len);
+                    const pick = pool[random.uintLessThan(usize, pool.len)];
+                    // Room for `mutate` to grow it.
+                    const extra = 4096;
+                    var big: []u8 = undefined;
+                    if (any) big = try readFile(pick, extra, arena) else {
+                        big = try arena.alloc(u8, pick.len + extra);
+                        @memcpy(big[0..pick.len], pick);
+                    }
+                    len = fuzz.harness.mutate(random, big, big.len - extra);
                     input.* = big[0..len];
                 } else {
                     const g = T.generate(random, buf);
@@ -362,6 +379,17 @@ fn Run(comptime F: type) type {
             return inputs[0..count];
         }
     };
+}
+
+/// The file at `path` in `arena`, followed by `extra` bytes of room.
+fn readFile(path: []const u8, extra: usize, arena: std.mem.Allocator) ![]u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+    const len = try file.length(io);
+    if (len >= max_corpus_len) return error.CorpusChanged;
+    const buf = try arena.alloc(u8, @intCast(len + extra));
+    if (try file.readPositionalAll(io, buf[0..@intCast(len)], 0) != len) return error.CorpusChanged;
+    return buf;
 }
 
 /// Orders a map's entries by their keys.
@@ -463,8 +491,8 @@ const Stats = struct {
         }
     }
 
-    fn print(s: *Stats, comptime F: type, corpus: fuzz.harness.Corpus, n: usize, took: std.Io.Duration) void {
-        std.debug.print("{s}: {d} corpus files", .{ F.name, corpus.files.len });
+    fn print(s: *Stats, comptime F: type, corpus: fuzz.harness.CorpusPaths, n: usize, took: std.Io.Duration) void {
+        std.debug.print("{s}: {d} corpus files", .{ F.name, corpus.paths.len });
         if (corpus.too_large > 0) std.debug.print(" ({d} of 64 MiB or more left out)", .{corpus.too_large});
         std.debug.print(" and {d} fuzzed inputs, {d} comparisons against", .{ n, s.comparisons });
         for (F.oracles) |op| std.debug.print(" {s}", .{op});
