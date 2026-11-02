@@ -66,7 +66,9 @@ A rotating operation (`rotate=<op>` in the sixth column of `bench/ops.tsv`)
 times `<op>`'s function on many distinct files, so that a tiny input's
 branches cannot be learned: it has one row per input size,
 `rotate<N>-<W>x<H>`, whose calls take that size's N files in turn, and its
-`check` line sums their lengths and their FNV-1a hashes.
+`check` line sums their lengths and their FNV-1a hashes. `png-decode-icons`
+and `qoi-decode-icons` rotate through 64 icons at 16, 32, and 64 pixels
+(`bench/corpus/icons.sh`).
 
 ## Method
 

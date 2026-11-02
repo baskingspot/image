@@ -159,7 +159,9 @@ few-bytes-at-a-time writer, for a target's own checks.
   with no header, and the harness gives its size: `input.pixels(in, format)`
   in `bench/zig/input.zig`, `bench_width` and `bench_height` in C,
   `crate::input_size()` in Rust, and `inWidth` and `inHeight` in Go
-  (bench/README.md, "Arm contract"). `just bench-compare 10 png-decode` runs one
+  (bench/README.md, "Arm contract"). A row whose inputs are tiny can add a
+  rotating twin (`rotate=<op>`) over many distinct files, as
+  `png-decode-icons` does. `just bench-compare 10 png-decode` runs one
   operation; write the result up in `docs/slop/results/`.
 
 ## Checklist before pushing

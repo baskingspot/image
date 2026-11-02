@@ -18,6 +18,8 @@ gif-decode-anim	GifDecodeAnim	gif/anim	4	same
 png-decode	PngDecode	png	4	same
 qoi-decode	QoiDecode	qoi	4	same
 qoi-decode-bgra	QoiDecodeBGRA	qoi	4	same
+png-decode-icons	PngDecodeIcons	icons/png	4	same	rotate=png-decode
+qoi-decode-icons	QoiDecodeIcons	icons/qoi	4	same	rotate=qoi-decode
 qoi-encode	QoiEncode	qoi_encode	5	own
 wbmp-decode	WbmpDecode	wbmp	1	same
 wbmp-decode-rgba	WbmpDecodeRGBA	wbmp	4	same
