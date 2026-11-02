@@ -24,6 +24,7 @@ const entropy = @import("entropy.zig");
 const Arena = @import("Arena.zig");
 const modular = @import("modular.zig");
 const frame = @import("frame.zig");
+const vardct = @import("vardct.zig");
 const icc = @import("icc.zig");
 const patches = @import("patches.zig");
 const splines = @import("splines.zig");
@@ -46,7 +47,12 @@ pub const Error = decode.Error || error{
     /// entropy codes or trees past the budget docs/slop/jxl.md describes,
     /// or a frame of more than twice the canvas's pixels.
     TooComplex,
+    /// `decodeJpeg`: the codestream cannot hold a recompressed JPEG.
+    NotJpeg,
 };
+
+/// A recompressed JPEG's coefficients, from `decodeJpeg`.
+pub const Jpeg = vardct.Jpeg;
 
 options: Options,
 br: BitReader,
@@ -73,6 +79,9 @@ nonvisible: u32 = 0,
 /// approximate rather than the stored integers.
 float_frames: bool = false,
 store: Store = .{},
+/// Receives every VarDCT frame's quantized coefficients, for rebuilding a
+/// recompressed JPEG; for this package's JPEG reconstruction, not callers.
+coeff_sink: ?vardct.CoeffSink = null,
 
 const State = enum { start, config, frames, done };
 
@@ -176,19 +185,24 @@ fn planeCount(h: *const headers.ImageHeader) usize {
 
 /// The work memory bound (docs/slop/jxl.md, work memory).
 fn workBound(d: *const Decoder) Error!usize {
+    return d.boundFor(.frames);
+}
+
+/// The work memory bound for decoding frames, or for `decodeJpeg`.
+fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
     const h = &d.image;
     const px: u128 = @as(u128, h.width) * h.height;
     const c: u128 = planeCount(h);
     const plane = px * 4;
     var total: u128 = 0;
-    if (d.needs_refs) {
+    if (kind == .frames and d.needs_refs) {
         total += 5 * c * plane;
         for (1..5) |level| total += 3 * 4 * @as(u128, lfCapacity(h, @intCast(level)));
     }
     // One frame: the only one, when the peeked first frame is the last;
     // otherwise any.
     const only: ?*const headers.FrameHeader = if (d.next_frame) |*f| (if (f.is_last) f else null) else null;
-    total += frameBound(h, only);
+    total += if (kind == .jpeg) jpegFrameBound(h, d.next_frame) else frameBound(h, only);
     // A group's channels with their transforms, at the peeked frame's
     // group size or the largest.
     const gd: u128 = if (d.next_frame) |f| @as(u128, 128) << @intCast(f.group_size_shift) else 1024;
@@ -265,6 +279,26 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader) u12
     if (flags & headers.flag_patches != 0) total += patches.budgetBytes(@intCast(pad_px), h.num_ec);
     if (flags & headers.flag_splines != 0) total += splines.budgetBytes(@intCast(pre_px));
     return total;
+}
+
+/// The memory `decodeJpeg`'s frame takes: frame `f`'s, or with `f` null,
+/// any VarDCT frame of the canvas's size without pixels, extra channels,
+/// or the features `decodeJpeg` refuses.
+fn jpegFrameBound(h: *const headers.ImageHeader, f: ?headers.FrameHeader) u128 {
+    var pad_px: u128 = paddedCanvas(h);
+    var passes: u128 = 11;
+    if (f) |fh| {
+        const dims: headers.Dims = .init(&fh);
+        pad_px = @min(pad_px, @as(u128, dims.xsize_blocks) * dims.ysize_blocks * 64);
+        passes = fh.passes.num;
+    }
+    // Block fields, coefficients kept between passes, a pass group's
+    // coefficients, the LF group's channels, the dequantization tables,
+    // each pass's orders and code, and the empty Modular image's palette.
+    const window: u128 = entropy.window_size;
+    var total: u128 = pad_px / 64 * 24 + (if (passes > 1) pad_px * 12 else 0) + (4 << 20);
+    total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + 786_432);
+    return total + 4 * 137_728;
 }
 
 /// How many times the canvas's pixels a frame may have; a larger frame
@@ -378,21 +412,7 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
 fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     const st = &d.store;
     if (d.state == .config) {
-        st.arena = .init(work);
-        if (d.icc_size) |size| {
-            const m = st.arena.mark();
-            const profile = icc.read(&d.br, &st.arena, size) catch |e| return mapIcc(e);
-            if (d.options.blob_sink) |sink| {
-                const blob: decode.Blob = .{ .kind = .icc, .offset = 0, .len = profile.len };
-                sink.put(blob, 0, profile);
-            }
-            st.arena.release(m);
-            d.icc_size = null;
-        }
-        if (d.next_frame == null) {
-            try d.br.zeroPadToByte();
-            if (d.image.preview != null) try d.skipPreview();
-        }
+        try d.begin(work);
         if (d.needs_refs) {
             const px = @as(usize, d.image.width) * d.image.height;
             st.planes = planeCount(&d.image);
@@ -432,6 +452,75 @@ fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
         }
         if (fh.is_last) return null;
     }
+}
+
+/// Starts work memory and reads what comes before the first frame: the
+/// ICC profile, to the blob sink, and the preview.
+fn begin(d: *Decoder, work: []u8) Error!void {
+    const st = &d.store;
+    st.arena = .init(work);
+    if (d.icc_size) |size| {
+        const m = st.arena.mark();
+        const profile = icc.read(&d.br, &st.arena, size) catch |e| return mapIcc(e);
+        if (d.options.blob_sink) |sink| {
+            const blob: decode.Blob = .{ .kind = .icc, .offset = 0, .len = profile.len };
+            sink.put(blob, 0, profile);
+        }
+        st.arena.release(m);
+        d.icc_size = null;
+    }
+    if (d.next_frame == null) {
+        try d.br.zeroPadToByte();
+        if (d.image.preview != null) try d.skipPreview();
+    }
+}
+
+/// The work memory `decodeJpeg` needs, from the headers.
+pub fn jpegWorkLen(d: *Decoder) Error!usize {
+    _ = try d.decodeConfig();
+    const n = d.boundFor(.jpeg) catch |e| return d.fail(e);
+    d.options.limits.checkWork(n) catch |e| return d.fail(e);
+    return n;
+}
+
+/// For rebuilding a JPEG from its `jbrd` box: reads the codestream's one
+/// frame as a recompressed JPEG's coefficients into `coefs`, which holds
+/// at least `Jpeg.maxCoefs(width, height)`, using `work[0..jpegWorkLen()]`
+/// and making no pixels. Call it instead of `decodeFrame`, after
+/// `decodeConfig`. The ICC profile goes to `Options.blob_sink` as usual.
+/// Fails with `NotJpeg` when the frame cannot be a JPEG's: VarDCT YCbCr
+/// with DCT8 blocks only, raw quantization tables, the image's size, and no
+/// extra channels, animation, upsampling, patches, splines, noise, or LF
+/// frame.
+pub fn decodeJpeg(d: *Decoder, coefs: []i16, work: []u8) Error!Jpeg {
+    if (d.err) |e| return e;
+    const len = try d.jpegWorkLen();
+    if (d.state != .config) return error.NotJpeg;
+    if (work.len < len) return error.WorkTooSmall;
+    return d.jpegFrame(coefs, work[0..len]) catch |e| d.fail(e);
+}
+
+fn jpegFrame(d: *Decoder, coefs: []i16, work: []u8) Error!Jpeg {
+    const st = &d.store;
+    const image = &d.image;
+    try d.begin(work);
+    d.state = .frames;
+    const fh = if (d.next_frame) |f| f else try headers.FrameHeader.read(&d.br, image, false);
+    d.next_frame = null;
+    const excluded = headers.flag_noise | headers.flag_patches | headers.flag_splines | headers.flag_use_lf_frame;
+    if (fh.modular or !fh.ycbcr or image.xyb or fh.kind != .regular or !fh.is_last or fh.have_crop or
+        fh.upsampling != 1 or fh.flags & excluded != 0 or image.num_ec != 0 or image.animation != null or
+        fh.width != image.width or fh.height != image.height) return error.NotJpeg;
+    try frame.checkSupported(image, &fh);
+    const dims: headers.Dims = .init(&fh);
+    var jpeg: Jpeg = try .init(&fh, &dims, coefs);
+    const toc = try frame.readToc(&d.br, &st.arena, &dims, fh.passes.num);
+    const refs: [4]?frame.PatchSource = @splat(null);
+    _ = try frame.decode(&d.br, &st.arena, image, &fh, &toc, .{ 1, 0 }, &refs, null, jpeg.sink());
+    if (!jpeg.got_quant) return error.NotJpeg;
+    try d.br.src.finish();
+    d.state = .done;
+    return jpeg;
 }
 
 fn flicks(d: *const Decoder, ticks: u32) u64 {
@@ -517,7 +606,8 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
         if (!l.valid) return error.BadImage;
         lf_in = .{ .planes = .{ l.planes[0], l.planes[1], l.planes[2] }, .w = l.w, .h = l.h };
     }
-    const dec = try frame.decode(&d.br, &st.arena, image, fh, &toc, .{ d.visible, d.nonvisible }, &refs, lf_in);
+    const counts = .{ d.visible, d.nonvisible };
+    const dec = try frame.decode(&d.br, &st.arena, image, fh, &toc, counts, &refs, lf_in, d.coeff_sink);
     if (fh.kind == .lf) {
         // Kept for the frames that use it; never shown.
         const l = &st.lf[fh.lf_level - 1];

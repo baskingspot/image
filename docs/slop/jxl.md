@@ -62,6 +62,16 @@ the oracle leaves them out (`test/oracle/jxl.zig`).
   the coefficients, kept across passes in i32 and dequantized when the last
   pass of a group arrives. `dct.zig` has the inverse transforms (8-lane
   columns over `@Vector`), `quant.zig` the dequantization tables.
+  `Decoder.coeff_sink` (a `vardct.CoeffSink`) hands each LF group's
+  quantized LF as it is read and each varblock's quantized coefficients
+  after its last pass, before dequantization, with the block's
+  quantization field and chroma-from-luma factors, in stored layout (a
+  DCT8's is transposed from JPEG's natural order). The fuzz target checks
+  that a sink changes no frame, pixel, or error and sees only in-frame
+  rectangles.
+- `Decoder.decodeJpeg` is the coefficient pass JPEG reconstruction builds
+  on (below): a sink (`vardct.Jpeg`) that turns those into the JPEG's
+  components, with no pixels made.
 - `color.zig`: XYB to linear sRGB, YCbCr, and the sRGB transfer function,
   eight pixels at a time. `filters.zig` has Gaborish and EPF, `upsample.zig`
   the upsampling kernels, and `patches.zig`, `splines.zig`, and `noise.zig`
@@ -159,15 +169,46 @@ the canvas instead of whole planes.
   pixels, and splines to 1 MiB plus 4 bytes a pixel of work memory; past
   them is `TooComplex`, where the specification's own limits (references,
   control points) are `BadImage`.
-- **Errors.** `BadBox`, `BadEntropy`, `BadImage`, `BadIcc`, and
+- **Errors.** `BadBox`, `BadEntropy`, `BadImage`, `BadIcc`, `NotJpeg`, and
   `TooComplex` beside the shared ones.
-- **JPEG reconstruction** (stage 4) is not implemented; `jbrd` is skipped
-  and the pixels decode. The proposed shape is a separate entry point,
-  `image.jxl.JpegReconstructor`: `init(reader, options)`, `workLen()` once
-  the `jbrd` box and the frame header are read, then `run(writer, work)`,
-  which streams the JPEG to a `std.Io.Writer` from the box and the frame's
-  quantized coefficients without producing pixels. `Config.metadata` would
-  say whether a `jbrd` box is present.
+- **JPEG reconstruction** (decision 28) is `image.jxl.JpegReconstructor`,
+  the Netpbm orb's (`jbrd.zig`, `JpegReconstructor.zig`). It takes the
+  coefficients from `Decoder.decodeJpeg(coefs, work)`, called after
+  `decodeConfig` in place of `decodeFrame`, with `work[0..jpegWorkLen()]`
+  and `coefs` of at least `Jpeg.maxCoefs(width, height)` (12 blocks a
+  16-pixel square). It returns a `vardct.Jpeg`: per JPEG component (Y, Cb,
+  Cr, channels Y, X, B; a grey JPEG is component 0) the sampling factors as
+  JPEG's h and v (`(1 << max shift) >> shift`), blocks across and down
+  (the frame's blocks are whole MCUs already), the quantization table in
+  natural order from the raw DCT8 table, and the coefficients as i16 in
+  natural order with chroma from luma undone. The ICC profile goes to the
+  blob sink as for `decodeFrame`. A frame that cannot be a JPEG's is
+  `NotJpeg`: anything but one regular VarDCT YCbCr frame of the image's
+  size with DCT8 blocks, raw tables, LF without extra precision or
+  chroma-from-luma factors, and no extra channels, animation, upsampling,
+  patches, splines, noise, or LF frame. A JPEG stored as RGB rather than
+  YCbCr is `NotJpeg` until a file shows its channel order.
+- **Chroma from luma in integers.** A chroma coefficient is the stored one
+  plus `(s * y + 1024) >> 11`, where `y` is the luma coefficient,
+  `s = (m * r + 1024) >> 11`, `m = trunc(f * 2048 / color_factor)` for the
+  tile's factor `f`, and `r = floor(Qy[k] * 2048 / Qc[k])` for the luma and
+  chroma tables' entries. This was fitted against djxl's reconstructions:
+  exact on 152,530 nonzero terms in the 67 transcodes the Netpbm orb
+  generated, where no other fixed-point precision or rounding fits; twelve
+  photograph transcodes with random tables (factors up to 51) then ruled
+  out rounding `r` (23 misses) and leave truncation exact. The unit test's
+  16 by 8 fixture has coefficients that rounding the exact quotient, or
+  `r`, gets wrong.
+- **Verified:** on those 79 files and the three conformance JPEGs
+  (`bench_oriented_brg`, `cafe`, `grayscale_jpeg`), every quantization
+  table and every coded block's coefficients equal libjpeg's
+  `jpeg_read_coefficients` of djxl's reconstruction (353,186 blocks); no
+  other corpus file passes as a JPEG. The pass peaks at 0.9 to 6.8 MB of
+  work memory. `jpegWorkLen` is the frame bound without planes: block
+  fields, a pass group, the codes, and with several passes (or an ICC
+  profile hiding the frame header) the kept coefficients; the entropy
+  budget makes it 10 to 37 MB on small files and 193 MB on cafe, below the
+  pixel decoder's 700 MB.
 
 ## Testing
 
@@ -217,4 +258,6 @@ megapixel we are within 20% of libjxl.
 2. **Speed**: profile VarDCT and vectorize what is still scalar (the
    IDCT's rows, chroma from luma, Gaborish, upsampling); specialize
    Modular's common trees.
-3. **JPEG reconstruction** (stage 4).
+3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
+   `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Tightening
+   `jpegWorkLen` (entropy budgets sized from the headers) is mine.

@@ -13,8 +13,114 @@ pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor", "bench/corp
 pub const extensions = [_][]const u8{".jxl"};
 
 pub fn check(input: []const u8, choice: u64) !void {
-    return harness.checkDecoder(image.jxl.Decoder, input, choice);
+    try harness.checkDecoder(image.jxl.Decoder, input, choice);
+    if (choice % 4 == 0) try checkSink(input);
+    if (choice % 4 == 3) try checkJpeg(input);
 }
+
+const Sink = @typeInfo(@FieldType(image.jxl.Decoder, "coeff_sink")).optional.child;
+const SharedPtr = SinkParam("lf", 1);
+const QuantLf = SinkParam("lf", 2);
+const QuantBlock = SinkParam("block", 2);
+const SinkReturn = SinkParam("lf", 3);
+
+/// Parameter `i` of the sink's `field` callback, or its return type at 3.
+fn SinkParam(comptime field: []const u8, comptime i: usize) type {
+    const f = @typeInfo(@typeInfo(@FieldType(Sink, field)).pointer.child).@"fn";
+    return if (i < f.params.len) f.params[i].type.? else f.return_type.?;
+}
+
+var sink_pixels: [harness.limits.max_pixels * 8]u8 = undefined;
+var sink_work: [harness.limits.max_work]u8 = undefined;
+
+/// A frame's outcome: its frame and pixels' hash, or its error.
+const Outcome = union(enum) { frame: struct { f: image.Frame, hash: u64 }, end, err: anyerror };
+
+/// Decoding with a coefficient sink gives the same frames, pixels, and
+/// errors as without one, and what the sink sees lies inside the frame.
+fn checkSink(input: []const u8) !void {
+    var plain: [harness.limits.max_frames + 1]Outcome = undefined;
+    const n = decodeAll(input, null, &plain);
+    var seen: Seen = .{};
+    var with: [harness.limits.max_frames + 1]Outcome = undefined;
+    const m = decodeAll(input, .{ .ctx = &seen, .lf = Seen.onLf, .block = Seen.onBlock }, &with);
+    if (seen.bad) return error.SinkOutOfBounds;
+    if (n != m) return error.SinkDiffers;
+    for (plain[0..n], with[0..m]) |a, b| if (!std.meta.eql(a, b)) return error.SinkDiffers;
+}
+
+var jpeg_coefs: [1 << 22]i16 = undefined;
+
+/// `decodeJpeg` lays out whole MCUs inside the buffer it was given, and
+/// reads only files the frame decoder reads too.
+fn checkJpeg(input: []const u8) !void {
+    const Decoder = image.jxl.Decoder;
+    var r: std.Io.Reader = .fixed(input);
+    var d: Decoder = .init(&r, .{ .limits = harness.limits });
+    const c = d.decodeConfig() catch return;
+    const len = d.jpegWorkLen() catch return;
+    const n = Decoder.Jpeg.maxCoefs(c.width, c.height);
+    if (len > sink_work.len or n > jpeg_coefs.len) return;
+    const j = d.decodeJpeg(jpeg_coefs[0..n], sink_work[0..len]) catch return;
+    const mcus_x = j.blocks_x[0] / j.h[0];
+    const mcus_y = j.blocks_y[0] / j.v[0];
+    var total: usize = 0;
+    for (0..3) |k| {
+        if (j.h[k] -% 1 > 1 or j.v[k] -% 1 > 1) return error.JpegLayout;
+        if (j.blocks_x[k] != mcus_x * j.h[k] or j.blocks_y[k] != mcus_y * j.v[k]) return error.JpegLayout;
+        if (j.coefs[k].len != @as(usize, j.blocks_x[k]) * j.blocks_y[k] * 64) return error.JpegLayout;
+        total += j.coefs[k].len;
+    }
+    if (total > n) return error.JpegLayout;
+    var frames: [harness.limits.max_frames + 1]Outcome = undefined;
+    const m = decodeAll(input, null, &frames);
+    for (frames[0..m]) |o| if (o == .err) return error.JpegDiffers;
+}
+
+fn decodeAll(input: []const u8, sink: ?Sink, out: []Outcome) usize {
+    var r: std.Io.Reader = .fixed(input);
+    var d: image.jxl.Decoder = .init(&r, .{ .limits = harness.limits });
+    d.coeff_sink = sink;
+    const c = d.decodeConfig() catch |e| {
+        out[0] = .{ .err = e };
+        return 1;
+    };
+    const dst = image.PixelBuffer.init(&sink_pixels, .rgba16, c.width, c.height) catch return 0;
+    for (out, 1..) |*o, i| {
+        const got = d.decodeFrame(dst, sink_work[0..c.work_len]) catch |e| {
+            o.* = .{ .err = e };
+            return i;
+        };
+        const f = got orelse {
+            o.* = .end;
+            return i;
+        };
+        o.* = .{ .frame = .{ .f = f, .hash = std.hash.XxHash64.hash(0, dst.pixels) } };
+    }
+    return out.len;
+}
+
+const Seen = struct {
+    bad: bool = false,
+
+    fn onLf(ctx: *anyopaque, s: SharedPtr, q: QuantLf) SinkReturn {
+        const self: *Seen = @ptrCast(@alignCast(ctx));
+        const r = q.rect;
+        if (r.x0 + r.w > s.bw or r.y0 + r.h > s.bh) self.bad = true;
+        for (q.channels, 0..) |ch, c| {
+            const short = ch.data.len < @as(usize, ch.w) * ch.h;
+            if (ch.w != r.w >> s.hs[c] or ch.h != r.h >> s.vs[c] or short) self.bad = true;
+        }
+    }
+
+    fn onBlock(ctx: *anyopaque, s: SharedPtr, b: QuantBlock) SinkReturn {
+        const self: *Seen = @ptrCast(@alignCast(ctx));
+        if (b.bx + b.strategy.bx() > s.bw or b.by + b.strategy.by() > s.bh) self.bad = true;
+        for (b.coeffs) |co| if (co) |v| if (v.len != 64 * @as(usize, b.strategy.covered())) {
+            self.bad = true;
+        };
+    }
+};
 
 /// Bits, least significant first, as the codestream stores them.
 const BitWriter = struct {

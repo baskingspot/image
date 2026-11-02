@@ -18,8 +18,12 @@ const quant = @import("quant.zig");
 const dct = @import("dct.zig");
 const filters = @import("filters.zig");
 const Strategy = dct.Strategy;
+const Decoder = @import("Decoder.zig");
 
-pub const Error = modular.Error || headers.Error;
+pub const Error = modular.Error || headers.Error || error{
+    /// The frame cannot hold a recompressed JPEG (`decodeJpeg`).
+    NotJpeg,
+};
 
 const num_orders = 13;
 const nonzero_buckets = 37;
@@ -97,6 +101,173 @@ const BlockCtx = struct {
     }
 };
 
+/// Receives a VarDCT frame's quantized coefficients before they are
+/// dequantized, for rebuilding a recompressed JPEG from them (the `jbrd`
+/// box, ISO/IEC 18181-2): each LF group's quantized LF as its section is
+/// read, and each varblock's coefficients once its last pass is in. A
+/// frame whose LF comes from an LF frame has no quantized LF to report.
+pub const CoeffSink = struct {
+    ctx: *anyopaque,
+    /// Whether the frame's pixels are made too.
+    pixels: bool = true,
+    lf: *const fn (ctx: *anyopaque, s: *const Shared, lf: QuantLf) Error!void,
+    block: *const fn (ctx: *anyopaque, s: *const Shared, b: QuantBlock) Error!void,
+};
+
+/// LF group `rect`'s quantized LF: per channel X, Y, B (Cb, Y, Cr for
+/// YCbCr), rows of `rect.w >> Shared.hs[c]` samples, `rect.h >> Shared.vs[c]`
+/// of them, scaled up by `1 << extra_precision` over the LF quantization.
+pub const QuantLf = struct {
+    rect: Rect,
+    channels: [3]*const modular.Channel,
+    extra_precision: u2,
+};
+
+/// A varblock's quantized coefficients, after every pass, in the layout
+/// `dct.toPixels` takes: for a transform of `rows` by `cols` coefficients
+/// with `rows >= cols`, coefficient (u, v) (vertical frequency u) is at
+/// `v * rows + u`, so a DCT8's is transposed from JPEG's natural order;
+/// with `rows < cols`, at `u * cols + v`. The lowest frequencies, which
+/// the LF holds, are zero. `bx` and `by` are the block's top left in the
+/// frame's blocks; a channel subsampled away at this position is null.
+pub const QuantBlock = struct {
+    strategy: Strategy,
+    bx: usize,
+    by: usize,
+    coeffs: [3]?[]const i32,
+    /// The block's quantization field, and its 64-pixel tile's chroma from
+    /// luma factors (`Shared.color_factor` is their denominator).
+    qf: i32,
+    x_factor: i8,
+    b_factor: i8,
+};
+
+/// A recompressed JPEG's image data, as `Decoder.decodeJpeg` reads it from
+/// the codestream for rebuilding the JPEG from its `jbrd` box: per JPEG
+/// component (Y, Cb, Cr, which are channels Y, X, B), the sampling, the
+/// quantization table, and the quantized coefficients with chroma from
+/// luma undone. A grey JPEG is component 0.
+pub const Jpeg = struct {
+    /// JPEG sampling factors, 1 or 2.
+    h: [3]u4,
+    v: [3]u4,
+    /// Each component's blocks across and down: whole MCUs.
+    blocks_x: [3]u32,
+    blocks_y: [3]u32,
+    /// Each component's quantization table, in natural order.
+    quant: [3][64]u16,
+    /// Each component's quantized coefficients, 64 a block in natural
+    /// order, rows of `blocks_x` blocks.
+    coefs: [3][]i16,
+    got_quant: bool = false,
+
+    /// The JPEG component of channels X, Y, B.
+    const component = [3]usize{ 1, 0, 2 };
+    /// Chroma from luma's fixed-point precision.
+    const cfl_bits = 11;
+
+    /// The most coefficients any sampling of a `width` by `height` image
+    /// takes: 12 blocks a 16-pixel square (three components unsubsampled).
+    pub fn maxCoefs(width: u32, height: u32) usize {
+        return @as(usize, (width + 15) / 16) * ((height + 15) / 16) * 12 * 64;
+    }
+
+    /// Lays out the coefficients of frame `fh` in `mem`.
+    pub fn init(fh: *const headers.FrameHeader, d: *const headers.Dims, mem: []i16) Error!Jpeg {
+        const mh: u5 = @intCast(fh.maxHShift());
+        const mv: u5 = @intCast(fh.maxVShift());
+        var j: Jpeg = .{
+            .h = undefined,
+            .v = undefined,
+            .blocks_x = undefined,
+            .blocks_y = undefined,
+            .quant = undefined,
+            .coefs = undefined,
+        };
+        var at: usize = 0;
+        for (0..3) |c| {
+            const jc = component[c];
+            const hs: u5 = @intCast(fh.hShift(c));
+            const vs: u5 = @intCast(fh.vShift(c));
+            j.h[jc] = @intCast(@as(u32, 1) << (mh - hs));
+            j.v[jc] = @intCast(@as(u32, 1) << (mv - vs));
+            // The frame's blocks are whole MCUs already.
+            j.blocks_x[jc] = d.xsize_blocks >> hs;
+            j.blocks_y[jc] = d.ysize_blocks >> vs;
+        }
+        for (0..3) |jc| {
+            const n = @as(usize, j.blocks_x[jc]) * j.blocks_y[jc] * 64;
+            if (mem.len - at < n) return error.TooComplex;
+            j.coefs[jc] = mem[at..][0..n];
+            @memset(j.coefs[jc], 0);
+            at += n;
+        }
+        return j;
+    }
+
+    pub fn sink(j: *Jpeg) CoeffSink {
+        return .{ .ctx = j, .pixels = false, .lf = onLf, .block = onBlock };
+    }
+
+    fn onLf(ctx: *anyopaque, s: *const Shared, q: QuantLf) Error!void {
+        const j: *Jpeg = @ptrCast(@alignCast(ctx));
+        if (q.extra_precision != 0 or s.lf_cfl[0] != 0 or s.lf_cfl[2] != 0) return error.NotJpeg;
+        for (q.channels, 0..) |ch, c| {
+            const jc = component[c];
+            const x0 = q.rect.x0 >> s.hs[c];
+            const y0 = q.rect.y0 >> s.vs[c];
+            for (0..ch.h) |y| {
+                const row = j.coefs[jc][((y0 + y) * j.blocks_x[jc] + x0) * 64 ..];
+                for (ch.row(@intCast(y))[0..ch.w], 0..) |v, x| row[x * 64] = try toI16(v);
+            }
+        }
+    }
+
+    fn onBlock(ctx: *anyopaque, s: *const Shared, b: QuantBlock) Error!void {
+        const j: *Jpeg = @ptrCast(@alignCast(ctx));
+        if (b.strategy != .dct8 or s.base_x != 0 or s.base_b != 0) return error.NotJpeg;
+        if (!j.got_quant) {
+            const t = s.raw_dct8 orelse return error.NotJpeg;
+            for (0..3) |c| for (0..64) |k| {
+                const v = t[c * 64 + (k % 8) * 8 + k / 8];
+                j.quant[component[c]][k] = std.math.cast(u16, v) orelse return error.NotJpeg;
+            };
+            j.got_quant = true;
+        }
+        // The luma block at this position, which chroma from luma adds back.
+        var y: [64]i16 = undefined;
+        if (b.coeffs[1]) |q| for (&y, 0..) |*o, k| {
+            o.* = try toI16(q[(k % 8) * 8 + k / 8]);
+        };
+        for (b.coeffs, 0..) |co, c| {
+            const q = co orelse continue;
+            const jc = component[c];
+            const bx = b.bx >> s.hs[c];
+            const by = b.by >> s.vs[c];
+            const out = j.coefs[jc][(by * j.blocks_x[jc] + bx) * 64 ..][0..64];
+            const f: i64 = if (c == 0) b.x_factor else if (c == 2) b.b_factor else 0;
+            // Chroma from luma in integers, as djxl rebuilds a JPEG
+            // (docs/slop/jxl.md): the factor and the ratio of the luma
+            // and chroma quantization steps in 11-bit fixed point.
+            const m = @divTrunc(f << cfl_bits, s.color_factor);
+            // The lowest frequency is the LF's.
+            for (1..64) |k| {
+                var v: i64 = q[(k % 8) * 8 + k / 8];
+                if (f != 0 and b.coeffs[1] != null) {
+                    const ratio = @divTrunc(@as(i64, j.quant[0][k]) << cfl_bits, j.quant[jc][k]);
+                    const scale = (m * ratio + (1 << (cfl_bits - 1))) >> cfl_bits;
+                    v += (scale * y[k] + (1 << (cfl_bits - 1))) >> cfl_bits;
+                }
+                out[k] = try toI16(v);
+            }
+        }
+    }
+
+    fn toI16(v: i64) Error!i16 {
+        return std.math.cast(i16, v) orelse error.NotJpeg;
+    }
+};
+
 /// One frame's VarDCT state, in work memory.
 pub const Shared = struct {
     bw: usize,
@@ -139,6 +310,9 @@ pub const Shared = struct {
     used_acs: u32 = 0,
 
     mults: [quant.num_tables][]f32 = @splat(&.{}),
+    /// The DCT8 table's raw entries (channels X, Y, B, each 64 in stored
+    /// layout), when it is raw: a recompressed JPEG's quantization tables.
+    raw_dct8: ?[]const i32 = null,
     num_histograms: u32 = 1,
     /// Per pass and order class, the three channels' coefficient orders.
     orders: [max_passes][num_orders][]u16 = undefined,
@@ -147,6 +321,7 @@ pub const Shared = struct {
     /// several passes.
     coeffs: []i32 = &.{},
     passes_done: []u8 = &.{},
+    sink: ?CoeffSink = null,
 
     /// The frame's pixels before the filters: three planes of `bw * 8`
     /// by `bh * 8`.
@@ -157,6 +332,7 @@ pub const Shared = struct {
         image: *const headers.ImageHeader,
         fh: *const headers.FrameHeader,
         d: *const headers.Dims,
+        sink: ?CoeffSink,
     ) Error!*Shared {
         const s = try arena.create(Shared);
         const bw: usize = d.xsize_blocks;
@@ -184,7 +360,8 @@ pub const Shared = struct {
             .cfl_x = try arena.alloc(i8, tx * ty),
             .cfl_b = try arena.alloc(i8, tx * ty),
             .tiles_x = tx,
-            .planes = undefined,
+            .planes = @splat(&.{}),
+            .sink = sink,
             .hs = .{ @intCast(fh.hShift(0)), @intCast(fh.hShift(1)), @intCast(fh.hShift(2)) },
             .vs = .{ @intCast(fh.vShift(0)), @intCast(fh.vShift(1)), @intCast(fh.vShift(2)) },
         };
@@ -193,10 +370,10 @@ pub const Shared = struct {
         @memset(s.acs, unset);
         @memset(s.cfl_x, 0);
         @memset(s.cfl_b, 0);
-        for (&s.planes) |*p| {
+        if (s.pixels()) for (&s.planes) |*p| {
             p.* = try arena.alloc(f32, n * 64);
             @memset(p.*, 0);
-        }
+        };
         if (fh.passes.num > 1) {
             const gd = group_blocks * 8;
             s.coeffs = try arena.alloc(i32, s.num_groups * gd * gd * 3);
@@ -205,6 +382,10 @@ pub const Shared = struct {
         s.passes_done = try arena.alloc(u8, s.num_groups);
         @memset(s.passes_done, 0);
         return s;
+    }
+
+    pub fn pixels(s: *const Shared) bool {
+        return if (s.sink) |k| k.pixels else true;
     }
 
     fn subsampled(s: *const Shared) bool {
@@ -289,6 +470,7 @@ pub fn readLf(
     const qy = &img.buf[0];
     const qx = &img.buf[1];
     const qb = &img.buf[2];
+    if (s.sink) |k| try k.lf(k.ctx, s, .{ .rect = r, .channels = .{ qx, qy, qb }, .extra_precision = @intCast(extra) });
     const fx = s.mul_lf[0] * mul;
     const fy = s.mul_lf[1] * mul;
     const fb = s.mul_lf[2] * mul;
@@ -457,6 +639,10 @@ pub fn readHfGlobal(
 ) Error!void {
     var enc: [quant.num_tables]quant.Encoding = undefined;
     try quant.read(br, arena, .{ .tree = tree, .first_stream = @intCast(1 + 3 * num_lf_groups) }, &enc);
+    s.raw_dct8 = switch (enc[0]) {
+        .raw => |r| r.table[0 .. 3 * 64],
+        else => null,
+    };
     for (0..Strategy.count) |k| {
         if (s.used_acs & (@as(u32, 1) << @intCast(k)) == 0) continue;
         const t = Strategy.quant_table[k];
@@ -601,7 +787,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
     const keep = s.coeffs.len != 0;
     const gsize = group_blocks * group_blocks * 64;
     const q = try arena.alloc(i32, 3 * 64 * 1024);
-    const scratch = try arena.alloc(f32, 3 * 64 * 1024 + 2 * 64 * 1024);
+    const scratch: []f32 = if (s.pixels()) try arena.alloc(f32, 3 * 64 * 1024 + 2 * 64 * 1024) else &.{};
     var offset: usize = 0;
     for (0..r.h) |by| {
         var bx: usize = 0;
@@ -648,7 +834,26 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
                 );
             }
             offset += size;
-            if (last) reconstruct(s, st, r.x0 + bx, r.y0 + by, blocks, scratch);
+            if (last) {
+                if (s.sink) |k| {
+                    var coeffs: [3]?[]const i32 = undefined;
+                    for (&coeffs, blocks, 0..) |*o, b, c| {
+                        const here = (bx >> s.hs[c]) << s.hs[c] == bx and (by >> s.vs[c]) << s.vs[c] == by;
+                        o.* = if (here) b else null;
+                    }
+                    const tile = ((r.y0 + by) / 8) * s.tiles_x + (r.x0 + bx) / 8;
+                    try k.block(k.ctx, s, .{
+                        .strategy = st,
+                        .bx = r.x0 + bx,
+                        .by = r.y0 + by,
+                        .coeffs = coeffs,
+                        .qf = s.qf[at],
+                        .x_factor = s.cfl_x[tile],
+                        .b_factor = s.cfl_b[tile],
+                    });
+                }
+                if (s.pixels()) reconstruct(s, st, r.x0 + bx, r.y0 + by, blocks, scratch);
+            }
             bx += st.bx();
         }
     }
@@ -865,5 +1070,121 @@ test "Lehmer codes decode as by scanning for the k-th free value" {
             used[v] = true;
             try testing.expectEqual(@as(u32, @intCast(v)), g);
         }
+    }
+}
+
+test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
+    // A 16 by 8 4:4:4 JPEG of a photograph's crop, with uneven quantization
+    // tables, through `cjxl --lossless_jpeg=1`, which chose chroma from
+    // luma. The expected values are libjpeg's jpeg_read_coefficients of the
+    // source JPEG; the chroma blocks include coefficients that rounding the
+    // exact quotient, or the quantization steps' ratio, would get wrong.
+    const file =
+        "\x00\x00\x00\x0c\x4a\x58\x4c\x20\x0d\x0a\x87\x0a\x00\x00\x00\x14\x66\x74\x79\x70\x6a\x78\x6c\x20" ++
+        "\x00\x00\x00\x00\x6a\x78\x6c\x20\x00\x00\x00\x11\x6a\x78\x6c\x70\x00\x00\x00\x00\xff\x0a\xc1\x41" ++
+        "\x24\x00\x00\x01\xe0\x6a\x62\x72\x64\xc0\x6d\x03\x08\x82\x20\xb4\x0c\x08\x80\x50\xa3\x40\xc8\x55" ++
+        "\x25\x00\x00\x20\xe4\xa8\x6c\xc1\x50\x9c\xff\x13\x44\xc6\x08\x65\x9c\x53\x0a\xda\x8f\x90\x21\xcc" ++
+        "\x52\x07\x19\x66\xa0\x74\x87\x1a\xac\x0f\x19\x4e\x3e\x66\xc0\x21\x07\x15\x16\x39\x68\xd8\x81\xed" ++
+        "\xa3\x86\xfe\xfd\x91\x65\x0e\x3b\xee\x40\x43\xd1\xfd\x2f\xc6\x38\x63\x92\x4b\x36\xf9\x64\x94\x53" ++
+        "\x9e\x99\xe6\x9a\x6d\xbe\x19\xe7\x9c\x85\x1e\x9a\xe8\xa2\x8d\x3e\x1a\xe9\xa4\xa5\x9e\x9a\xea\xaa" ++
+        "\xad\xbe\x1a\xeb\xac\xc5\x1e\x9b\xec\xb2\xcd\x3e\x1b\xed\xb4\xe5\x9e\x9b\xee\xba\xed\xbe\x1b\xef" ++
+        "\xbc\x05\x1f\x9c\xf0\xc2\x0d\x3f\x1c\xf1\xc4\x23\x97\x7c\x72\xca\x2b\xb7\xfc\x72\xcc\x33\x0f\x5d" ++
+        "\xf4\xd1\x49\x2f\xdd\xf4\xd3\x51\x4f\x3d\x76\xd9\x67\xa7\xbd\x76\xdb\x6f\xc7\x3d\xf7\xe0\x85\x1f" ++
+        "\x9e\xf8\xe2\x8d\x3f\x1e\xf9\xe4\xa3\x97\x7e\x7a\xea\xab\xb7\xfe\x7a\xec\xb3\x07\x3f\x7c\xf1\xc7" ++
+        "\x27\xbf\x7c\xf3\xcf\x47\x3f\x7d\xf8\xe3\x97\x7f\x7e\xfa\xeb\xb7\xff\x7e\xfc\xf3\xff\x57\x30\x55" ++
+        "\x55\x02\x00\x20\xe4\xa8\x6c\xc1\x50\x9c\xff\x17\x44\x42\x29\xa3\xac\x53\x8a\xc4\x78\x40\xc8\x66" ++
+        "\xd4\x20\xc3\xa4\x3a\xd0\x50\x3d\xd8\x70\xee\x21\xc7\x0c\x28\xc8\x07\x0d\x39\xe8\xb0\x03\x1b\x8b" ++
+        "\x2c\x73\xd4\xef\xf6\x61\xc7\x0d\xad\xe8\x8f\x3c\x33\xf8\x24\xc3\xfb\x5f\x8c\x71\xc6\x25\x9b\x7c" ++
+        "\x32\xca\x29\xd3\x5c\xb3\xcd\x37\xe3\x9c\xb3\xd0\x43\x13\x5d\xb4\xd1\x47\x23\x9d\xb4\xd4\x53\x53" ++
+        "\x5d\xb5\xd5\x57\x63\x9d\xb5\xd8\x63\x93\x5d\xb6\xd9\x67\xa3\x9d\xb6\xdc\x73\xd3\x5d\xb7\xdd\x77" ++
+        "\xe3\x9d\x77\xe0\x82\x0f\x4e\x78\xe1\x86\x1f\x8e\x78\xe2\x91\x4b\x3e\x39\xe5\x95\x5b\x7e\x39\xe6" ++
+        "\x99\x87\x2e\xfa\xe8\xa4\x97\x6e\xfa\xe9\xa8\xa7\x1e\xbb\xec\xb3\xd3\x5e\xbb\xed\xb7\xe3\x9e\x7b" ++
+        "\xf0\xc2\x0f\x4f\x7c\xf1\xc6\x1f\x8f\x7c\xf2\xd1\x4b\x3f\x3d\xf5\xd5\x5b\x7f\x3d\xf6\xd9\x87\x2f" ++
+        "\xfe\xf8\xe4\x97\x6f\xfe\xf9\xe8\xa7\x1f\xbf\xfc\xf3\xd3\x5f\xbf\xfd\xf7\xe3\x9f\xff\xbf\xc0\x0f" ++
+        "\x00\x54\x16\x00\x0b\x08\x80\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00" ++
+        "\x03\x00\x00\x01\x15\x6a\x78\x6c\x70\x80\x00\x00\x01\xe0\x5b\x00\x10\x00\x08\x04\x08\x71\x0c\x6c" ++
+        "\x08\x71\xfe\xff\x0e\x80\x88\x11\x00\x85\xc6\xc6\x6e\x00\x00\x00\x05\x00\x00\xf0\x03\x00\x00\x00" ++
+        "\x00\x00\x00\x00\x10\xb0\x24\x71\x8c\xb8\x9b\xeb\x21\x94\xc9\x5a\xdc\x03\x85\xc2\x88\x14\x14\x48" ++
+        "\x85\x51\x3b\x6c\xa3\xa3\xa3\xa3\x1d\x23\x63\x10\x23\x4d\x61\x38\x27\x02\x00\xce\x48\x3c\x98\xa2" ++
+        "\x0f\xd0\x98\x00\x00\x80\xc0\x02\x00\xe0\x04\x10\xb3\xef\xeb\x01\x60\x65\x9f\x99\x1f\x1c\xcb\x63" ++
+        "\xda\x7d\x43\x0a\xe2\xfc\xb8\xb9\xfb\x1c\x1b\xbf\xc2\xe2\x38\x67\x29\x31\x5d\x28\x29\x4d\x18\xb6" ++
+        "\xd7\xe7\xd9\xd3\x7c\xe6\xca\xfa\x16\xa9\xe8\x06\xc9\x35\x10\x1f\xe4\x60\x64\x54\xb0\x51\x52\xd5" ++
+        "\xd2\x80\x42\xd2\x3a\x08\x81\x7f\x0a\xf8\x2c\x5f\x79\xe0\x66\x21\x07\xc9\x32\x9a\xb6\x9b\x34\x65" ++
+        "\x23\x6f\xfe\xae\x3e\xab\xbd\xaf\x0c\xf7\x3d\x09\x1b\x4d\x57\x8f\x6e\x8f\xd6\x6e\xc6\xed\x14\x00" ++
+        "\x00\x00\x00\x00\x00\x28\xa4\x40\x0e\x6c\x51\x31\xc6\xbb\x8b\x77\x91\x91\x31\x1e\x58\x94\x1c\x01" ++
+        "\x6a\x6c\x4e\x32\x2a\xaf\x9c\x2c\x0c\xc5\xd4\x1a\x38\x30\x44\xdb\xcb\xeb\x80\x0a\x9c\x21\xf0\x5c" ++
+        "\x60\x7c\xe5\xa1\x36\xe9\x2f\xb4\x51\xba\x8e\x60\x03\x01";
+    const tables = [2][64]u16{
+        .{
+            6, 9, 2,  3,  5,  3, 2, 5, 5, 2, 4,  5,  3, 8, 12, 5,
+            7, 3, 10, 9,  10, 9, 6, 2, 5, 2, 4,  8,  2, 5, 1,  11,
+            2, 5, 2,  11, 5,  2, 5, 3, 8, 1, 6,  10, 8, 5, 11, 3,
+            2, 9, 5,  3,  4,  5, 2, 4, 4, 6, 11, 6,  9, 4, 6,  8,
+        },
+        .{
+            9,  12, 4, 5, 7,  14, 1,  5,  2,  1, 1,  13, 9,  10, 4,  9,
+            9,  5,  8, 3, 12, 14, 11, 8,  12, 9, 10, 14, 7,  9,  6,  12,
+            4,  5,  6, 4, 14, 12, 13, 11, 3,  7, 7,  2,  14, 3,  1,  2,
+            11, 13, 5, 8, 4,  2,  2,  12, 14, 7, 15, 9,  12, 6,  11, 5,
+        },
+    };
+    const want = [3][2][64]i16{
+        .{
+            .{
+                79, -7, -3, -2, 0, 0, 0, 0, -13, 13, 0, 0, 0, 0, 0, 0,
+                -2, 0,  0,  0,  0, 0, 0, 0, -1,  1,  0, 0, 0, 0, 0, 0,
+                -1, 0,  1,  0,  0, 0, 0, 0, 0,   1,  0, 0, 0, 0, 0, 0,
+                0,  0,  0,  0,  0, 0, 0, 0, 0,   0,  0, 0, 0, 0, 0, 0,
+            },
+            .{
+                78, 8,  -5, 1, 0, 1, -1, 0, -24, 1, 1, -1, 1, 0, 0, 0,
+                -1, -3, 0,  0, 0, 0, 0,  0, -1,  0, 0, 0,  0, 0, 0, 0,
+                0,  0,  2,  0, 0, 0, 0,  0, 0,   0, 0, 0,  0, 0, 0, 0,
+                0,  0,  0,  0, 0, 0, 0,  0, 0,   0, 0, 0,  0, 0, 0, 0,
+            },
+        },
+        .{
+            .{
+                19, 3, 1, 1, 0, 0,  0, 0, 26, -17, -1, 0, 0, 0, 0, 0,
+                1,  0, 0, 0, 0, 0,  0, 0, 0,  0,   0,  0, 0, 0, 0, 0,
+                0,  0, 0, 0, 0, 0,  0, 0, 1,  0,   0,  0, 0, 0, 0, 0,
+                0,  0, 0, 0, 0, -1, 0, 0, 0,  0,   0,  0, 0, 0, 0, 0,
+            },
+            .{
+                22, -4, 1, -1, 0, 0, 1, 0, 37, 7, -3, 0, 0, 0, 0, 0,
+                0,  1,  0, 0,  0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0,
+                0,  0,  0, 0,  0, 0, 0, 0, 1,  0, 0,  0, 0, 0, 0, 0,
+                0,  0,  0, 0,  0, 0, 0, 0, 0,  0, 0,  0, 0, 0, 0, 0,
+            },
+        },
+        .{
+            .{
+                -3, 0, 0, 0, 0, 0, 0, 0, -4, 2, 0, 0, 0, 0, 0,  0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0,  0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, -1, 0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0, 0, 0,  0,
+            },
+            .{
+                -4, 1, 0, 0, 0, 0, 0, 0, -6, -1, 0, 0, 0, 0, 0,  0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0, 0, 0, -1, 0,
+                0,  0, 0, 0, 0, 0, 0, 0, 0,  0,  0, 0, 0, 0, 0,  0,
+            },
+        },
+    };
+    var r: std.Io.Reader = .fixed(file);
+    var d: Decoder = .init(&r, .{});
+    _ = try d.decodeConfig();
+    const work = try testing.allocator.alloc(u8, try d.jpegWorkLen());
+    defer testing.allocator.free(work);
+    var coefs: [Jpeg.maxCoefs(16, 8)]i16 = undefined;
+    const j = try d.decodeJpeg(&coefs, work);
+    try testing.expectEqual([3]u4{ 1, 1, 1 }, j.h);
+    try testing.expectEqual([3]u4{ 1, 1, 1 }, j.v);
+    try testing.expectEqual([3]u32{ 2, 2, 2 }, j.blocks_x);
+    try testing.expectEqual([3]u32{ 1, 1, 1 }, j.blocks_y);
+    for (0..3) |c| {
+        try testing.expectEqualSlices(u16, &tables[@min(c, 1)], &j.quant[c]);
+        try testing.expectEqualSlices(i16, &want[c][0] ++ want[c][1], j.coefs[c]);
     }
 }

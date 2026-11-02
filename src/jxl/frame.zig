@@ -21,7 +21,7 @@ const quant = @import("quant.zig");
 const color = @import("color.zig");
 const filters = @import("filters.zig");
 
-pub const Error = modular.Error || headers.Error;
+pub const Error = vardct.Error;
 
 const max_toc_entries = 65536;
 const num_quant_tables = 17;
@@ -140,6 +140,7 @@ pub const Context = struct {
     /// The frame counts that seed the noise (`noise.Frame`).
     counts: [2]u32,
     lf_in: ?LfImage,
+    sink: ?vardct.CoeffSink = null,
 };
 
 /// An LF frame's output, which a frame with `flag_use_lf_frame` takes as
@@ -169,8 +170,17 @@ pub fn decode(
     counts: [2]u32,
     refs: *const [4]?PatchSource,
     lf_in: ?LfImage,
+    sink: ?vardct.CoeffSink,
 ) Error!Decoded {
-    var ctx: Context = .{ .image = image, .fh = fh, .d = .init(fh), .counts = counts, .refs = refs, .lf_in = lf_in };
+    var ctx: Context = .{
+        .image = image,
+        .fh = fh,
+        .d = .init(fh),
+        .counts = counts,
+        .refs = refs,
+        .lf_in = lf_in,
+        .sink = sink,
+    };
     ctx.done = try arena.alloc(bool, toc.sizes.len);
     @memset(ctx.done, false);
     if (toc.sizes.len == 1) {
@@ -211,7 +221,11 @@ pub fn decode(
             ecDims(&ctx.d, fh.ec_upsampling[i - ctx.num_color]);
         if (c.w != w or c.h != h) return error.BadImage;
     }
-    if (!needsFloat(image, fh)) return .{
+    const pixels = if (sink) |k| k.pixels else true;
+    if (!pixels) if (ctx.vd) |vd| {
+        for (vd.passes_done) |p| if (p != fh.passes.num) return error.BadImage;
+    };
+    if (!needsFloat(image, fh) or !pixels) return .{
         .img = ctx.full,
         .num_color = ctx.num_color,
         .w = ctx.d.width,
@@ -436,7 +450,7 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
     }
     ctx.lf_quant = lf_quant;
     if (!fh.modular) {
-        const vd = try vardct.Shared.init(arena, image, fh, &ctx.d);
+        const vd = try vardct.Shared.init(arena, image, fh, &ctx.d, ctx.sink);
         try vardct.readLfGlobal(br, arena, vd, lf_quant);
         if (ctx.lf_in) |lf| try vardct.takeLf(vd, lf.planes, lf.w, lf.h);
         ctx.vd = vd;
