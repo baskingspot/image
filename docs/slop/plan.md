@@ -281,8 +281,19 @@ owning the files adding-a-format.md assigns to its format plus
   alpha dropped. A chain longer than `max_frames` gives a null
   `frame_count`. ×0.90 libtiff overall: faster on uncompressed data and
   icons, about ×0.5 on the compressed paths at 1 MP and above; peak RSS at
-  or below libtiff's in every class. Stage 2 is JPEG compression through
-  `image.jpeg`'s `Options.tables`, `.color`, `.crop`, and `Decoder.workLen`.
+  or below libtiff's in every class. Stage 2 (results/tiff-stage2-20261102.md) adds JPEG compression (new
+  style) through `image.jpeg`: JPEGTables through `Options.tables`, work
+  memory from the IFD through `Decoder.workLen` for single-scan streams (a
+  progressive or non-interleaved stream in TIFF is `error.Unsupported`), and
+  `Options.crop` for edge tiles. Gray, RGB, and chunky YCbCr decode straight
+  into the caller's rows with libjpeg-turbo's YCbCr equations, as libtiff's
+  JPEGCOLORMODE_RGB has them; planar, white-is-zero, CMYK, palette, signed,
+  and extra-sample pages go through a strip or tile of samples. 8- and
+  12-bit, 12-bit for gray, RGB, and YCbCr only. Pixels equal libtiff's on
+  every bench input; ×6.5 libtiff on icons and ×1.1–1.3 above, peak RSS
+  below libtiff's in every class. The oracle decodes each JPEG strip strictly
+  with libjpeg-turbo first, since libtiff conceals corrupt data. Next
+  (decision 23): the compressed-path speedup.
 - **WebP decode performance pass** (landed; results/webp-perf-20261102.md):
   WebP decode beats libwebp in every size class. Lossless is 2.14×, 1.15×,
   1.11× (icons, ≤1 MP, >1 MP) and 1.10× on the 50 MP mosaic; lossy 1.77×,
