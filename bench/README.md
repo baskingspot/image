@@ -17,18 +17,24 @@ ratio and interval.
 
 ## Arms
 
-| Arm        | What it runs                             | Built from                                          |
-| ---------- | ---------------------------------------- | --------------------------------------------------- |
-| `image`    | this package, ReleaseFast                | `bench/zig/` and `bench/c/arm.c`, `zig build bench` |
-| `wuffs`    | Wuffs's decoders and pixel swizzler      | `bench/c/wuffs-*.c`                                 |
-| `qoih`     | qoi.h, the reference QOI codec           | `bench/c/qoih-*.c`                                  |
-| `stb`      | stb_image                                | `bench/c/stb-*.c`                                   |
-| `libpng`   | libpng                                   | `bench/c/libpng-*.c`                                |
-| `spng`     | libspng                                  | `bench/c/spng-*.c`                                  |
-| `libwebp`  | libwebp, and its demux animation decoder | `bench/c/libwebp-*.c`                               |
-| `image-rs` | Rust's `image` crate                     | `bench/rust`, feature `image-rs`                    |
-| `zune`     | the zune crates                          | `bench/rust`, feature `zune`                        |
-| `go`       | Go's `image` packages                    | `bench/go`                                          |
+| Arm             | What it runs                             | Built from                                          |
+| --------------- | ---------------------------------------- | --------------------------------------------------- |
+| `image`         | this package, ReleaseFast                | `bench/zig/` and `bench/c/arm.c`, `zig build bench` |
+| `wuffs`         | Wuffs's decoders and pixel swizzler      | `bench/c/wuffs-*.c`                                 |
+| `qoih`          | qoi.h, the reference QOI codec           | `bench/c/qoih-*.c`                                  |
+| `stb`           | stb_image                                | `bench/c/stb-*.c`                                   |
+| `libpng`        | libpng                                   | `bench/c/libpng-*.c`                                |
+| `spng`          | libspng                                  | `bench/c/spng-*.c`                                  |
+| `libwebp`       | libwebp, and its demux animation decoder | `bench/c/libwebp-*.c`                               |
+| `giflib`        | giflib                                   | `bench/c/giflib-*.c`                                |
+| `libjpeg-turbo` | libjpeg-turbo                            | `bench/c/libjpeg-turbo-*.c`                         |
+| `magick`        | ImageMagick's MagickWand                 | `bench/c/magick-*.c`                                |
+| `libtiff`       | libtiff                                  | `bench/c/libtiff-*.c`                               |
+| `libjxl`        | libjxl                                   | `bench/c/libjxl-*.c`                                |
+| `image-rs`      | Rust's `image` crate                     | `bench/rust`, feature `image-rs`                    |
+| `zune`          | the zune crates                          | `bench/rust`, feature `zune`                        |
+| `jxl-oxide`     | the jxl-oxide crate                      | `bench/rust`, feature `jxl-oxide`                   |
+| `go`            | Go's `image` packages                    | `bench/go`                                          |
 
 Every arm but Go's is `bench/c/arm.c` with a set of operations linked in, so
 they share one harness: the same timing loop, and every buffer an anonymous
@@ -37,8 +43,8 @@ output `BENCH_OUT_OFFSET` bytes (default 2048) past a page boundary, every
 page touched before timing. The Zig and Rust arms register their operations
 from `bench_init`; the C arms with `BENCH_OP`. Go's arm implements the same
 contract natively, since a cgo call per operation costs more than decoding an
-icon. More arms (libpng, libspng, libjpeg-turbo, giflib, libwebp, libtiff,
-libjxl) are a line each in `bench/c/arms.tsv` as their formats land.
+icon. A C arm is a line in `bench/c/arms.tsv`; a Rust arm is a feature in
+`bench/rust` and a word in the justfile's `rust_arms`.
 
 ## Arm contract
 

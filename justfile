@@ -7,7 +7,7 @@ zig_sources := "src build.zig build.zig.zon test bench/zig docs/slop/results"
 # The arms `just bench-compare` runs, this package's first; the C arms come
 # from bench/c/arms.tsv.
 
-rust_arms := "image-rs zune"
+rust_arms := "image-rs zune jxl-oxide"
 
 [private]
 default:

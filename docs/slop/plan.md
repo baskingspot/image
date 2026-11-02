@@ -196,9 +196,31 @@ QOI decoder.
 
 Running beside wave 1's tail, started early by the owner:
 
-- **JPEG XL decode** (branch `wave4-jxl`): `src/jxl/`, the files
-  adding-a-format.md assigns to jxl, and `docs/slop/jxl.md`. It may propose
-  splitting off a second orb once its entropy decoder lands.
+- **JPEG XL decode** (stages 1–3 landed at `7dc3b58`; jxl.md,
+  results/jxl-20261102.md): `src/jxl/`, the files adding-a-format.md assigns
+  to jxl, and `docs/slop/jxl.md`. The container (`jxlc`, `jxlp`, `brob`
+  through compress's Brotli, Exif and xml to the blob sink, `jbrd` noted),
+  the headers, ANS and prefix codes with clustering and LZ77, the ICC
+  profile's encoding, Modular (every predictor, RCT, palette, squeeze), and
+  VarDCT (every transform, custom dequantization, chroma from luma, LF
+  frames, progressive passes); XYB and YCbCr, Gaborish, EPF, upsampling,
+  patches, splines, noise, animation with blending and reference frames, and
+  extra channels. All 40 conformance files decode; 38 are within their
+  `test.json` bounds, and the lossless ones match libjxl's 16-bit output bit
+  for bit. On one thread: 1.3–1.4× libjxl on icons, 0.48–0.77× past a
+  megapixel, faster than jxl-oxide everywhere. Peak memory past a megapixel
+  comes from whole-frame planes (about 12 bytes a pixel), where libjxl
+  renders by group. Frames are coalesced as libjxl's default, held as f32,
+  and written through a 16-bit pivot (native 8-bit for lossless images whose
+  depths divide 255, 16-bit otherwise up to 16 bits, f32 above). A frame may
+  have up to twice the canvas's pixels; each entropy code's tables get 1 MiB
+  of work memory; patches and splines have work budgets past which a file is
+  `TooComplex`. Work memory is a header-derived bound, exact when
+  `decodeConfig` reads ahead a single last frame. There is no jxl
+  `decodeFrameConfig` yet (it would need work memory). The oracle leaves out
+  lossy frames until the comparison takes a tolerance, and files with
+  header-bundle extensions (a libjxl quirk). Next: render by group row, then
+  speed, then JPEG reconstruction (stage 4).
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
