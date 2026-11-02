@@ -58,7 +58,7 @@ pub const Xyb = struct {
         const py = planes[1];
         const pb = planes[2];
         var i: usize = 0;
-        if (x.tf == .srgb or x.tf == .linear) {
+        {
             // Eight at a time.
             const m = &x.matrix;
             while (i + 8 <= px.len) : (i += 8) {
@@ -74,7 +74,7 @@ pub const Xyb = struct {
                 var out: [3]V = undefined;
                 for (&out, m) |*o, row| {
                     o.* = @as(V, @splat(row[0])) * mr + @as(V, @splat(row[1])) * mg + @as(V, @splat(row[2])) * mb;
-                    if (x.tf == .srgb) o.* = srgbV(o.*);
+                    o.* = x.tf.encodeV(o.*);
                 }
                 px[i..][0..8].* = out[0];
                 py[i..][0..8].* = out[1];
@@ -128,6 +128,17 @@ pub const Tf = union(enum) {
             .gamma => |g| signedPow(v, g),
         };
     }
+
+    /// `encode` eight at a time.
+    pub fn encodeV(t: Tf, v: V) V {
+        return switch (t) {
+            .linear => v,
+            .srgb => srgbV(v),
+            .bt709 => bt709V(v),
+            .dci => signedPowV(v, 1.0 / 2.6),
+            .gamma => |g| signedPowV(v, g),
+        };
+    }
 };
 
 fn signedPow(v: f32, e: f32) f32 {
@@ -166,6 +177,60 @@ fn cbrtV(a: V) V {
     return @select(f32, a == @as(V, @splat(0)), a, y);
 }
 
+fn bt709V(v: V) V {
+    const a = @abs(v);
+    const hi = @as(V, @splat(1.099)) * powV(a, 0.45) - @as(V, @splat(0.099));
+    const lo = a * @as(V, @splat(4.5));
+    const r = @select(f32, a <= @as(V, @splat(0.018)), lo, hi);
+    return @select(f32, v < @as(V, @splat(0)), -r, r);
+}
+
+fn signedPowV(v: V, e: f32) V {
+    const r = powV(@abs(v), e);
+    return @select(f32, v < @as(V, @splat(0)), -r, r);
+}
+
+/// a^e for non-negative `a` and 0 < e <= 1, as 2^(e·log2 a), to within a
+/// few ulp: log2 from the exponent and an odd series in
+/// t = (m - 1) / (m + 1) for the mantissa m in [√½, √2), and 2^x from its
+/// integer part and a degree-6 polynomial on [-½, ½]. Zero and values
+/// below the smallest normal give 0.
+fn powV(a: V, e: f32) V {
+    const U = @Vector(8, u32);
+    const I = @Vector(8, i32);
+    const bits: U = @bitCast(a);
+    // The mantissa, scaled into [√½, √2), and the matching exponent.
+    const shifted = bits -% @as(U, @splat(0x3f3504f3));
+    const k: I = @as(I, @bitCast(shifted)) >> @splat(23);
+    const m: V = @bitCast(bits -% (@as(U, @bitCast(k)) << @splat(23)));
+    const t = (m - @as(V, @splat(1))) / (m + @as(V, @splat(1)));
+    const t2 = t * t;
+    var poly: V = @splat(2.0 / 9.0);
+    poly = poly * t2 + @as(V, @splat(2.0 / 7.0));
+    poly = poly * t2 + @as(V, @splat(2.0 / 5.0));
+    poly = poly * t2 + @as(V, @splat(2.0 / 3.0));
+    poly = poly * t2 + @as(V, @splat(2.0));
+    const log2a = @as(V, @floatFromInt(k)) + t * poly * @as(V, @splat(std.math.log2e));
+    // 2^x with x = e·log2 a, held to the normal exponents; NaN (from
+    // hostile planes) becomes the smallest, so the conversion to integers
+    // below cannot trap.
+    const raw = @as(V, @splat(e)) * log2a;
+    const lo: V = @splat(-126);
+    const x = @select(f32, raw == raw, @min(@max(raw, lo), @as(V, @splat(127))), lo);
+    const n = @round(x);
+    const f = x - n;
+    var p: V = @splat(1.5403530393381606e-4);
+    p = p * f + @as(V, @splat(1.3333558146428443e-3));
+    p = p * f + @as(V, @splat(9.618129107628477e-3));
+    p = p * f + @as(V, @splat(5.550410866482158e-2));
+    p = p * f + @as(V, @splat(2.402265069591007e-1));
+    p = p * f + @as(V, @splat(6.931471805599453e-1));
+    p = p * f + @as(V, @splat(1));
+    const scale: V = @bitCast(@as(U, @bitCast(@as(I, @intFromFloat(n)) + @as(I, @splat(127)))) << @splat(23));
+    const r = p * scale;
+    return @select(f32, a < @as(V, @splat(std.math.floatMin(f32))), @as(V, @splat(0)), r);
+}
+
 fn bt709(v: f32) f32 {
     const a = @abs(v);
     const r = if (a <= 0.018) a * 4.5 else 1.099 * std.math.pow(f32, a, 0.45) - 0.099;
@@ -193,4 +258,20 @@ test "srgb transfer" {
     for (probes, got) |p, g| try testing.expectApproxEqRel(srgb(p), g, 3e-7);
     try testing.expectApproxEqAbs(@as(f32, 0.5), srgb(0.21404114), 1e-5);
     try testing.expectApproxEqAbs(@as(f32, 1.0), srgb(1.0), 1e-6);
+}
+
+test "power transfer functions" {
+    const probes: [8]f32 = .{ 1e-6, 0.002, 0.018, 0.05, 0.21404114, 0.5, 0.999, 3.5 };
+    for ([_]Tf{ .bt709, .dci, .{ .gamma = 0.45455 }, .{ .gamma = 1.0 / 2.2 } }) |t| {
+        for ([_]f32{ 1, -1 }) |sign| {
+            const v: V = @as(V, probes) * @as(V, @splat(sign));
+            const got: [8]f32 = t.encodeV(v);
+            for (probes, got) |p, g| try testing.expectApproxEqRel(t.encode(p * sign), g, 1e-6);
+        }
+    }
+    // Zero, values below the normals, and hostile planes stay finite.
+    const odd: V = .{ 0, 1e-40, -1e-40, std.math.inf(f32), -std.math.inf(f32), std.math.nan(f32), 1e30, 1 };
+    const got: [8]f32 = signedPowV(odd, 0.45);
+    for (got[0..3]) |g| try testing.expectEqual(@as(f32, 0), g);
+    try testing.expectApproxEqRel(@as(f32, 1), got[7], 1e-6);
 }
