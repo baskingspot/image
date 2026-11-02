@@ -9,6 +9,7 @@ pub const png = @import("png.zig");
 pub const png_encode = @import("png_encode.zig");
 pub const png_hdr = @import("png.zig").hdr;
 pub const jpeg = @import("jpeg.zig");
+pub const jpeg_gain_map = @import("jpeg.zig").gain_map;
 pub const jpeg_encode = @import("jpeg_encode.zig");
 pub const qoi = @import("qoi.zig");
 pub const qoi_encode = @import("qoi_encode.zig");

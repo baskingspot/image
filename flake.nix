@@ -60,6 +60,9 @@
               libwebp
               libtiff
               libjxl
+              # libultrahdr: `is_uhdr_image`, the oracle for the JPEG
+              # decoder's gain map flag.
+              libultrahdr
               stb
               wuffs-c
               # qoi.h, the reference QOI decoder, and its qoiconv, which

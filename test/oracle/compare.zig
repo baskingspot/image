@@ -339,6 +339,9 @@ fn Run(comptime F: type) type {
         const dir = "zig-out/oracle/" ++ F.name;
         /// An encoder's comparison rather than a decoder's.
         const encodes = @hasDecl(F, "encode");
+        /// Whether fuzzed inputs are mutated; a fuzz target with
+        /// `mutates = false` gives only whole files, generated ones.
+        const mutates = !@hasDecl(T, "mutates") or T.mutates;
 
         oracle: Oracle,
         /// The corpus files' paths.
@@ -483,7 +486,7 @@ fn Run(comptime F: type) type {
                 } else {
                     const buf = try arena.alloc(u8, 1 << 16);
                     var len: usize = 0;
-                    if (r.corpus.len > 0 and random.boolean()) {
+                    if (mutates and r.corpus.len > 0 and random.boolean()) {
                         const any = r.bases.len == 0 or random.uintLessThan(u8, big_base_odds) == 0;
                         const pool = if (any) r.corpus else r.bases;
                         const pick = pool[random.uintLessThan(usize, pool.len)];
@@ -499,7 +502,7 @@ fn Run(comptime F: type) type {
                     } else {
                         const g = T.generate(random, buf);
                         len = g.len;
-                        if (random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
+                        if (mutates and random.uintLessThan(u8, 4) == 0) len = fuzz.harness.mutate(random, buf, len);
                         input.* = buf[0..len];
                     }
                 }

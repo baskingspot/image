@@ -32,6 +32,7 @@
 
 #include <jpeglib.h>
 #include <jerror.h>
+#include <ultrahdr_api.h>
 
 #include "wuffs-v0.4.c"
 
@@ -327,8 +328,26 @@ const struct op jpeg_encode_ops[] = {
     {0},
 };
 
+// Whether libultrahdr finds a gain map (`is_uhdr_image`), as jpeg.zig's
+// `gain_map` lays out this package's flag: a gray8 "image" of one byte, 1
+// or 0. libultrahdr finds the gain map image as the second JPEG in the
+// file and parses its metadata (XMP or ISO 21496-1); it never rejects.
+static enum status jpeg_uhdr(const uint8_t *in, size_t len, enum pixel_format format,
+                             uint64_t max_pixels, struct image *out) {
+  (void)max_pixels;
+  if (format != PF_GRAY8) return STATUS_SKIPPED;
+  out->pixels = malloc(1);
+  // It crashes on an empty input, which holds no gain map.
+  out->pixels[0] = (uint8_t)(len > 0 && is_uhdr_image((void *)in, (int)len));
+  out->len = 1;
+  out->width = 1;
+  out->height = 1;
+  return STATUS_OK;
+}
+
 const struct op jpeg_ops[] = {
     {"jpeg-turbo", jpeg_turbo},
     {"jpeg-wuffs", jpeg_wuffs},
+    {"jpeg-uhdr", jpeg_uhdr},
     {0},
 };

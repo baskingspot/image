@@ -128,3 +128,222 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
     _ = arena;
     return input;
 }
+
+/// `jpeg_gain_map`: `Metadata.gain_map` against libultrahdr's
+/// `is_uhdr_image` (plan.md decision 64), as a one-byte gray8 image
+/// (test/oracle/jpeg.c). Only the flag is compared: an input counts only
+/// when this package reads its header.
+///
+/// The two read different images. This package reads the base image's
+/// APPn segments and stops at its EOI: MPF, and the gain map XMP namespace
+/// or ISO 21496-1's segment. libultrahdr ignores those: it finds the gain
+/// map as the second JPEG in the file and parses that image's gain map
+/// metadata (XMP or ISO 21496-1), and it rejects most damage to either
+/// image's entropy-coded data or ICC profile. So on a damaged file the
+/// answers part whenever the damage falls in one image and not the other,
+/// as often as not on mutations of corpus/vendor/generated/jpeg/
+/// ultrahdr-iso.jpg, and the expected splits are:
+///
+/// - A base image that declares a gain map with no second image after it,
+///   or a broken one: this package sets the flag, libultrahdr does not.
+/// - A second image with gain map metadata after a base image that does
+///   not declare it (no MPF, or no XMP namespace or ISO segment): the
+///   reverse.
+///
+/// So the comparison takes whole files only (`fuzz.mutates`): the corpus,
+/// and files built as writers build them, where the base image declares a
+/// gain map exactly when a gain map image follows.
+pub const gain_map = struct {
+    pub const name = "jpeg_gain_map";
+    pub const Decoder = GainMapDecoder;
+    pub const oracles = [_][]const u8{"jpeg-uhdr"};
+    pub const formats = [_]image.PixelFormat{.gray8};
+
+    pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
+        _ = op;
+        _ = format;
+        var r: std.Io.Reader = .fixed(input);
+        var d: GainMapDecoder = .init(&r, .{ .limits = .{ .max_pixels = 1 << 26 } });
+        _ = d.decodeConfig() catch return false;
+        return true;
+    }
+
+    pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
+        _ = op;
+        _ = arena;
+        return input;
+    }
+
+    /// The JPEG corpus, and two-image files: a base image and, but for a
+    /// plain JPEG, a second one after it that MPF locates. The base image
+    /// declares a gain map, by the XMP namespace, ISO 21496-1's segment, or
+    /// both, exactly when the second image carries gain map metadata in
+    /// the same forms; otherwise the second image is a plain preview, as
+    /// cameras write, and the base image may carry unrelated XMP.
+    /// `generate` runs under the comparison's lock, one input at a time,
+    /// so its buffers are shared.
+    pub const fuzz = struct {
+        pub const corpus = jpeg_fuzz.corpus;
+        pub const extensions = jpeg_fuzz.extensions;
+        pub const mutates = false;
+        var pixels: [32 * 32 * 3]u8 = undefined;
+        var work: [1 << 16]u8 = undefined;
+        var base: [1 << 14]u8 = undefined;
+        var second: [1 << 14]u8 = undefined;
+
+        const xmp = "http://ns.adobe.com/xap/1.0/\x00";
+        const iso = "urn:iso:std:iso:ts:21496:-1\x00";
+        const gm_ns = "http://ns.adobe.com/hdr-gain-map/1.0/";
+        const rdf = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF " ++
+            "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description ";
+        const rdf_end = "/></rdf:RDF></x:xmpmeta>";
+        /// The ISO 21496-1 gain map metadata libultrahdr 1.4 wrote for
+        /// ultrahdr-iso.jpg, after its URN.
+        const iso_metadata = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x24\xce" ++
+            "\xa3\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x24\xce\xa3\x00\x10\x00" ++
+            "\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00" ++
+            "\x00\x00\x00\x00\x01";
+
+        pub fn generate(random: std.Random, buf: []u8) []u8 {
+            var out: std.Io.Writer = .fixed(buf);
+            build(random, &out) catch unreachable;
+            return out.buffered();
+        }
+
+        fn build(random: std.Random, out: *std.Io.Writer) !void {
+            const be = std.builtin.Endian.big;
+            const b = encodeRandom(random, &base);
+            // 0: a plain JPEG; 1 and 2: a plain second image, after a base
+            // image with no XMP or with unrelated XMP; 3 to 5: a gain map
+            // in XMP, ISO 21496-1, or both.
+            const kind = random.uintLessThan(u8, 6);
+            if (kind == 0) return out.writeAll(b);
+            const in_xmp = kind == 3 or kind == 5;
+            const in_iso = kind == 4 or kind == 5;
+            const s = encodeRandom(random, &second);
+            // The base image's XMP and ISO segment bodies, in a random
+            // order, with MPF at a random place among them.
+            var segs: [2][]const u8 = undefined;
+            var n: usize = 0;
+            var xmp_buf: [512]u8 = undefined;
+            const prefix = if (random.boolean()) "hdrgm" else "gm";
+            if (in_xmp or kind == 2) {
+                var w: std.Io.Writer = .fixed(&xmp_buf);
+                try w.writeAll(xmp ++ rdf);
+                if (in_xmp) {
+                    try w.print("xmlns:{s}=\"{s}\" {s}:Version=\"1.0\"", .{ prefix, gm_ns, prefix });
+                } else {
+                    try w.writeAll("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"5\"");
+                }
+                try w.writeAll(rdf_end);
+                segs[n] = w.buffered();
+                n += 1;
+            }
+            if (in_iso) {
+                segs[n] = iso ++ "\x00\x00\x00\x00";
+                n += 1;
+            }
+            random.shuffle([]const u8, segs[0..n]);
+            const mpf_at = random.uintAtMost(usize, n);
+            // The second image's gain map metadata, which goes after its
+            // SOI. libultrahdr reads its XMP only under the prefix hdrgm;
+            // the base image's may be any.
+            var meta_buf: [512]u8 = undefined;
+            var meta: std.Io.Writer = .fixed(&meta_buf);
+            if (in_xmp) {
+                const body = xmp ++ rdf ++ "xmlns:hdrgm=\"" ++ gm_ns ++ "\" hdrgm:Version=\"1.0\" " ++
+                    "hdrgm:GainMapMax=\"2.0\" hdrgm:HDRCapacityMax=\"2.0\"" ++ rdf_end;
+                try meta.writeAll("\xff\xe1");
+                try meta.writeInt(u16, 2 + body.len, be);
+                try meta.writeAll(body);
+            }
+            if (in_iso) {
+                const body = iso ++ iso_metadata;
+                try meta.writeAll("\xff\xe2");
+                try meta.writeInt(u16, 2 + body.len, be);
+                try meta.writeAll(body);
+            }
+            const second_len = s.len + meta.buffered().len;
+            // MPF (CIPA DC-007): a big-endian TIFF header, an IFD of the
+            // version, the image count, and the MP entries, then the two
+            // entries, whose offsets count from the TIFF header.
+            const mpf_len = 4 + 8 + 2 + 3 * 12 + 4 + 2 * 16;
+            var base_len = b.len + 4 + mpf_len;
+            for (segs[0..n]) |x| base_len += 4 + x.len;
+            var tiff_at: usize = 2 + 4 + 4;
+            for (segs[0..mpf_at]) |x| tiff_at += 4 + x.len;
+
+            try out.writeAll(b[0..2]);
+            for (0..n + 1) |i| {
+                if (i == mpf_at) {
+                    try out.writeAll("\xff\xe2");
+                    try out.writeInt(u16, 2 + mpf_len, be);
+                    try out.writeAll("MPF\x00MM\x00\x2a\x00\x00\x00\x08\x00\x03");
+                    try out.writeAll("\xb0\x00\x00\x07\x00\x00\x00\x040100");
+                    try out.writeAll("\xb0\x01\x00\x04\x00\x00\x00\x01\x00\x00\x00\x02");
+                    try out.writeAll("\xb0\x02\x00\x07\x00\x00\x00\x20");
+                    try out.writeInt(u32, 8 + 2 + 3 * 12 + 4, be);
+                    try out.writeInt(u32, 0, be);
+                    try out.writeAll("\x00\x03\x00\x00");
+                    try out.writeInt(u32, @intCast(base_len), be);
+                    try out.writeAll(&@as([12]u8, @splat(0)));
+                    try out.writeInt(u32, @intCast(second_len), be);
+                    try out.writeInt(u32, @intCast(base_len - tiff_at), be);
+                    try out.writeInt(u32, 0, be);
+                }
+                if (i == n) break;
+                const marker: u8 = if (std.mem.startsWith(u8, segs[i], iso)) 0xe2 else 0xe1;
+                try out.writeAll(&.{ 0xff, marker });
+                try out.writeInt(u16, @intCast(2 + segs[i].len), be);
+                try out.writeAll(segs[i]);
+            }
+            try out.writeAll(b[2..]);
+            std.debug.assert(out.buffered().len == base_len);
+            try out.writeAll(s[0..2]);
+            try out.writeAll(meta.buffered());
+            try out.writeAll(s[2..]);
+        }
+
+        /// A JPEG of random size, color, and pixels from this package's
+        /// encoder.
+        fn encodeRandom(random: std.Random, dst: []u8) []u8 {
+            const w = 1 + random.uintLessThan(u32, 32);
+            const h = 1 + random.uintLessThan(u32, 32);
+            const format: image.PixelFormat = if (random.boolean()) .rgb8 else .gray8;
+            const len = w * h * format.bytesPerPixel();
+            random.bytes(pixels[0..len]);
+            const src = image.PixelBuffer.init(pixels[0..len], format, w, h) catch unreachable;
+            const options: image.jpeg.EncodeOptions = .{ .progressive = random.boolean() };
+            var out: std.Io.Writer = .fixed(dst);
+            image.jpeg.encode(&out, src, options, work[0..image.jpeg.workLen(options, w, h).?]) catch |e|
+                std.debug.panic("jpeg_gain_map oracle: encode failed: {t}", .{e});
+            return out.buffered();
+        }
+    };
+};
+
+const jpeg_fuzz = @import("fuzz").jpeg;
+
+/// The JPEG `Decoder` whose one frame is `Metadata.gain_map`: one gray8
+/// byte, 1 or 0.
+const GainMapDecoder = struct {
+    d: image.jpeg.Decoder,
+
+    pub const Options = image.jpeg.Decoder.Options;
+    pub const Error = image.jpeg.Decoder.Error;
+
+    pub fn init(reader: *std.Io.Reader, options: Options) GainMapDecoder {
+        return .{ .d = .init(reader, options) };
+    }
+
+    pub fn decodeConfig(g: *GainMapDecoder) Error!image.Config {
+        const c = try g.d.decodeConfig();
+        return .{ .width = 1, .height = 1, .native = .gray8, .metadata = c.metadata };
+    }
+
+    pub fn decodeFrame(g: *GainMapDecoder, dst: image.PixelBuffer, work: []u8) Error!?image.Frame {
+        _ = work;
+        dst.pixels[0] = @intFromBool((try g.decodeConfig()).metadata.gain_map);
+        return .{ .width = 1, .height = 1 };
+    }
+};

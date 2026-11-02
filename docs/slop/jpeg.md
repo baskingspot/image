@@ -167,13 +167,28 @@ processes.
   The namespace is searched in the XMP bytes as they pass to the sink,
   each piece joined to the end of the one before (`Find`); nothing past
   EOI is read, so the gain map image's own metadata is not checked.
-  libjpeg-turbo has no notion of gain maps, so no oracle compares the flag;
-  it was checked by hand against libultrahdr 1.4's `is_uhdr_image` on two
-  Pixel Ultra HDR 1.0 photographs (XMP), four libultrahdr files (ISO
-  21496-1 only, which libultrahdr writes by default), and a plain JPEG,
-  agreeing on all seven. `corpus/gen/jpeg.sh` adds one libultrahdr file
-  (`ultrahdr-iso.jpg`), so the oracle compares a gain-map file's base
-  image with libjpeg-turbo's.
+  The `jpeg_gain_map` oracle (test/oracle/jpeg.zig, plan.md decision 64)
+  compares the flag with libultrahdr 1.4's `is_uhdr_image`, which the
+  flake provides. The two read different images: libultrahdr ignores the
+  base image's MPF and XMP, finds the gain map as the second JPEG in the
+  file, and parses that image's metadata, rejecting most damage to either
+  image. Of 5,000 mutations of `ultrahdr-iso.jpg` (the harness's
+  edits), 918 of the 2,828 whose base image still declared a gain map
+  exactly when the second image still carried one split for that reason
+  alone, so the module compares
+  whole files only: the corpus, and files it builds as writers do (a
+  base image from this package's encoder, a second image after it that
+  MPF locates, and gain map XMP, ISO 21496-1, both, or neither in each,
+  declared in the base image exactly when the second carries it). The
+  harness's `mutates = false` (test/oracle/compare.zig) is for this.
+  libultrahdr reads the gain map's XMP only under the prefix `hdrgm`, so
+  the second images use it; the base images use `hdrgm` or another
+  prefix, which this package reads by namespace. Before the oracle, the
+  flag was checked by hand on two Pixel Ultra HDR 1.0 photographs (XMP),
+  four libultrahdr files (ISO 21496-1 only, which libultrahdr writes by
+  default), and a plain JPEG, agreeing on all seven. `corpus/gen/jpeg.sh`
+  adds one libultrahdr file (`ultrahdr-iso.jpg`), so the `jpeg` oracle
+  compares a gain-map file's base image with libjpeg-turbo's.
 - **Samples past 8 bits, and lossless ones below.** Native is 16-bit
   (`gray16`, `rgb16`, `cmyk16`) past 8 bits and 8-bit otherwise. Color
   conversion runs at the image's precision, as libjpeg-turbo's does, then
