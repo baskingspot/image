@@ -283,12 +283,16 @@ owning the files adding-a-format.md assigns to its format plus
   icons, about ×0.5 on the compressed paths at 1 MP and above; peak RSS at
   or below libtiff's in every class. Stage 2 is JPEG compression through
   `image.jpeg`'s `Options.tables`, `.color`, `.crop`, and `Decoder.workLen`.
-- **WebP performance pass** (branch `wave3-webp-perf`, the WebP orb):
-  `src/webp/` and its bench rows. Target: at least 1.0× libwebp in every
-  size class, decode, lossless and lossy, with peak RSS no worse. The
-  starting gaps (results/webp-20261102.md) are lossless palette images with
-  flat areas (0.54–0.80×) and lossy's per-pixel loop filter and token reader
-  (0.82–0.92× above icons).
+- **WebP decode performance pass** (landed; results/webp-perf-20261102.md):
+  WebP decode beats libwebp in every size class. Lossless is 2.14×, 1.15×,
+  1.11× (icons, ≤1 MP, >1 MP) and 1.10× on the 50 MP mosaic; lossy 1.77×,
+  1.14×, 1.04×; animation 1.50× and 1.23×. Peak RSS and work memory are
+  unchanged. A finding for every format: this Ice Lake server lowers the core
+  clock after any zmm (512-bit) instruction, and with -Dcpu=native LLVM joins
+  32-bit-lane `@Vector` math and some cross-lane shuffles into zmm. Keep hot
+  kernels in 16-bit lanes or at most 256 bits, and check each with objdump
+  for zmm. A large decode loop sits at the edge of the register file: when
+  added code spills the bit buffer, specialize the loop at comptime.
 - **PNG and APNG encode** (landed at `d50a0e8`; png.md,
   results/png-encode-20261102.md) with compress 6319823: default effort is
   level 7 filtered (1.3% smaller than libpng and libspng, 2.3–3.5× libpng's
@@ -305,11 +309,10 @@ owning the files adding-a-format.md assigns to its format plus
   and any new `src/gif/` files it adds (quantizer, dither), the gif_encode
   fuzz and oracle files, and the gif-encode bench rows; decision 6
   (quantizer and dither) is measured here.
-- **JPEG encode** (branch `wave5-jpeg-encode`, the JPEG orb):
-  `src/jpeg/encode.zig` and any new `src/jpeg/` encoder files (forward DCT,
-  Huffman optimization), the jpeg_encode fuzz and oracle files, and the
-  jpeg-encode bench rows; decision 3 (trellis) is measured after the
-  baseline encoder works.
+- **JPEG encode** (landed; results/jpeg-encode-20261102.md): baseline and
+  progressive, 4:4:4/4:2:2/4:2:0, optimized tables, byte-identical to
+  libjpeg-turbo; 1.87× its speed over all rows, 0.93× on baseline 4:2:0 over
+  1 MP; peak RSS at or below it.
 - **WebP lossless encode** (branch `wave5-webp-encode`, the performance
   orb): `src/webp/encode.zig` and any new `src/webp/encode_*.zig` files, the
   webp_encode fuzz and oracle files, and the webp-encode bench rows. It adds
@@ -320,9 +323,14 @@ owning the files adding-a-format.md assigns to its format plus
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
   only its export lines to `src/tiff/root.zig`; the rest of `src/tiff/`
   stays with the TIFF orb (stage 2, branch `wave3-tiff`).
-- **Gates on 8 GB orbs** (branch `wave2-harness4`, the harness orb): the
-  all-format `just oracle 100000` and, on some orbs, `just ci` run out of
-  memory on an 8 GB orb; make them fit.
+- **Harness pass 4** (landed; results/oracle-memory-20261102.md): the oracle
+  streams each batch behind its length, sends a decoder's requests op by op
+  (adapting each input once per op), and reads corpus files from disk as
+  batches need them. With the full corpus on an 8 GB orb (6 GiB cgroup),
+  `just oracle 100000` peaks at 1.9 GiB (was OOM-killed at 5.6) and `just
+ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. If the
+  compiles grow past about 6 GiB together, run `just test`'s ReleaseFast
+  unit tests after ReleaseSafe instead of beside it.
 - **WebP lossy encode** (branch `wave5-webp-lossy`, a new orb):
   `src/webp/vp8_encode.zig` and any new `src/webp/vp8_encode_*.zig` files,
   the webp_lossy_encode fuzz and oracle files, and the webp-encode-lossy
@@ -539,8 +547,10 @@ orb asks for a change to them, or for text in this file, in its report.
    throughput on photos over 1 MP and 3–5× on icons, with peak RSS at or
    below it. No trade was needed.
 3. **JPEG encoder quality.** libjpeg-turbo is the speed bar and mozjpeg the
-   size bar. Whether to add trellis quantization is measured after the
-   baseline encoder works.
+   size bar. Measured (results/jpeg-encode-20261102.md): at equal PSNR,
+   mozjpeg's trellis is no smaller than our optimized baseline (+0.6% to
+   +1.9%); at equal SSIM it is 6.6% smaller, and mozjpeg's full profile 12.2%
+   smaller than our progressive, at 8–14× less speed. Awaiting the owner.
 4. **JPEG XL lossy encoding.** VarDCT encoding is as large as the decoder.
    Decide after lossless encode lands whether it stays in phase 1.
 5. **JPEG XL's JPEG reconstruction** (`jbrd`, the original JPEG's exact

@@ -87,6 +87,12 @@
               # `just test-be` runs the tests on a big-endian target.
               qemu-user
             ];
+
+            # mozjpeg, the JPEG encoder's size bar, kept off PATH and
+            # pkg-config: its cjpeg and libjpeg would shadow libjpeg-turbo's,
+            # the oracle and corpus generator. Bench arms and scripts find it
+            # here.
+            MOZJPEG = pkgs.mozjpeg;
           };
         };
     };
