@@ -33,6 +33,7 @@ pub fn build(b: *std.Build) void {
     run_mod_tests.addArg(b.fmt("--seed=0x{x}", .{b.graph.random_seed}));
     const test_step = b.step("test", "Run the unit tests and each fuzz target once over its seeds");
     test_step.dependOn(&run_mod_tests.step);
+    b.step("test-unit", "Run the unit tests alone").dependOn(&run_mod_tests.step);
 
     // The fuzz targets import `image`, and `compress` to build inputs (zlib
     // streams for PNG, say).
