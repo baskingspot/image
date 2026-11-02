@@ -1,0 +1,2 @@
+peak RSS (MiB)            image   before  libtiff image-rs       go
+tiff-decode-lzw           255.3    255.2    258.2    594.9    663.1

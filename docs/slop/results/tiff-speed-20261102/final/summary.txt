@@ -1,0 +1,20 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffDecodeNone/icon               13     1018.1     1.66     5.93     1.97     5.74    5%    0    1   1.34 [1.13, 1.61] icon_64-actions_appointment_new-64x64.tif
+TiffDecodeNone/1mp                23     4758.2     1.02     2.00     5.25    18.58    2%    0   20   0.96 [0.87, 1.15] screenshot_game-20XX_Menu_picture-634x406.tif
+TiffDecodeNone/large               8     3309.8     1.00     1.48     5.85    14.84    5%    0    8   0.97 [0.89, 1.01] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.tif
+TiffDecodeLZW/icon                13       91.7     1.47     1.32     1.67     3.20    5%    0    2   1.28 [0.93, 1.38] textures_pk-_0mod_button1-64x64.tif
+TiffDecodeLZW/1mp                 23      133.9     1.91     0.91     2.04     3.65    2%    0    0   1.27 [1.17, 1.31] photo_kodak-kodim01-768x512.tif
+TiffDecodeLZW/large                8      115.8     1.81     0.91     1.94     3.45    3%    0    0   1.49 [1.31, 1.69] photo_wikipedia-001-1276x850.tif
+TiffDecodeDeflate/icon            13       99.1     1.27     1.84     1.71     3.87    2%    0    1   1.15 [0.99, 1.23] icon_16-actions_address_book_new-16x16.tif
+TiffDecodeDeflate/1mp             23      163.2     1.41     0.94     2.10     4.27    3%    0    0   1.14 [1.04, 1.18] test-kodim23-768x512.tif
+TiffDecodeDeflate/large            8      132.0     1.29     0.92     1.95     3.83    4%    0    2   1.14 [1.10, 1.28] photo_wikipedia-001-1276x850.tif
+TiffDecodePackBits/icon           13      508.8     2.98     3.41     1.72     5.80    3%    0    0   2.22 [2.08, 2.33] icon_16-actions_address_book_new-16x16.tif
+TiffDecodePackBits/1mp            23     2732.9     3.37     1.73     3.89    18.90    3%    0    0   1.90 [1.81, 1.99] textures_pk-_pkf_water1-128x128.tif
+TiffDecodePackBits/large           8     1690.5     3.44     1.59     3.88    14.81    5%    0    0   1.89 [1.39, 2.07] photo_mosaic-50mp-8192x6144.tif
+TiffDecodeJPEG/icon               13       78.9     1.00        -        -        -    3%    0   13   0.96 [0.87, 1.10] icon_64-actions_address_book_new-64x64.tif
+TiffDecodeJPEG/1mp                23      298.0     1.00        -        -        -    3%    0   23   0.98 [0.90, 1.05] photo_kodak-kodim03-768x512.tif
+TiffDecodeJPEG/large               8      337.7     0.99        -        -        -    5%    0    8   0.98 [0.93, 1.01] photo_wikipedia-001-1276x850.tif
+TiffDecodeG4/icon                 13      453.8     1.74     5.20     5.79     6.56    6%    0    0   1.58 [1.44, 1.69] icon_32-actions_appointment_new-32x32.tif
+TiffDecodeG4/1mp                  18     2412.0     3.20     1.53    21.98    19.54    3%    0    0   1.88 [1.75, 2.16] test-kodim10-512x768.tif
+TiffDecodeG4/large                 4     1735.3     2.63     1.19    16.46    14.48    7%    0    0   1.93 [1.71, 2.22] screenshot_web-cnn_com-1313x5241.tif
+all                              255      493.6     1.66     1.69     3.39     7.63          0   78

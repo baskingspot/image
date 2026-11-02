@@ -1,0 +1,20 @@
+image/arm, geomean              rows image MP/s  libtiff image-rs       go     ±   <1    ~   slowest vs libtiff
+TiffDecodeNone/icon               13      607.6     3.56     1.17     3.46    3%    0    0   2.91 [2.75, 3.22] icon_64-actions_bookmark_new-64x64.tif
+TiffDecodeNone/1mp                23     4648.9     1.94     5.14    18.17    3%    0    0   1.56 [1.48, 1.63] photo_wikipedia-003-1436x730.tif
+TiffDecodeNone/large               8     3283.3     1.47     5.87    14.75    5%    0    0   1.16 [1.06, 1.26] photo_mosaic-50mp-8192x6144.tif
+TiffDecodeLZW/icon                13       62.5     0.89     1.13     2.18    6%    7    2   0.50 [0.48, 0.54] icon_64-actions_address_book_new-64x64.tif
+TiffDecodeLZW/1mp                 23       69.7     0.48     1.06     1.91    2%   23    0   0.21 [0.20, 0.24] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.tif
+TiffDecodeLZW/large                8       64.0     0.50     1.07     1.89    2%    8    0   0.37 [0.33, 0.40] screenshot_web-apple_com-1313x4755.tif
+TiffDecodeDeflate/icon            13       78.3     1.45     1.35     3.05    3%    0    4   0.91 [0.88, 1.08] textures_pk-_0mod_button1-64x64.tif
+TiffDecodeDeflate/1mp             23      115.1     0.66     1.49     3.03    2%   21    2   0.57 [0.53, 0.60] textures_plants-plant_01-166x1022.tif
+TiffDecodeDeflate/large            8      102.3     0.71     1.50     2.97    3%    6    2   0.61 [0.59, 0.67] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.tif
+TiffDecodePackBits/icon           13      170.4     1.14     0.57     1.93    5%    5    1   0.41 [0.39, 0.42] icon_64-actions_contact_new-64x64.tif
+TiffDecodePackBits/1mp            23      807.5     0.51     1.15     5.62    2%   22    0   0.25 [0.20, 0.28] screenshot_game-3dcursedlabyrinth_mazegame-343x480.tif
+TiffDecodePackBits/large           8      486.7     0.46     1.14     4.28    4%    8    0   0.30 [0.28, 0.31] screenshot_web-cnn_com-1313x5241.tif
+TiffDecodeJPEG/icon               13       79.3        -        -        -     -    0    0   -
+TiffDecodeJPEG/1mp                23      297.4        -        -        -     -    0    0   -
+TiffDecodeJPEG/large               8      337.9        -        -        -     -    0    0   -
+TiffDecodeG4/icon                 13      260.3     2.98     3.33     3.74    6%    0    0   1.62 [1.51, 1.78] textures_pk-_0mod_button1-64x64.tif
+TiffDecodeG4/1mp                  18      761.6     0.48     6.93     6.15    4%   18    0   0.33 [0.31, 0.52] icon_512-actions_address_book_new-512x512.tif
+TiffDecodeG4/large                 4      660.7     0.45     6.22     5.51    8%    4    0   0.29 [0.26, 0.32] textures_plants-plant_02-1024x1316.tif
+all                              255      297.4     0.92     1.84     4.14        122   11

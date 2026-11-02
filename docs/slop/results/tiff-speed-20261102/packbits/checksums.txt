@@ -1,0 +1,4 @@
+before      44 rows, 0 differ from image
+libtiff     44 rows, 0 differ from image
+image-rs    44 rows, 0 differ from image
+go          44 rows, 0 differ from image

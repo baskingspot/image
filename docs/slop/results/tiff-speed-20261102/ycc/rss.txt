@@ -1,0 +1,3 @@
+peak RSS (MiB)            image   before  libtiff image-rs       go
+tiff-decode-none          338.4    338.5    341.4    677.8    777.5
+tiff-decode-packbits      332.7    332.8    335.6    671.9    757.3

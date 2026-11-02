@@ -64,6 +64,7 @@ All notable changes to image are recorded here. The format follows
 - `image.jpeg.encode` is faster: baseline color over 1 MP from 0.93× to 1.18× libjpeg-turbo's speed (4:4:4 from 0.98× to 1.26×), and 2.16× over all encode benchmark rows, with the same bytes.
 - `image.convert` runs a row's last pixels through its SIMD kernels instead of the per-pixel path, and RGB↔BGR stores whole cache lines: narrow rows convert up to twice as fast, so 24- and 32-bit BMP and TGA decodes of narrow images gain up to 25%; `convert.Converter.run` may convert in place between formats of one pixel size.
 - `image.png.Decoder` computes the chunks' CRC-32 with carry-less multiplication on x86-64 CPUs that have PCLMULQDQ, about 4% of a decode.
+- `image.tiff.Decoder` decodes LZW data about 1.8× faster past icons (at libtiff's speed), Deflate 1.3–1.4×, PackBits 3–3.4×, and Group 4 2.6–3.2×, and icons of every compression 1.3–3× faster; an LZW page needs 24 KiB more work memory (`Config.work_len`).
 - `image.png.Decoder` unfilters consecutive Average or Paeth rows two at a time, with no more work memory: up to 1.28× faster on Paeth-filtered images such as the 50-megapixel test photo.
 - `image.png.Decoder` expands 8-bit palette images up to 1.23× faster.
 - `image.qoi.encode` encodes packed `rgba8` and `rgb8` sources as one span instead of row by row, and checks one bound per pixel instead of two: about 1.16× faster on icons and images up to 1 MP, up to 1.7× on screenshots of runs and INDEX chunks.

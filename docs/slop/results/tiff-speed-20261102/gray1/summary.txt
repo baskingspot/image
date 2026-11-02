@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffDecodeG4/icon                 13      343.7     1.35     4.02     4.47     4.95    3%    0    3   1.06 [0.89, 1.35] icon_16-actions_bookmark_new-16x16.tif
+TiffDecodeG4/1mp                  18     2369.4     3.18     1.51    21.81    19.33    5%    0    1   1.82 [1.78, 2.05] test-kodim10-512x768.tif
+TiffDecodeG4/large                 4     1815.0     2.61     1.25    17.96    15.36   10%    0    0   1.97 [1.82, 2.33] screenshot_web-cnn_com-1313x5241.tif
+all                               35     1122.0     2.26     2.12    11.84    11.35          0    4

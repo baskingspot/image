@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s  libtiff image-rs       go     ±   <1    ~   slowest vs libtiff
+TiffDecodeG4/icon                 13      258.2     2.99     3.32     3.68    4%    0    1   1.66 [0.94, 1.71] icon_64-actions_appointment_new-64x64.tif
+TiffDecodeG4/1mp                  18      749.0     0.48     6.92     6.12    6%   16    2   0.32 [0.29, 0.39] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.tif
+TiffDecodeG4/large                 4      689.7     0.47     6.73     5.90   10%    4    0   0.29 [0.14, 0.33] textures_plants-plant_02-1024x1316.tif
+all                               35      499.6     0.94     5.25     5.05         20    3

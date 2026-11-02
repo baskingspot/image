@@ -1,0 +1,2 @@
+peak RSS (MiB)            image   before  libtiff image-rs       go
+tiff-decode-g4             33.1     33.1     36.0     73.4    134.9

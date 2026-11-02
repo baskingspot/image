@@ -1,0 +1,4 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffDecodeNone/icon               13     1028.0     1.68     6.03     1.98     5.73    2%    0    0   1.37 [1.11, 1.48] textures_pk-_0mod_button1-64x64.tif
+TiffDecodePackBits/icon           13      209.1     1.16     1.44     0.72     2.38    2%    0    4   1.02 [0.96, 1.10] icon_64-actions_contact_new-64x64.tif
+all                               26      463.6     1.40     2.94     1.20     3.69          0    4

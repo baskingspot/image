@@ -1,0 +1,4 @@
+before      35 rows, 0 differ from image
+libtiff     35 rows, 0 differ from image
+image-rs    35 rows, 0 differ from image
+go          35 rows, 35 differ from image

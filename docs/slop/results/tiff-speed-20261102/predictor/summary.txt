@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffDecodeLZW/icon                13       69.6     1.14     1.00     1.28     2.41    5%    0    4   1.03 [0.93, 1.09] icon_16-actions_address_book_new-16x16.tif
+TiffDecodeLZW/1mp                 23       82.1     1.19     0.57     1.27     2.26    2%    0    7   1.06 [1.04, 1.16] photo_wikipedia-002-1260x806.tif
+TiffDecodeLZW/large                8       75.7     1.16     0.59     1.28     2.22    4%    0    1   1.08 [1.05, 1.20] photo_wikipedia-001-1276x850.tif
+TiffDecodeDeflate/icon            13       89.5     1.19     1.72     1.61     3.59    4%    0    4   1.04 [0.96, 1.09] icon_16-actions_address_book_new-16x16.tif
+TiffDecodeDeflate/1mp             23      162.7     1.40     0.94     2.08     4.23    2%    0    1   1.11 [1.08, 1.20] photo_wikipedia-002-1260x806.tif
+TiffDecodeDeflate/large            8      135.3     1.31     0.94     1.99     3.80    3%    0    1   1.17 [0.86, 1.21] photo_wikipedia-001-1276x850.tif
+all                               88      100.8     1.24     0.87     1.56     3.01          0   18

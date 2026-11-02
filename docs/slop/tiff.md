@@ -76,7 +76,8 @@ bounded by the page's fields and checked against `Limits.max_work`:
   the IFD (8 or 16 bytes per chunk, so it grows with the strip count, not
   the pixel count);
 - a 4 KiB staging buffer for compressed data;
-- the decompressor: LZW 28 KiB, Deflate `zlib.Reader.Buffer` (32 KiB
+- the decompressor: LZW 52 KiB (its table holds each string's last 8
+  bytes, so a string is written out 8 bytes a step), Deflate `zlib.Reader.Buffer` (32 KiB
   window), CCITT 8 bytes per pixel of chunk width plus 3, PackBits none;
 - one line of a strip or tile for chunky data, so it does not grow with
   the height; for planar data one whole strip or tile of every plane,

@@ -1,0 +1,4 @@
+image/arm, geomean              rows image MP/s  libtiff image-rs       go     ±   <1    ~   slowest vs libtiff
+TiffDecodeNone/icon               13      608.1     3.57     1.17     3.40    5%    0    0   2.96 [2.87, 3.07] icon_64-actions_address_book_new-64x64.tif
+TiffDecodePackBits/icon           13      179.6     1.23     0.62     2.04    3%    4    1   0.52 [0.48, 0.64] icon_64-actions_contact_new-64x64.tif
+all                               26      330.5     2.10     0.85     2.63          4    1

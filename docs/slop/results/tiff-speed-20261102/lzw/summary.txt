@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffDecodeLZW/icon                13       87.8     1.24     1.22     1.59     2.98    5%    0    3   1.07 [0.88, 1.20] textures_pk-_0mod_button1-64x64.tif
+TiffDecodeLZW/1mp                 23      146.8     1.75     1.00     2.24     3.98    4%    0    0   1.29 [1.11, 1.42] photo_kodak-kodim01-768x512.tif
+TiffDecodeLZW/large                8      128.7     1.67     0.99     2.16     3.69    3%    0    0   1.50 [1.37, 1.83] photo_wikipedia-001-1276x850.tif
+all                               44      123.2     1.56     1.06     2.01     3.60          0    3
