@@ -8,3 +8,4 @@ FORMAT(bmp) // link: MagickWand
 FORMAT(ico) // link: -
 FORMAT(tga) // link: MagickWand
 FORMAT(netpbm) // link: MagickWand
+FORMAT(gif) // link: -lgif
