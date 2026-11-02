@@ -1,0 +1,61 @@
+BenchmarkPngDecode/icon_16-actions_address_book_new-16x16.png	0.9908	[0.9368, 1.1432]	n=20
+BenchmarkPngDecode/icon_16-actions_appointment_new-16x16.png	0.9922	[0.9643, 1.0937]	n=20
+BenchmarkPngDecode/icon_16-actions_bookmark_new-16x16.png	1.0003	[0.9170, 1.0399]	n=20
+BenchmarkPngDecode/icon_16-actions_contact_new-16x16.png	0.9847	[0.5141, 1.0353]	n=20
+BenchmarkPngDecode/icon_32-actions_address_book_new-32x32.png	0.9946	[0.9517, 1.0669]	n=20
+BenchmarkPngDecode/icon_32-actions_appointment_new-32x32.png	0.9941	[0.9534, 1.0180]	n=20
+BenchmarkPngDecode/icon_32-actions_bookmark_new-32x32.png	0.9937	[0.9467, 1.0606]	n=20
+BenchmarkPngDecode/icon_32-actions_contact_new-32x32.png	0.9952	[0.9595, 1.0058]	n=20
+BenchmarkPngDecode/icon_64-actions_address_book_new-64x64.png	0.9995	[0.9743, 1.0069]	n=20
+BenchmarkPngDecode/icon_64-actions_appointment_new-64x64.png	0.9983	[0.9542, 1.0227]	n=20
+BenchmarkPngDecode/icon_64-actions_bookmark_new-64x64.png	0.9978	[0.9500, 1.4430]	n=20
+BenchmarkPngDecode/icon_64-actions_contact_new-64x64.png	0.9970	[0.9342, 1.0370]	n=20
+BenchmarkPngDecode/icon_512-actions_address_book_new-512x512.png	1.0027	[0.8893, 1.0474]	n=20
+BenchmarkPngDecode/icon_512-actions_appointment_new-512x512.png	1.0024	[0.7902, 1.1214]	n=20
+BenchmarkPngDecode/icon_512-actions_bookmark_new-512x512.png	1.0057	[0.8643, 1.0520]	n=20
+BenchmarkPngDecode/photo_kodak-kodim01-768x512.png	0.9885	[0.7579, 1.0295]	n=20
+BenchmarkPngDecode/photo_kodak-kodim02-768x512.png	0.9874	[0.9229, 1.1289]	n=20
+BenchmarkPngDecode/photo_kodak-kodim03-768x512.png	0.9997	[0.9002, 1.1216]	n=20
+BenchmarkPngDecode/photo_mosaic-50mp-8192x6144.png	1.0007	[0.9161, 1.0959]	n=20
+BenchmarkPngDecode/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.png	0.9960	[0.9698, 1.1164]	n=20
+BenchmarkPngDecode/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.png	0.9896	[0.8441, 1.0657]	n=20
+BenchmarkPngDecode/photo_wikipedia-001-1276x850.png	0.9981	[0.9245, 1.0659]	n=20
+BenchmarkPngDecode/photo_wikipedia-002-1260x806.png	0.9896	[0.9414, 1.0165]	n=20
+BenchmarkPngDecode/photo_wikipedia-003-1436x730.png	0.9955	[0.9534, 1.0245]	n=20
+BenchmarkPngDecode/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.png	0.9984	[0.9204, 1.1025]	n=20
+BenchmarkPngDecode/pngimg-academy_awards_PNG9-447x1192.png	0.9962	[0.9265, 1.1112]	n=20
+BenchmarkPngDecode/pngimg-air_pump_PNG5-999x772.png	0.9981	[0.7338, 1.1036]	n=20
+BenchmarkPngDecode/screenshot_game-3dbrick2-320x240.png	1.0015	[0.9272, 1.0334]	n=20
+BenchmarkPngDecode/screenshot_game-3dcursedlabyrinth_mazegame-343x480.png	0.9802	[0.8393, 1.1388]	n=20
+BenchmarkPngDecode/screenshot_game-20XX_Menu_picture-634x406.png	0.9961	[0.9484, 1.0482]	n=20
+BenchmarkPngDecode/screenshot_web-amazon_com-1313x6097.png	0.9977	[0.9716, 1.0278]	n=20
+BenchmarkPngDecode/screenshot_web-apple_com-1313x4755.png	1.0005	[0.9279, 1.0453]	n=20
+BenchmarkPngDecode/screenshot_web-cnn_com-1313x5241.png	0.9985	[0.9668, 1.1125]	n=20
+BenchmarkPngDecode/test-dice-800x600.png	1.0020	[0.9444, 1.0220]	n=20
+BenchmarkPngDecode/test-kodim10-512x768.png	0.9904	[0.9349, 1.0320]	n=20
+BenchmarkPngDecode/test-kodim23-768x512.png	0.9947	[0.9117, 1.0721]	n=20
+BenchmarkPngDecode/test-qoi_logo-448x220.png	1.0046	[0.9172, 1.0260]	n=20
+BenchmarkPngDecode/test-testcard-256x256.png	1.0071	[0.9084, 1.3363]	n=20
+BenchmarkPngDecode/test-testcard_rgba-256x256.png	0.9383	[0.8878, 1.2528]	n=20
+BenchmarkPngDecode/test-wikipedia_008-1152x858.png	0.9942	[0.9703, 1.1323]	n=20
+BenchmarkPngDecode/textures_pk-_0mod_button1-64x64.png	1.0137	[0.9741, 1.2197]	n=20
+BenchmarkPngDecode/textures_pk-_pkf_water1-128x128.png	1.0011	[0.9572, 1.1927]	n=20
+BenchmarkPngDecode/textures_plants-plant_01-166x1022.png	1.0006	[0.9392, 1.1461]	n=20
+BenchmarkPngDecode/textures_plants-plant_02-1024x1316.png	0.9917	[0.9529, 1.1548]	n=20
+BenchmarkPngDecode/variant_gray-actions_address_book_new-64x64.png	1.0057	[0.9599, 1.1826]	n=20
+BenchmarkPngDecode/variant_gray-kodim01-768x512.png	0.9967	[0.9350, 1.1815]	n=20
+BenchmarkPngDecode/variant_gray_alpha-actions_address_book_new-64x64.png	1.0003	[0.9269, 1.2385]	n=20
+BenchmarkPngDecode/variant_gray_alpha-kodim01-768x512.png	0.9927	[0.9706, 1.1808]	n=20
+BenchmarkPngDecode/variant_interlaced-actions_address_book_new-64x64.png	0.9974	[0.7757, 1.1376]	n=20
+BenchmarkPngDecode/variant_interlaced-kodim01-768x512.png	0.9948	[0.7531, 1.2305]	n=20
+BenchmarkPngDecode/variant_palette-actions_address_book_new-64x64.png	1.0132	[0.8568, 1.3281]	n=20
+BenchmarkPngDecode/variant_palette-kodim01-768x512.png	0.9962	[0.9797, 1.1807]	n=20
+BenchmarkPngDecodeIcons/rotate64-16x16	1.0055	[0.9889, 1.0532]	n=20
+BenchmarkPngDecodeIcons/rotate64-32x32	1.0051	[0.9860, 1.0395]	n=20
+BenchmarkPngDecodeIcons/rotate64-64x64	0.9957	[0.9529, 1.0330]	n=20
+
+rotating icons (3): 3 rows, geomean hdr/base time 1.0021
+icons <= 64x64: 17 rows, geomean hdr/base time 0.9981
+to 1 MP: 27 rows, geomean hdr/base time 0.9946
+over 1 MP: 8 rows, geomean hdr/base time 0.9966
+all: 55 rows, geomean 0.9964
