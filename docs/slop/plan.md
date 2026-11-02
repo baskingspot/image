@@ -306,8 +306,10 @@ orb asks for a change to them, or for text in this file, in its report.
   `src/decode.zig`, `src/Decoder.zig`, and adding-a-format.md. Wiring TGA's
   footer and PNG's late chunks waits for the performance pass to release
   `src/tga/` and `src/png/`.
-- **GIF follow-ups** (branch `wave2-gif-options`, the GIF orb): `src/gif/`
-  for decision 12.
+- **GIF follow-ups** (landed at `e6e0414`; results/gif-options-20261102.md):
+  decision 12. `loop_count` is 1 without a loop extension, and
+  `gif.Decoder.Options.ignore_too_much_data` matches Wuffs's quirk, including
+  when a zero-area or interlaced frame counts as whole.
 - **Netpbm oracle determinism** (landed at `c94a296`): a data race, not an
   oracle library. `comparable()` cached our decode in globals shared by the
   oracle's worker threads; they are `threadlocal` now. Wrappers that keep
