@@ -221,8 +221,13 @@ Running beside wave 1's tail, started early by the owner:
   `decodeConfig` reads ahead a single last frame. There is no jxl
   `decodeFrameConfig` yet (it would need work memory). The oracle leaves out
   lossy frames until the comparison takes a tolerance, and files with
-  header-bundle extensions (a libjxl quirk). Next: render by group row, then
-  speed, then JPEG reconstruction (stage 4).
+  header-bundle extensions (a libjxl quirk). `metadata()` reports the colour
+  encoding's transfer (or gamma), primaries, and intensity target, and
+  linear sRGB for XYB images with an ICC (decision 46); the last frame comes
+  back before the boxes after the codestream are read, as libjxl and
+  jxl-oxide return it. Next: lossy frames in the oracle on the harness's
+  per-input tolerance (decision 45), f32 output (decision 24), render by
+  group row, then speed.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
