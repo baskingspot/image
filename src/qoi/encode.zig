@@ -58,7 +58,11 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     switch (native) {
         inline .rgba8, .rgb8 => |n| {
             const ch = comptime n.bytesPerPixel();
-            if (src.format == n) {
+            const row_len = @as(usize, src.width) * ch;
+            if (src.format == n and src.stride == row_len) {
+                // Packed rows are one span: no setup per row.
+                try s.pixels(w, src.pixels[0 .. row_len * src.height], ch);
+            } else if (src.format == n) {
                 for (0..src.height) |y| try s.pixels(w, src.row(@intCast(y)), ch);
             } else {
                 const conv: Converter = .init(n, src.format);
@@ -258,10 +262,10 @@ test "a fixed writer of exactly the file's size" {
     try testing.expectEqualSlices(u8, &px, &back);
 }
 
-test "round trips through both of the decoder's loops" {
+test "round trips through the decoder" {
     // Pixels that drift by small steps, repeat, and jump, so every chunk
-    // kind appears, at a size below and one above the decoder's switch
-    // between its branchy and branchless loops, in RGB and RGBA.
+    // kind appears, at two sizes, in RGB and RGBA, packed and with a
+    // stride wider than a row.
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
     var px: [80 * 60 * 4]u8 = undefined;
@@ -278,6 +282,8 @@ test "round trips through both of the decoder's loops" {
     }
     var file: [80 * 60 * 5 + 22]u8 = undefined;
     var back: [80 * 60 * 4]u8 = undefined;
+    var wide: [81 * 60 * 4]u8 = undefined;
+    var file2: [80 * 60 * 5 + 22]u8 = undefined;
     for ([_][2]u32{ .{ 40, 40 }, .{ 80, 60 } }) |size| {
         for ([_]PixelFormat{ .rgba8, .rgb8 }) |format| {
             const len = PixelBuffer.len(format, size[0], size[1]).?;
@@ -287,6 +293,12 @@ test "round trips through both of the decoder's loops" {
             var d: Decoder = .init(&r, .{});
             _ = try d.decodeFrame(try PixelBuffer.init(back[0..len], format, size[0], size[1]), &.{});
             try testing.expectEqualSlices(u8, px[0..len], back[0..len]);
+            // The same rows, a pixel apart, write the same file.
+            const row = len / size[1];
+            const stride = row + format.bytesPerPixel();
+            for (0..size[1]) |y| @memcpy(wide[y * stride ..][0..row], px[y * row ..][0..row]);
+            const strided = try PixelBuffer.initStride(wide[0 .. stride * size[1]], format, size[0], size[1], stride);
+            try testing.expectEqualSlices(u8, encoded, try testEncode(strided, &file2));
         }
     }
 }

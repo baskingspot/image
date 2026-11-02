@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before image-rs     ±   <1    ~   slowest vs before
+QoiEncode/icon                    13      379.5     1.15     1.01    3%    0    3   1.05 [0.90, 1.21] icon_64-actions_address_book_new-64x64.raw
+QoiEncode/1mp                     23      269.2     1.02     1.02    2%    1   16   0.99 [0.73, 1.00] photo_kodak-kodim02-768x512.raw
+QoiEncode/large                    8      210.1     1.01     1.03    3%    0    8   1.00 [0.98, 1.00] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+all                               44      284.8     1.05     1.02          1   27

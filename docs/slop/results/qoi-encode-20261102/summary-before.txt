@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s image-rs     ±   <1    ~   slowest vs image-rs
+QoiEncode/icon                    13      330.7     0.88    2%   11    1   0.84 [0.60, 0.93] icon_16-actions_contact_new-16x16.raw
+QoiEncode/1mp                     23      265.3     1.01    2%    4   13   0.95 [0.90, 0.97] test-qoi_logo-448x220.raw
+QoiEncode/large                    8      207.2     1.02    2%    0    4   0.97 [0.86, 1.24] textures_plants-plant_02-1024x1316.raw
+all                               44      270.7     0.97         15   18

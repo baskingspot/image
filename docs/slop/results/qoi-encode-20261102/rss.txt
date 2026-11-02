@@ -1,0 +1,2 @@
+peak RSS (MiB)               e1   before image-rs
+qoi-encode                386.1    386.1    386.9
