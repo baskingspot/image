@@ -551,6 +551,48 @@ fn begin(d: *Decoder, work: []u8) Error!void {
     }
 }
 
+/// How `skim` finds a codestream's frames drawn.
+pub const Skim = struct {
+    /// A frame is drawn in floats (`float_frames`): its samples are the
+    /// specification's within the conformance bounds, not exact.
+    float: bool = false,
+    /// A frame draws splines, which the conformance bounds give more room.
+    splines: bool = false,
+};
+
+/// Reads every frame's header and table of contents and skips its
+/// sections, to say in `s` how the frames are drawn without drawing them:
+/// for this package's oracle, which picks its comparison before it
+/// decodes, not for callers. `s`
+/// keeps what the frames before an error said. Uses
+/// `work[0..decodeConfig().work_len]` and leaves nothing more to decode.
+pub fn skim(d: *Decoder, work: []u8, s: *Skim) Error!void {
+    if (d.err) |e| return e;
+    _ = try d.decodeConfig();
+    if (d.state != .config) return error.BadHeader;
+    if (work.len < d.work_len) return error.WorkTooSmall;
+    d.skimFrames(work[0..d.work_len], s) catch |e| return d.fail(e);
+}
+
+fn skimFrames(d: *Decoder, work: []u8, s: *Skim) Error!void {
+    try d.begin(work);
+    d.state = .frames;
+    const st = &d.store;
+    while (true) {
+        const fh = if (d.next_frame) |f| f else try headers.FrameHeader.read(&d.br, &d.image, false);
+        d.next_frame = null;
+        if (frame.needsFloat(&d.image, &fh)) s.float = true;
+        if (fh.flags & headers.flag_splines != 0) s.splines = true;
+        const dims: headers.Dims = .init(&fh);
+        const m = st.arena.mark();
+        const toc = try frame.readToc(&d.br, &st.arena, &dims, fh.passes.num);
+        st.arena.release(m);
+        try d.br.skipBits(toc.total * 8);
+        if (fh.is_last) break;
+    }
+    d.state = .done;
+}
+
 /// The work memory `decodeJpeg` needs, from the headers.
 pub fn jpegWorkLen(d: *Decoder) Error!usize {
     _ = try d.decodeConfig();
@@ -1226,6 +1268,18 @@ test "an XYB image with an ICC profile reports the linear sRGB it is written in"
     try testing.expectEqual(null, m.transfer);
     try testing.expectEqual(null, m.primaries);
     try testing.expectEqual(null, m.gamma);
+    // `skim` reads past the profile and finds the lossy frame drawn in
+    // floats and the lossless one not.
+    for ([2][]const u8{ xyb, lossless }, [2]bool{ true, false }) |file, float| {
+        r = .fixed(file);
+        d = .init(&r, .{});
+        const work = try testing.allocator.alloc(u8, (try d.decodeConfig()).work_len);
+        defer testing.allocator.free(work);
+        var s: Skim = .{};
+        try d.skim(work, &s);
+        try testing.expectEqual(Skim{ .float = float }, s);
+        try testing.expectEqual(null, try d.decodeFrame(try .init(&.{}, .rgba8, 0, 0), work));
+    }
 }
 
 test "the colour encoding and intensity target are reported" {

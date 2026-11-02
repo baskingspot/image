@@ -5,7 +5,10 @@
 // its 16-bit output narrowed by the high byte, since libjxl dithers its
 // own 8-bit output. Premultiplied requests are answered only for images
 // whose alpha is premultiplied and straight requests only for the others,
-// since libjxl leaves alpha as stored.
+// since libjxl leaves alpha as stored. A grey image is read from libjxl as
+// grey and alpha and widened: its RGBA output keeps whatever chroma a
+// YCbCr or XYB frame carries, while its grey output, like this package's,
+// is the first color channel.
 #include <jxl/decode.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +66,7 @@ static enum status jxl_libjxl(const uint8_t *in, size_t len, enum pixel_format f
         result = STATUS_SKIPPED;
         goto done;
       }
+      if (info.num_color_channels == 1) pf.num_channels = 2;
     } else if (s == JXL_DEC_NEED_IMAGE_OUT_BUFFER) {
       if (JxlDecoderImageOutBufferSize(dec, &pf, &buf_len) != JXL_DEC_SUCCESS) goto done;
       buf = malloc(buf_len ? buf_len : 1);
@@ -75,6 +79,19 @@ static enum status jxl_libjxl(const uint8_t *in, size_t len, enum pixel_format f
   }
   out->width = info.xsize;
   out->height = info.ysize;
+  if (pf.num_channels == 2) {
+    // Grey and alpha to RGBA.
+    size_t sample = type == JXL_TYPE_FLOAT ? 4 : 2;
+    size_t n = buf_len / (2 * sample);
+    uint8_t *px = malloc(n ? n * 4 * sample : 1);
+    for (size_t i = 0; i < n; i++) {
+      for (int c = 0; c < 3; c++) memcpy(px + (i * 4 + c) * sample, buf + i * 2 * sample, sample);
+      memcpy(px + (i * 4 + 3) * sample, buf + (i * 2 + 1) * sample, sample);
+    }
+    free(buf);
+    buf = px;
+    buf_len = n * 4 * sample;
+  }
   if (narrow) {
     size_t n = buf_len / 2;
     uint8_t *px = malloc(n ? n : 1);

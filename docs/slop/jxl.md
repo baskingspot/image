@@ -265,10 +265,17 @@ Modular.
 ## Testing
 
 - Oracle: libjxl decodes the first displayed frame in RGBA16 (straight or
-  premultiplied as the image stores alpha) and float RGBA; ours must match
-  bit for bit. 16-bit answers count for integer images and float answers for
-  float ones (`test/oracle/jxl.zig` has why). libjxl's 8-bit output is
-  dithered, so it is not compared.
+  premultiplied as the image stores alpha) and float RGBA. Ours must match
+  bit for bit when every frame is drawn in integers (lossless Modular);
+  with a frame drawn in floats, within 3 16-bit steps a sample, and with
+  splines within the conformance bound (peak 262 steps, RMS 6.55), which
+  `toleranceFor` picks from the frame headers (`Decoder.skim`) before the
+  decode (plan.md decision 45; `test/oracle/jxl.zig` has the reasoning).
+  16-bit answers count for integer images and float answers for float
+  ones. A grey image is compared with libjxl's grey output, widened
+  (test/oracle/jxl.c): like ours it is the first color channel, where its
+  RGBA output keeps the chroma a fuzzed YCbCr frame in a grey image may
+  carry. libjxl's 8-bit output is dithered, so it is not compared.
 - Fuzz: `test/fuzz/jxl.zig` writes valid one-group Modular files (gray or
   RGB, optional alpha, 8 to 12 bits, a random predictor, an optional RCT)
   with a small bit writer, and random bodies an eighth of the time.
@@ -283,9 +290,7 @@ Modular.
   16-bit steps) have bounds a quarter of a 16-bit step, which our float
   output cannot meet through the 16-bit native pivot (Decisions, lossy
   output precision).
-- Oracle: lossy frames are left out (`test/oracle/jxl.zig`) until the
-  comparison takes a tolerance, so the oracle checks VarDCT inputs for
-  crashes and errors only. `corpus/gen/jxl.sh` writes sixteen small cjxl
+- `corpus/gen/jxl.sh` writes sixteen small cjxl
   files covering VarDCT, the filters, LF frames, progressive passes,
   upsampling (of the colors, and of alpha alone), noise, animation, lossy
   Modular, JPEG recompression, and streaming (`vardct-tall*`), which seed

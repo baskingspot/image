@@ -301,7 +301,7 @@ pub fn decode(
 
 /// Whether the frame's color goes through float planes: VarDCT, XYB, and
 /// the restoration filters.
-fn needsFloat(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) bool {
+pub fn needsFloat(image: *const headers.ImageHeader, fh: *const headers.FrameHeader) bool {
     return !fh.modular or image.xyb or fh.filter.gab or fh.filter.epf_iters != 0 or upsampled(image, fh) or
         fh.flags & (headers.flag_noise | headers.flag_patches | headers.flag_splines) != 0 or fh.ycbcr or
         fh.kind == .lf;

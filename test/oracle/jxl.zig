@@ -5,16 +5,30 @@
 //! output is dithered; jxl.c narrows its 16-bit output by the high byte
 //! when asked for RGBA8, but 8 bits would only repeat the 16-bit check.)
 //!
+//! Images whose frames are all drawn in integers (lossless Modular) must
+//! match exactly. A frame drawn in floats (VarDCT, XYB, the restoration
+//! filters, upsampling, patches, splines, noise) leaves the arithmetic
+//! open within the conformance suite's error bounds, so `toleranceFor`
+//! gives those images room, found from the frame headers before the
+//! decode (`Decoder.skim`):
+//!
+//! - 3 steps of 16 bits a sample. Floats that differ from libjxl's by a
+//!   few 1e-5 (at most 4.3e-5 seen, in the sRGB curve's linear segment,
+//!   whose slope 12.92 makes that 2 steps of 65535) round 1 to 3 steps
+//!   apart. The conformance suite allows more (its tightest peak is 0.004
+//!   of full scale, 262 steps); 3 holds this decoder to the reference's
+//!   arithmetic, as close as the floats allow.
+//! - With splines, the conformance suite's own bound, peak 0.004 and RMS
+//!   1e-4 of full scale (262 and 6.55 steps): a spline's erf is an
+//!   approximation the specification does not fix, and libjxl's and this
+//!   decoder's differ by up to 52 steps on animation_spline (RMS 0.9).
+//!
 //! Left out of the comparison:
 //!
 //! - What this decoder does not decode (`error.Unsupported`).
-//! - Images with a frame drawn in floats (VarDCT, XYB, the restoration
-//!   filters, upsampling, patches, splines, noise): the specification
-//!   leaves their arithmetic open within the conformance suite's error
-//!   bounds, so this decoder's floats differ from libjxl's by about 1e-5
-//!   and their 16-bit roundings by one in places. They need a comparison
-//!   within a tolerance, which the comparison does not have yet
-//!   (docs/slop/jxl.md, Testing, compares them with libjxl's floats).
+//! - Containers whose `ftyp` box has a minor version above 1 or no
+//!   compatible brand: libjxl refuses them, where the specification's
+//!   reader (and this decoder) reads on.
 //! - Files with a header bundle that has extensions (which no encoder
 //!   writes): libjxl keeps one bundle's extension state for the next, so
 //!   when a frame's restoration filter has extensions and the frame header
@@ -30,19 +44,36 @@
 
 const std = @import("std");
 const image = @import("image");
+const Oracle = @import("Oracle.zig");
 
 pub const name = "jxl";
 pub const fuzz = @import("fuzz").jxl;
 pub const oracles = [_][]const u8{"jxl-libjxl"};
 pub const formats = [_]image.PixelFormat{ .rgba16, .rgba16_premul, .rgba_f32 };
 
+/// Exact for frames drawn in integers, else the room above.
+pub fn toleranceFor(input: []const u8) ?Oracle.Tolerance {
+    var r: std.Io.Reader = .fixed(input);
+    var d: image.jxl.Decoder = .init(&r, .{ .limits = .none });
+    const c = d.decodeConfig() catch return null;
+    const gpa = std.heap.page_allocator;
+    const raw = gpa.rawAlloc(c.work_len, .@"64", @returnAddress()) orelse return null;
+    defer gpa.rawFree(raw[0..c.work_len], .@"64", @returnAddress());
+    // The frames before an error still count, since they decode.
+    var s: image.jxl.Decoder.Skim = .{};
+    if (d.skim(raw[0..c.work_len], &s)) {} else |_| {}
+    if (s.splines) return .{ .peak = 262, .rms = 6.55 };
+    if (s.float) return .{ .peak = 3 };
+    return null;
+}
+
 /// image.jxl.Decoder, with work memory it maps itself. The comparison
 /// allocates an input's work memory with `alloc`, which in safe builds
 /// writes 0xaa over all of it, and this decoder's bound is hundreds of
 /// megabytes, mostly untouched; so this wrapper reports none and maps its
 /// own for each frame with `rawAlloc`. It also notes, for
-/// `comparable`, whether the input decoded to `Unsupported`, whether a
-/// frame was drawn in floats, and whether its native format is float.
+/// `comparable`, whether the input decoded to `Unsupported` and whether
+/// its native format is float.
 pub const Decoder = struct {
     inner: image.jxl.Decoder,
     input: []const u8,
@@ -70,9 +101,6 @@ pub const Decoder = struct {
         const raw = gpa.rawAlloc(d.work_len, .@"64", @returnAddress()) orelse return error.OutOfMemory;
         const work = raw[0..d.work_len];
         defer gpa.rawFree(work, .@"64", @returnAddress());
-        defer if (d.inner.float_frames) {
-            note(d.input).drawn = true;
-        };
         defer if (d.inner.br.extensions != 0) {
             note(d.input).extensions = true;
         };
@@ -86,7 +114,6 @@ pub const Decoder = struct {
 const Verdict = struct {
     extensions: bool = false,
     unsupported: bool = false,
-    drawn: bool = false,
     float: bool = false,
 };
 
@@ -108,8 +135,17 @@ fn note(input: []const u8) *Verdict {
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
     _ = op;
     const v = note(input).*;
-    if (v.extensions or v.unsupported or v.drawn) return false;
+    if (v.extensions or v.unsupported or libjxlRefusesFtyp(input)) return false;
     return (format.sample() == .f32) == v.float;
+}
+
+/// Whether `input` is a container whose `ftyp` box libjxl refuses: a
+/// minor version above 1, or no compatible brand.
+fn libjxlRefusesFtyp(input: []const u8) bool {
+    if (input.len < 28 or !std.mem.eql(u8, input[0..12], "\x00\x00\x00\x0cJXL \x0d\x0a\x87\x0a")) return false;
+    if (!std.mem.eql(u8, input[16..20], "ftyp")) return false;
+    const size = std.mem.readInt(u32, input[12..16], .big);
+    return size < 20 or std.mem.readInt(u32, input[24..28], .big) > 1;
 }
 
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
