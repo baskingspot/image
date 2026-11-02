@@ -1,4 +1,4 @@
-# QOI encode: packed rows as one span, 2026-11-02
+# QOI encode: packed rows as one span, and a loop bounded by count, 2026-11-02
 
 A full `just bench-compare 5` over the rows the performance pass owns
 (convert, `qoi-decode`, `qoi-encode`) on main eabc1ac put QOI encode on
@@ -50,8 +50,34 @@ kodim02 at 0.99 (interval [0.73, 1.00], a noisy row; the code it runs is
 the same apart from one call instead of 512). Peak RSS is unchanged
 (`rss.txt`, 386.1 MiB, the harness's buffers).
 
+## Second change: the loop checks only its count
+
+The chunk loop checked two bounds per pixel: pixels left, and room for the
+largest a pixel can write (6 bytes: a run's end and an RGBA chunk). Now it
+computes how many pixels fit in the room left, `(out.len - o) / 6`, runs
+that many checking only the count, and measures again; a fixed writer
+with room for the file runs the whole image in one pass. Same method,
+8 rounds, arms `e2` (this), `e1` (the first change), and the crate
+(`bound/`). Every checksum matches; peak RSS is unchanged (386.1 MiB).
+
+| rows   | image MP/s | vs e1 | vs `qoi` crate |
+| ------ | ---------: | ----: | -------------- |
+| icons  |      389.4 |  1.01 | 1.02           |
+| ≤ 1 MP |      309.1 |  1.14 | 1.17           |
+| > 1 MP |      224.3 |  1.06 | 1.09           |
+| all 44 |      312.2 |  1.09 | 1.11           |
+
+Index- and run-heavy images gain most (`bound/rows.txt`): 3dbrick2 1.68×,
+3dcursedlabyrinth 1.53×, qoi_logo 1.35×. Five icon rows are 0.95–0.98× e1, within their
+intervals ([0.88, 1.57] for the slowest).
+
+Against main, both changes (the products of the two runs' ratios): icons
+about 1.16×, ≤ 1 MP 1.16×, > 1 MP
+1.07×; against the crate, icons 0.88 → 1.02, ≤ 1 MP 1.01 → 1.17, > 1 MP
+1.02 → 1.09.
+
 ## Raw output
 
-`qoi-encode-20261102/`: `config.txt`, `checksums.txt`, `rss.txt`,
+`qoi-encode-20261102/`, the second change in `bound/`: `config.txt`, `checksums.txt`, `rss.txt`,
 `benchstat.txt`, `summary.txt`, `summary-before.txt`, `rows.txt`, and
 each arm's samples and checksums.

@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s       e1 image-rs     ±   <1    ~   slowest vs e1
+QoiEncode/icon                    13      389.4     1.01     1.02    3%    2    8   0.95 [0.88, 1.57] icon_16-actions_appointment_new-16x16.raw
+QoiEncode/1mp                     23      309.1     1.14     1.17    3%    0    7   1.01 [0.77, 1.11] test-wikipedia_008-1152x858.raw
+QoiEncode/large                    8      224.3     1.06     1.09    1%    0    1   1.03 [1.02, 1.05] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+all                               44      312.2     1.09     1.11          2   16

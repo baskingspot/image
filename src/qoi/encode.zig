@@ -124,57 +124,63 @@ const State = struct {
         var run = s.run;
         var o: usize = 0;
         var i: usize = 0;
-        while (i < n and out.len - o >= max_pixel_bytes) : (i += 1) {
-            const px: u32 = if (ch == 4)
-                std.mem.readInt(u32, in[i * 4 ..][0..4], .little)
-            else
-                @as(u32, std.mem.readInt(u24, in[i * 3 ..][0..3], .little)) | 0xff00_0000;
-            if (px == prev) {
-                run += 1;
-                if (run == 62) {
-                    out[o] = 0xc0 | 61;
+        // Pixels that fit whatever chunks they take, so the loop checks
+        // only its count; then the room left is measured again.
+        while (true) {
+            const end = @min(n, i + (out.len - o) / max_pixel_bytes);
+            if (i == end) break;
+            while (i < end) : (i += 1) {
+                const px: u32 = if (ch == 4)
+                    std.mem.readInt(u32, in[i * 4 ..][0..4], .little)
+                else
+                    @as(u32, std.mem.readInt(u24, in[i * 3 ..][0..3], .little)) | 0xff00_0000;
+                if (px == prev) {
+                    run += 1;
+                    if (run == 62) {
+                        out[o] = 0xc0 | 61;
+                        o += 1;
+                        run = 0;
+                    }
+                    continue;
+                }
+                if (run != 0) {
+                    out[o] = 0xc0 | (run - 1);
                     o += 1;
                     run = 0;
                 }
-                continue;
-            }
-            if (run != 0) {
-                out[o] = 0xc0 | (run - 1);
-                o += 1;
-                run = 0;
-            }
-            const h = hash(px);
-            if (s.index[h] == px) {
-                out[o] = h;
-                o += 1;
-            } else {
-                s.index[h] = px;
-                var b: [4]u8 = undefined;
-                var p: [4]u8 = undefined;
-                std.mem.writeInt(u32, &b, px, .little);
-                std.mem.writeInt(u32, &p, prev, .little);
-                if (b[3] == p[3]) {
-                    const vr = b[0] -% p[0];
-                    const vg = b[1] -% p[1];
-                    const vb = b[2] -% p[2];
-                    const vg_r = vr -% vg;
-                    const vg_b = vb -% vg;
-                    if (vr +% 2 < 4 and vg +% 2 < 4 and vb +% 2 < 4) {
-                        out[o] = 0x40 | (vr +% 2) << 4 | (vg +% 2) << 2 | (vb +% 2);
-                        o += 1;
-                    } else if (vg +% 32 < 64 and vg_r +% 8 < 16 and vg_b +% 8 < 16) {
-                        out[o..][0..2].* = .{ 0x80 | (vg +% 32), (vg_r +% 8) << 4 | (vg_b +% 8) };
-                        o += 2;
-                    } else {
-                        out[o..][0..4].* = .{ 0xfe, b[0], b[1], b[2] };
-                        o += 4;
-                    }
+                const h = hash(px);
+                if (s.index[h] == px) {
+                    out[o] = h;
+                    o += 1;
                 } else {
-                    out[o..][0..5].* = .{ 0xff, b[0], b[1], b[2], b[3] };
-                    o += 5;
+                    s.index[h] = px;
+                    var b: [4]u8 = undefined;
+                    var p: [4]u8 = undefined;
+                    std.mem.writeInt(u32, &b, px, .little);
+                    std.mem.writeInt(u32, &p, prev, .little);
+                    if (b[3] == p[3]) {
+                        const vr = b[0] -% p[0];
+                        const vg = b[1] -% p[1];
+                        const vb = b[2] -% p[2];
+                        const vg_r = vr -% vg;
+                        const vg_b = vb -% vg;
+                        if (vr +% 2 < 4 and vg +% 2 < 4 and vb +% 2 < 4) {
+                            out[o] = 0x40 | (vr +% 2) << 4 | (vg +% 2) << 2 | (vb +% 2);
+                            o += 1;
+                        } else if (vg +% 32 < 64 and vg_r +% 8 < 16 and vg_b +% 8 < 16) {
+                            out[o..][0..2].* = .{ 0x80 | (vg +% 32), (vg_r +% 8) << 4 | (vg_b +% 8) };
+                            o += 2;
+                        } else {
+                            out[o..][0..4].* = .{ 0xfe, b[0], b[1], b[2] };
+                            o += 4;
+                        }
+                    } else {
+                        out[o..][0..5].* = .{ 0xff, b[0], b[1], b[2], b[3] };
+                        o += 5;
+                    }
                 }
+                prev = px;
             }
-            prev = px;
         }
         s.prev = prev;
         s.run = run;
