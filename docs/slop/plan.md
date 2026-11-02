@@ -194,9 +194,9 @@ owning the files adding-a-format.md assigns to its format plus
   encoded as Smith reads them, `N/target` fuzz budgets, the shared
   `magick_decode`, fuzz modules import compress, and a parallel, cached
   oracle that cut warm `just ci` from 241 s to 59 s.
-- **TGA fuzz cleanup** (branch `wave2-tga-fuzz`, the TGA orb):
-  `test/fuzz/tga.zig` and `tga_encode.zig`, dropping the Debug skip and the
-  `seed()` helper.
+- **TGA fuzz cleanup** (landed at `f4513e3`): TGA's fuzz targets run in
+  Debug with raw seeds; `bench/corpus-gen/tga` stays out of the corpus, since
+  it cut the fuzz rate 14× and found nothing.
 - **Netpbm corpus** (landed at `20a1f64`): the CNN screenshot is back in the
   bench corpus; zune's failure on it is a skipped row.
 - **bmp-stb determinism** (the BMP orb, after `wave1-seeker`):
