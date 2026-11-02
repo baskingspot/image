@@ -4,24 +4,6 @@
 //! bytes as a gray8 image one row high and as wide as the file: two answers
 //! agree when the files are the same bytes. A file over the comparison's
 //! pixel limit in bytes is a rejection on both sides.
-//!
-//! Left out of the comparison, until `Decoder.decodeJpeg`
-//! (src/jxl/vardct.zig, the JPEG XL orb's file) reads the coefficients as
-//! libjxl's JPEG path does:
-//!
-//! - Inputs we refuse with `error.NotJpeg`. libjxl rebuilds some of them:
-//!   an LF group with extra precision has its DC divided by 2^precision,
-//!   truncated, where `decodeJpeg` refuses any extra precision, and libjxl
-//!   clamps DC to ±2047 where `decodeJpeg` refuses a value past i16. The
-//!   rest (modular, XYB, or animated frames, and the like) libjxl refuses
-//!   too, so leaving them out loses only agreement on a refusal.
-//! - The inputs in `den_mismatches`. libjxl refuses to rebuild a JPEG
-//!   unless the frame's DCT8 quantization table is raw with denominator
-//!   1/(8 * 255), the one a JPEG's table implies; `decodeJpeg` takes any
-//!   raw table, so we rebuild these mutated transcodes and libjxl does not.
-//!   Nothing outside the codestream decoder can see the denominator, so
-//!   until it checks, the list holds the oracle's findings at seed 1, by
-//!   SHA-256.
 
 const std = @import("std");
 const image = @import("image");
@@ -73,28 +55,8 @@ pub const Decoder = struct {
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
     _ = op;
     _ = format;
-    return !denMismatch(input) and !notJpeg(input);
-}
-
-fn notJpeg(input: []const u8) bool {
-    const d: Decoder = .{ .input = input, .max_len = std.math.maxInt(u64) };
-    var counter: std.Io.Writer.Discarding = .init(&.{});
-    d.rebuild(&counter.writer) catch |e| return e == error.NotJpeg;
-    return false;
-}
-
-const den_mismatches = [_]*const [64]u8{
-    "332e3d76e773f6d39edfa5bb4792e65a205545835f32d4b5ba4595b6965ad4e3",
-    "e79b75cb1b3909514c0294be2c46a3e0c1a5014d897005ae07255099c89009fb",
-    "d582ffc13fdcd70fb9a6dc3929113e2231c15116f2d6f9c0b8dbcfbce2f324e6",
-};
-
-fn denMismatch(input: []const u8) bool {
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(input, &digest, .{});
-    const hex = std.fmt.bytesToHex(digest, .lower);
-    for (den_mismatches) |h| if (std.mem.eql(u8, h, &hex)) return true;
-    return false;
+    _ = input;
+    return true;
 }
 
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {

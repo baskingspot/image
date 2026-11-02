@@ -119,21 +119,10 @@ CMYK files, so those have no transcode.
 
 ## Open
 
-- libjxl refuses to rebuild a JPEG unless the frame's DCT8 quantization
-  table is raw with denominator 1/(8 · 255) (the f16 0x1404), the one a
-  JPEG's table implies; `Decoder.decodeJpeg` takes any raw table. The check
-  belongs in `src/jxl/vardct.zig` (the JPEG XL orb's file), where
-  `raw_dct8` is set. Until it lands, the oracle leaves out the three
-  mutated transcodes it found at seed 1, by hash: nothing outside the
-  codestream decoder can see the denominator.
-- libjxl rebuilds an LF group with extra precision, its DC divided by
-  2^precision and truncated toward zero, and clamps every DC to ±2047
-  (`dec_modular.cc`'s `extra_precision`, `compressed_dc.cc`'s `DequantDC`,
-  `dec_group.cc`'s JPEG path); `decodeJpeg` refuses any extra precision
-  with `NotJpeg`, and a DC past i16 too. Both belong in `vardct.zig`'s
-  `onLf`. Until then the oracle leaves out every input we refuse with
-  `NotJpeg`; most of those libjxl refuses as well (in CI's run, 6,905 of
-  20,079 inputs), so only agreement on a refusal is lost.
+- libjxl also refuses a colour factor other than 84
+  (`ColorCorrelation::IsJPEGCompatible`), which `decodeJpeg` does not
+  check; no fuzzed input has hit it, at seed 1 with 100,000 inputs on the
+  full corpus and on CI's and at seeds 2 to 10 with 20,000 on CI's.
 
 ## Corpus
 
