@@ -216,15 +216,14 @@ pixels, position, duration in flicks, and disposal), allocation-free with
   NETSCAPE2.0 is written unless `loop_count` is 1, with `loop_count - 1`
   repeats (0 is forever), clamped to 65535. Delays are flicks rounded to
   hundredths, clamped to 65535.
-- **No blend field.** GIF composites one way: a frame's transparent pixels
-  show what is beneath. PNG's `AnimationFrame` has `blend` (`.src` by
-  default); GIF cannot store `.src` over an opaque canvas, so its frame has
-  no such field, and a caller whose next frame turns opaque pixels
-  transparent disposes the frame to background (the oracle and the bench do
-  exactly that: `clears` in test/oracle/gif_encode.zig and
-  bench/zig/gif.zig). An alternative is for the encoder to set that
-  disposal itself; that would override the caller's disposal, so it is left
-  to the owner (the report asks).
+- **No blend field** (decision 44). GIF composites one way: a frame's
+  transparent pixels show what is beneath. PNG's `AnimationFrame` has
+  `blend` (`.src` by default); GIF cannot store `.src` over an opaque
+  canvas, so its frame has no such field and composites as PNG's `.over`,
+  and a caller whose next frame turns opaque pixels transparent disposes
+  the frame to background (the oracle and the bench do exactly that:
+  `clears` in test/oracle/gif_encode.zig and bench/zig/gif.zig). The
+  encoder does not detect it or override the caller's disposal.
 - **Cropping** (`crop`, on by default). A frame keeps only the bounding box
   of pixels that are opaque and, when the previous frame has the same
   region and disposal none, differ from it; inside the box, unchanged
@@ -246,7 +245,7 @@ pixels, position, duration in flicks, and disposal), allocation-free with
   trades about 2 dB of PSNR for smooth gradients (blurred PSNR +4 dB, the
   eye's low-pass), as ImageMagick, Go, and gifski all dither by default.
   `.none` is for screen content and smaller files (about 17% smaller).
-  The owner decides.
+  The owner chose these defaults (decision 43).
 - **Bounded error diffusion.** Floyd-Steinberg passes on at most 16 a
   channel per pixel. Unbounded, error that builds up where the palette is
   sparse reaches a far palette entry and leaves stray dots (blue specks in
@@ -294,10 +293,12 @@ pixels, position, duration in flicks, and disposal), allocation-free with
 
 `results/gif-encode-20261102.md` has the numbers against giflib, gifski,
 ImageMagick, and Go, with output sizes and peak RSS, and decision 6's
-measurements: 1.75–89× faster than gifski, ImageMagick, and Go on every
-quantized row; against giflib, faster on animations that change little
-(1.43–1.75×, cropping) and on exact icons (1.14×), slower on truecolor
-stills (0.39–0.68×, where giflib does not dither) and on exact stills past
-icons (0.73–0.81×: our exact path reads the pixels twice, and giflib's LZW
-loop is faster). Peak RSS is the lowest or tied in every class but
-quantized icons (4.0 MiB against giflib's 3.3).
+measurements; `results/gif-encode2-20261102.md` the follow-ups and a
+rerun. After them: 2–836× faster than gifski, ImageMagick, and Go on every
+row but Go's exact stills (1.15–4.8×); against giflib, faster on
+animations that change little (1.45–1.66×, cropping) and on exact stills
+up to a megapixel (1.02–1.34×), slower on exact stills above (0.82×, the
+rows past what one pass keeps), on truecolor stills (0.39–0.82×, where
+giflib does not dither), and on icon animations (0.76×). Peak RSS is the
+lowest or tied in every class but quantized icons (3.8 MiB against
+giflib's 3.3).

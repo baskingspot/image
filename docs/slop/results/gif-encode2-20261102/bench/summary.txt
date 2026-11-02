@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   giflib   gifski   magick       go     ±   <1    ~   slowest vs giflib
+GifEncode/icon                     2        6.2     0.82    44.11     2.08     4.61    4%    2    0   0.79 [0.76, 0.84] icon_32-actions_address_book_new-32x32.raw
+GifEncode/1mp                      5       45.3     0.55    13.77     7.90    27.19    6%    4    1   0.45 [0.40, 0.56] screenshot_game-20XX_Menu_picture-634x406.raw
+GifEncode/large                    4       30.4     0.39     9.83     9.24    19.18    6%    4    0   0.36 [0.35, 0.42] photo_wikipedia-001-1276x850.raw
+GifEncodeFew/icon                  4      120.3     1.34   836.10    32.58     4.83    2%    0    0   1.24 [1.18, 1.48] icon_32-actions_address_book_new-32x32.raw
+GifEncodeFew/1mp                   4      106.5     1.02    26.08    17.34     1.73    3%    0    3   0.94 [0.88, 1.03] screenshot_game-20XX_Menu_picture-634x406.raw
+GifEncodeFew/large                 3       62.4     0.82    14.19    13.67     1.15    6%    2    1   0.68 [0.61, 0.80] photo_mosaic-mosaic16mp-4096x4096.raw
+GifEncodeAnim/icon                 1        2.4     0.76    24.05     2.89     6.83    7%    1    0   0.76 [0.68, 0.78] icons-64x64.raw
+GifEncodeAnim/1mp                  2        5.8     1.45    21.70    22.95    39.55    9%    1    0   0.67 [0.59, 0.73] pan-480x320.raw
+GifEncodeAnim/large                1       17.3     1.66    32.85    48.17    80.39   15%    0    0   1.66 [1.51, 2.01] sprite-1600x900.raw
+all                               26       37.0     0.81    32.57    12.22     7.97         14    5
