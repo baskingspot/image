@@ -51,7 +51,10 @@ const Node = struct { w: u64, r: u64, g: u64, b: u64 };
 
 /// The quantizer's memory, in the encoder's work memory.
 pub const Work = struct {
+    /// Garbage but where `touched` says `add` wrote, so a frame clears
+    /// only the bits, not the whole table (`raw`).
     moments: [cells]Moment,
+    touched: [(cells + 63) / 64]u64,
     cells: [32 * 32 * 32]Cell,
     nodes: [node_count]Node,
     merged: [node_count]bool,
@@ -67,16 +70,24 @@ pub const Histogram = struct {
     work: *Work,
 
     pub fn clear(h: Histogram) void {
-        @memset(std.mem.asBytes(&h.work.moments), 0);
+        @memset(&h.work.touched, 0);
     }
 
     pub inline fn add(h: Histogram, r: u8, g: u8, b: u8) void {
-        const m = &h.work.moments[cellIndex(r, g, b)];
+        const i = cellIndex(r, g, b);
+        const m = &h.work.moments[i];
+        const sq = @as(u32, r) * r + @as(u32, g) * g + @as(u32, b) * b;
+        const bit = @as(u64, 1) << @intCast(i & 63);
+        if (h.work.touched[i >> 6] & bit == 0) {
+            h.work.touched[i >> 6] |= bit;
+            m.* = .{ .w = 1, .r = r, .g = g, .b = b, .m2 = sq };
+            return;
+        }
         m.w += 1;
         m.r += r;
         m.g += g;
         m.b += b;
-        m.m2 += @as(u32, r) * r + @as(u32, g) * g + @as(u32, b) * b;
+        m.m2 += sq;
     }
 
     /// A palette of at most `max` colors (1 to 256) for the pixels added,
@@ -84,7 +95,8 @@ pub const Histogram = struct {
     pub fn palette(h: Histogram, method: Method, max: u16, refine: u8, out: *Palette) void {
         std.debug.assert(max >= 1);
         std.debug.assert(max <= 256);
-        const n = h.gatherCells();
+        // Wu's method reads the moments; the others, and k-means, cells.
+        const n = if (method == .wu and refine == 0) 0 else h.gatherCells();
         switch (method) {
             .wu => wu(h.work, max, out),
             .median_cut => medianCut(h.work.cells[0..n], max, out),
@@ -97,7 +109,7 @@ pub const Histogram = struct {
     fn gatherCells(h: Histogram) usize {
         var n: usize = 0;
         for (1..side) |r| for (1..side) |g| for (1..side) |b| {
-            const m = h.work.moments[(r * side + g) * side + b];
+            const m = raw(h.work, (r * side + g) * side + b);
             if (m.w == 0) continue;
             const w: f64 = @floatFromInt(m.w);
             h.work.cells[n] = .{
@@ -113,6 +125,16 @@ pub const Histogram = struct {
         return n;
     }
 };
+
+/// Cell `i`'s sums since `clear`: zero for a cell `add` never wrote.
+fn raw(work: *const Work, i: usize) Moment {
+    const bit = @as(u64, 1) << @intCast(i & 63);
+    return if (work.touched[i >> 6] & bit != 0) work.moments[i] else std.mem.zeroes(Moment);
+}
+
+fn rawAt(work: *const Work, r: usize, g: usize, b: usize) Moment {
+    return raw(work, (r * side + g) * side + b);
+}
 
 fn toByte(v: f64) u8 {
     return @intFromFloat(@min(255, @max(0, @round(v))));
@@ -161,28 +183,55 @@ fn variance(m: *const [cells]Moment, box: Box) f64 {
     return @as(f64, @floatFromInt(v.m2)) - spread(v);
 }
 
+/// A moment's weight and color sums, the part a cut reads.
+const Sums = @Vector(4, u64);
+
+fn sums(m: *const Moment) Sums {
+    return .{ m.w, m.r, m.g, m.b };
+}
+
+/// The sums over `box`'s cells whose coordinate on axis `d` is at most
+/// `i`, less those at most 0 on it: the cumulative moments at the four
+/// corners of that plane of the box.
+fn plane(m: *const [cells]Moment, box: Box, d: usize, i: u8) Sums {
+    const e = (d + 1) % 3;
+    const f = (d + 2) % 3;
+    var p: [3]usize = .{ box.hi[0], box.hi[1], box.hi[2] };
+    p[d] = i;
+    const hh = sums(at(m, p[0], p[1], p[2]));
+    p[f] = box.lo[f];
+    const hl = sums(at(m, p[0], p[1], p[2]));
+    p[e] = box.lo[e];
+    const ll = sums(at(m, p[0], p[1], p[2]));
+    p[f] = box.hi[f];
+    const lh = sums(at(m, p[0], p[1], p[2]));
+    // Added in an order that cannot go below zero.
+    return hh -% hl -% lh +% ll;
+}
+
+fn spreadOf(v: Sums) f64 {
+    const r: f64 = @floatFromInt(v[1]);
+    const g: f64 = @floatFromInt(v[2]);
+    const b: f64 = @floatFromInt(v[3]);
+    return (r * r + g * g + b * b) / @as(f64, @floatFromInt(v[0]));
+}
+
 /// Cuts `box` in two at the plane that leaves the least variance; false
-/// when no plane leaves pixels on both sides.
+/// when no plane leaves pixels on both sides. The sums below a plane at
+/// `i` on axis `d` are the plane's less the box's lower face's, so each
+/// plane costs four lookups.
 fn cut(m: *const [cells]Moment, box: *Box, upper: *Box) bool {
-    const whole = volume(m, box.*);
     var best: f64 = -1;
     var best_dir: usize = 0;
     var best_at: u8 = 0;
     for (0..3) |d| {
+        const base = plane(m, box.*, d, box.lo[d]);
+        const whole = plane(m, box.*, d, box.hi[d]) -% base;
         var i = box.lo[d] + 1;
         while (i < box.hi[d]) : (i += 1) {
-            var lower = box.*;
-            lower.hi[d] = i;
-            const lv = volume(m, lower);
-            if (lv.w == 0 or lv.w == whole.w) continue;
-            const uv: Moment = .{
-                .w = whole.w - lv.w,
-                .r = whole.r - lv.r,
-                .g = whole.g - lv.g,
-                .b = whole.b - lv.b,
-                .m2 = 0,
-            };
-            const s = spread(lv) + spread(uv);
+            const lower = plane(m, box.*, d, i) -% base;
+            if (lower[0] == 0 or lower[0] == whole[0]) continue;
+            const s = spreadOf(lower) + spreadOf(whole -% lower);
             if (s > best) {
                 best = s;
                 best_dir = d;
@@ -199,15 +248,22 @@ fn cut(m: *const [cells]Moment, box: *Box, upper: *Box) bool {
 
 fn wu(work: *Work, max: u16, out: *Palette) void {
     const m = &work.moments;
-    // Cumulative moments: each entry the sum over the box from the origin.
-    for (1..side) |r| {
-        var area: [side]Moment = @splat(std.mem.zeroes(Moment));
-        for (1..side) |g| {
-            var line = std.mem.zeroes(Moment);
-            for (1..side) |b| {
+    // Cumulative moments: each entry the sum over the box from the origin,
+    // and the zero planes below the cells.
+    const zero = std.mem.zeroes(Moment);
+    for (0..side) |r| {
+        var area: [side]Moment = @splat(zero);
+        for (0..side) |g| {
+            var line = zero;
+            for (0..side) |b| {
                 const i = (r * side + g) * side + b;
+                if (r == 0 or g == 0 or b == 0) {
+                    m[i] = zero;
+                    continue;
+                }
+                const v = raw(work, i);
                 inline for (.{ "w", "r", "g", "b", "m2" }) |f| {
-                    @field(line, f) += @field(m[i], f);
+                    @field(line, f) += @field(v, f);
                     @field(area[b], f) += @field(line, f);
                     @field(m[i], f) = @field(m[i - side * side], f) + @field(area[b], f);
                 }
@@ -344,12 +400,11 @@ fn nodeIndex(level: usize, r: usize, g: usize, b: usize) usize {
 }
 
 fn octree(work: *Work, max: u16, out: *Palette) void {
-    const m = &work.moments;
     @memset(std.mem.asBytes(&work.nodes), 0);
     @memset(&work.merged, false);
     var leaves: usize = 0;
     for (0..32) |r| for (0..32) |g| for (0..32) |b| {
-        const c = at(m, r + 1, g + 1, b + 1);
+        const c = rawAt(work, r + 1, g + 1, b + 1);
         if (c.w == 0) continue;
         leaves += 1;
         for (0..5) |level| {
@@ -410,7 +465,7 @@ fn childLeaves(work: *const Work, level: usize, i: usize) usize {
         const cg = g * 2 + ((k >> 1) & 1);
         const cb = b * 2 + (k & 1);
         const w = if (level == 4)
-            at(&work.moments, cr + 1, cg + 1, cb + 1).w
+            rawAt(work, cr + 1, cg + 1, cb + 1).w
         else
             work.nodes[level_start[level + 1] + (cr << (2 * (l + 1))) + (cg << (l + 1)) + cb].w;
         if (w > 0) n += 1;
@@ -422,7 +477,7 @@ fn collect(work: *const Work, level: usize, r: usize, g: usize, b: usize, depth:
     _ = depth;
     var node: Node = undefined;
     if (level == 5) {
-        const c = at(&work.moments, r + 1, g + 1, b + 1);
+        const c = rawAt(work, r + 1, g + 1, b + 1);
         node = .{ .w = c.w, .r = c.r, .g = c.g, .b = c.b };
     } else {
         const l: u4 = @intCast(level);
@@ -483,11 +538,18 @@ fn kmeans(list: []const Cell, passes: u8, out: *Palette) void {
 pub const Lookup = struct {
     index: [1 << 18]u8,
     known: [1 << 12]u64,
-    /// The palette, each channel doubled, so a cell's center is an integer.
+    /// The palette, each channel doubled, so a cell's center is an integer,
+    /// padded to a whole vector with entries farther than any color.
     r: [256]i32,
     g: [256]i32,
     b: [256]i32,
     len: u16,
+
+    const lanes = 16;
+    const V = @Vector(lanes, i32);
+    /// A padding entry's channels: farther from every cell center than any
+    /// color, and small enough that a squared distance sum fits in i32.
+    const far = 4096;
 
     pub fn init(l: *Lookup, palette: *const Palette) void {
         @memset(&l.known, 0);
@@ -496,6 +558,12 @@ pub const Lookup = struct {
             l.r[i] = @as(i32, c[0]) * 2;
             l.g[i] = @as(i32, c[1]) * 2;
             l.b[i] = @as(i32, c[2]) * 2;
+        }
+        const padded = std.mem.alignForward(usize, palette.len, lanes);
+        for (palette.len..padded) |i| {
+            l.r[i] = far;
+            l.g[i] = far;
+            l.b[i] = far;
         }
     }
 
@@ -509,20 +577,27 @@ pub const Lookup = struct {
         return i;
     }
 
+    /// The palette entry nearest (r, g, b), the first of equals.
     fn nearest(l: *const Lookup, r: i32, g: i32, b: i32) u8 {
-        var best: usize = 0;
-        var best_d: i32 = std.math.maxInt(i32);
-        for (0..l.len) |i| {
-            const dr = l.r[i] - r;
-            const dg = l.g[i] - g;
-            const db = l.b[i] - b;
+        const max: V = @splat(std.math.maxInt(i32));
+        var best_d = max;
+        var best_i: V = @splat(0);
+        var idx = std.simd.iota(i32, lanes);
+        var k: usize = 0;
+        while (k < l.len) : (k += lanes) {
+            const dr = @as(V, l.r[k..][0..lanes].*) - @as(V, @splat(r));
+            const dg = @as(V, l.g[k..][0..lanes].*) - @as(V, @splat(g));
+            const db = @as(V, l.b[k..][0..lanes].*) - @as(V, @splat(b));
             const d = dr * dr + dg * dg + db * db;
-            if (d < best_d) {
-                best_d = d;
-                best = i;
-            }
+            // Strictly less, so each lane keeps its first of equals.
+            const less = d < best_d;
+            best_d = @select(i32, less, d, best_d);
+            best_i = @select(i32, less, idx, best_i);
+            idx += @splat(lanes);
         }
-        return @intCast(best);
+        const min = @reduce(.Min, best_d);
+        const first = @select(i32, best_d == @as(V, @splat(min)), best_i, max);
+        return @intCast(@reduce(.Min, first));
     }
 };
 
@@ -534,15 +609,23 @@ const max_error = 16;
 /// no error and passes none on, and a pixel passes on at most `max_error`
 /// per channel, which keeps error that builds up where the palette is
 /// sparse from reaching a far color (stray dots of it). `errors` holds two
-/// rows of `width + 2` pixels' errors, in sixteenths.
+/// rows of `width + 2` pixels' errors, in sixteenths, a lane per channel.
 pub const Ditherer = struct {
-    cur: []i16,
-    next: []i16,
+    cur: [][4]i16,
+    next: [][4]i16,
     y: u32 = 0,
 
-    pub fn init(errors: []i16, width: u32) Ditherer {
-        const n = (@as(usize, width) + 2) * 3;
-        @memset(errors[0 .. 2 * n], 0);
+    const V = @Vector(4, i32);
+
+    /// A pixel's errors fit in i16: at most 16 * 16 in sixteenths.
+    fn narrow(v: V) [4]i16 {
+        const n: @Vector(4, i16) = @intCast(v);
+        return n;
+    }
+
+    pub fn init(errors: [][4]i16, width: u32) Ditherer {
+        const n = @as(usize, width) + 2;
+        @memset(errors[0 .. 2 * n], @splat(0));
         return .{ .cur = errors[0..n], .next = errors[n .. 2 * n] };
     }
 
@@ -560,32 +643,35 @@ pub const Ditherer = struct {
     ) void {
         const width = out.len;
         const forward = d.y % 2 == 0;
+        // The error the previous pixel passes ahead, 7/16 of its own.
+        var carry: V = @splat(0);
         for (0..width) |k| {
             const x = if (forward) k else width - 1 - k;
             if (clear[x]) {
                 out[x] = transparent;
+                carry = @splat(0);
                 continue;
             }
-            const e = d.cur[(x + 1) * 3 ..][0..3];
-            var c: [3]u8 = undefined;
-            for (0..3) |ch| {
-                const v = (@as(i32, rgba[x * 4 + ch]) * 16 + e[ch] + 8) >> 4;
-                c[ch] = @intCast(std.math.clamp(v, 0, 255));
-            }
-            const i = l.find(c[0], c[1], c[2]);
+            const e = @as(V, d.cur[x + 1]) + carry;
+            const px: V = .{ rgba[x * 4], rgba[x * 4 + 1], rgba[x * 4 + 2], 0 };
+            const sum = (px * @as(V, @splat(16)) + e + @as(V, @splat(8))) >> @splat(4);
+            const c = std.math.clamp(sum, @as(V, @splat(0)), @as(V, @splat(255)));
+            const i = l.find(@intCast(c[0]), @intCast(c[1]), @intCast(c[2]));
             out[x] = i;
-            const p = palette.colors[i];
-            const ahead: isize = if (forward) 1 else -1;
-            for (0..3) |ch| {
-                const err: i16 = std.math.clamp(@as(i16, c[ch]) - p[ch], -max_error, max_error);
-                d.cur[@intCast((@as(isize, @intCast(x)) + 1 + ahead) * 3 + @as(isize, @intCast(ch)))] += err * 7;
-                d.next[@intCast((@as(isize, @intCast(x)) + 1 - ahead) * 3 + @as(isize, @intCast(ch)))] += err * 3;
-                d.next[(x + 1) * 3 + ch] += err * 5;
-                d.next[@intCast((@as(isize, @intCast(x)) + 1 + ahead) * 3 + @as(isize, @intCast(ch)))] += err;
-            }
+            const q = palette.colors[i];
+            const p: V = .{ q[0], q[1], q[2], 0 };
+            const err = std.math.clamp(c - p, @as(V, @splat(-max_error)), @as(V, @splat(max_error)));
+            carry = err * @as(V, @splat(7));
+            // Below behind, below, and below ahead; the row has a pixel of
+            // padding at each end.
+            const behind = if (forward) x else x + 2;
+            const ahead = if (forward) x + 2 else x;
+            d.next[behind] = narrow(@as(V, d.next[behind]) + err * @as(V, @splat(3)));
+            d.next[x + 1] = narrow(@as(V, d.next[x + 1]) + err * @as(V, @splat(5)));
+            d.next[ahead] = narrow(@as(V, d.next[ahead]) + err);
         }
-        std.mem.swap([]i16, &d.cur, &d.next);
-        @memset(d.next, 0);
+        std.mem.swap([][4]i16, &d.cur, &d.next);
+        @memset(d.next, @splat(0));
         d.y += 1;
     }
 };
@@ -633,6 +719,35 @@ test "Lookup finds the nearest entry to the cell's center" {
     try testing.expectEqual(2, l.find(200, 20, 0));
     // Cached: the same cell answers the same.
     try testing.expectEqual(2, l.find(201, 21, 1));
+
+    // A palette ending inside a vector, with repeated entries: the first of
+    // equals wins, as a scan in order finds it.
+    var prng: std.Random.DefaultPrng = .init(7);
+    const random = prng.random();
+    p.len = 37;
+    for (p.colors[0..p.len]) |*c| random.bytes(c);
+    p.colors[30] = p.colors[3];
+    p.colors[36] = p.colors[17];
+    l.init(&p);
+    for (0..4000) |_| {
+        var c: [3]u8 = undefined;
+        random.bytes(&c);
+        const center = [3]i32{ (c[0] & 0xfc) + 1, (c[1] & 0xfc) + 1, (c[2] & 0xfc) + 1 };
+        var best: usize = 0;
+        var best_d: i32 = std.math.maxInt(i32);
+        for (p.colors[0..p.len], 0..) |e, i| {
+            var d: i32 = 0;
+            for (0..3) |ch| {
+                const diff = 2 * @as(i32, e[ch]) - 2 * center[ch] - 1;
+                d += diff * diff;
+            }
+            if (d < best_d) {
+                best_d = d;
+                best = i;
+            }
+        }
+        try testing.expectEqual(best, l.find(c[0], c[1], c[2]));
+    }
 }
 
 test "dithering never reaches a far color, however long the error builds up" {
@@ -648,7 +763,7 @@ test "dithering never reaches a far color, however long the error builds up" {
     p.colors[2] = .{ 255, 255, 255 };
     l.init(&p);
     const width = 64;
-    var errors: [2 * (width + 2) * 3]i16 = undefined;
+    var errors: [2 * (width + 2)][4]i16 = undefined;
     var d: Ditherer = .init(&errors, width);
     const rgba: [width * 4]u8 = @splat(100);
     const clear: [width]bool = @splat(false);

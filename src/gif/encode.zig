@@ -174,7 +174,7 @@ const Layout = struct {
         l.rows = Place.place(&at, w * 8, 8);
         l.indices = Place.place(&at, w, 1);
         l.clear = Place.place(&at, w, 1);
-        l.errors = Place.place(&at, (w + 2) * 3 * 2 * 2, 2);
+        l.errors = Place.place(&at, (w + 2) * 8 * 2, 2);
         l.table_len = lzw.tableLen(pixels);
         l.table = Place.place(&at, l.table_len * 4, 4);
         l.set = Place.place(&at, @sizeOf(ColorSet), @alignOf(ColorSet));
@@ -227,7 +227,7 @@ const State = struct {
     rows: []u8,
     indices: []u8,
     clear: []bool,
-    errors: []i16,
+    errors: [][4]i16,
     table: []u32,
     set: *ColorSet,
     quant: ?*quantize.Work,
@@ -269,7 +269,7 @@ fn write(
         .rows = mem[l.rows..][0 .. wide * 8],
         .indices = mem[l.indices..][0..wide],
         .clear = @ptrCast(mem[l.clear..][0..wide]),
-        .errors = @alignCast(std.mem.bytesAsSlice(i16, mem[l.errors..][0 .. (wide + 2) * 12])),
+        .errors = @alignCast(std.mem.bytesAsSlice([4]i16, mem[l.errors..][0 .. (wide + 2) * 16])),
         .table = @alignCast(std.mem.bytesAsSlice(u32, mem[l.table..][0 .. l.table_len * 4])),
         .set = @ptrCast(@alignCast(mem[l.set..][0..@sizeOf(ColorSet)])),
         .quant = if (l.quant) |q| @ptrCast(@alignCast(mem[q..][0..@sizeOf(quantize.Work)])) else null,
