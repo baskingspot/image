@@ -1,6 +1,8 @@
-//! The GIF fuzz target: the decoder properties in harness.zig, plus one of
-//! GIF's own (`decodeFrameConfig` reports the frame `decodeFrame` then
-//! returns), on mutated corpus files and generated files that reach every
+//! The GIF fuzz target: the decoder properties in harness.zig, with
+//! `ignore_too_much_data` off or on, plus GIF's own: `decodeFrameConfig`
+//! reports the frame `decodeFrame` then returns, and the two settings agree
+//! wherever the strict decode found neither too much data nor a bad code.
+//! It runs on mutated corpus files and generated files that reach every
 //! block the decoder reads: color tables, graphic control, loop count,
 //! comment, plain text and unknown extensions, interlaced frames inside
 //! and outside the canvas, and LZW data that is exact, short, long, or
@@ -15,23 +17,105 @@ pub const name = "gif";
 pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor", "bench/corpus-gen/gif" };
 pub const extensions = [_][]const u8{".gif"};
 
-const Finding = error{FrameConfigDiffers};
+const Finding = error{ FrameConfigDiffers, LaxDiffers };
 
 var pixels: [harness.limits.max_pixels * 4]u8 = undefined;
 var work: [1 << 17]u8 = undefined;
 
 pub fn check(input: []const u8, choice: u64) !void {
-    try harness.checkDecoder(image.gif.Decoder, input, choice);
-    var r: std.Io.Reader = .fixed(input);
-    var d: image.gif.Decoder = .init(&r, .{ .limits = harness.limits });
-    const c = d.decodeConfig() catch return;
-    const dst = image.PixelBuffer.init(&pixels, .rgba8, c.width, c.height) catch unreachable;
-    while (true) {
-        const peek = d.decodeFrameConfig() catch return;
-        const frame = d.decodeFrame(dst, work[0..c.work_len]) catch return;
-        if (!std.meta.eql(peek, frame)) return error.FrameConfigDiffers;
-        if (frame == null) return;
+    if (choice >> 63 == 1) {
+        try harness.checkDecoder(Lax, input, choice);
+    } else {
+        try harness.checkDecoder(image.gif.Decoder, input, choice);
     }
+    try compareLax(input);
+}
+
+/// `image.gif.Decoder` with `ignore_too_much_data` set.
+const Lax = struct {
+    d: image.gif.Decoder,
+
+    pub const Options = image.gif.Decoder.Options;
+    pub const Error = image.gif.Decoder.Error;
+
+    pub fn init(reader: *std.Io.Reader, options: Options) Lax {
+        var o = options;
+        o.ignore_too_much_data = true;
+        return .{ .d = .init(reader, o) };
+    }
+
+    pub fn decodeConfig(l: *Lax) Error!image.Config {
+        return l.d.decodeConfig();
+    }
+
+    pub fn decodeFrame(l: *Lax, dst: image.PixelBuffer, w: []u8) Error!?image.Frame {
+        return l.d.decodeFrame(dst, w);
+    }
+};
+
+const Run = struct {
+    err: ?image.gif.Decoder.Error = null,
+    count: usize = 0,
+    frames: [harness.limits.max_frames]image.Frame = undefined,
+    hashes: [harness.limits.max_frames]u64 = undefined,
+
+    fn same(a: *const Run, b: *const Run, n: usize) bool {
+        for (0..n) |i| {
+            if (!std.meta.eql(a.frames[i], b.frames[i]) or a.hashes[i] != b.hashes[i]) return false;
+        }
+        return true;
+    }
+};
+
+/// Decodes every frame of `input`, checking that `decodeFrameConfig`
+/// reports each frame `decodeFrame` then returns.
+fn run(input: []const u8, lax: bool) !Run {
+    var result: Run = .{};
+    var r: std.Io.Reader = .fixed(input);
+    var d: image.gif.Decoder = .init(&r, .{ .limits = harness.limits, .ignore_too_much_data = lax });
+    const c = d.decodeConfig() catch |e| {
+        result.err = e;
+        return result;
+    };
+    const dst = image.PixelBuffer.init(&pixels, .rgba8, c.width, c.height) catch unreachable;
+    const len = @as(usize, c.width) * c.height * 4;
+    @memset(pixels[0..len], 0);
+    while (result.count < result.frames.len) : (result.count += 1) {
+        const peek = d.decodeFrameConfig() catch |e| {
+            result.err = e;
+            return result;
+        };
+        const frame = d.decodeFrame(dst, work[0..c.work_len]) catch |e| {
+            result.err = e;
+            return result;
+        };
+        if (!std.meta.eql(peek, frame)) return error.FrameConfigDiffers;
+        result.frames[result.count] = frame orelse return result;
+        result.hashes[result.count] = std.hash.Wyhash.hash(0, pixels[0..len]);
+    }
+    return result;
+}
+
+/// With too much data accepted, a decode matches the strict one up to the
+/// frame where the strict one found too much data or a bad code, and
+/// entirely when it found neither.
+fn compareLax(input: []const u8) !void {
+    const strict = try run(input, false);
+    const lax = try run(input, true);
+    if (strict.err) |e| if (e == error.TooMuchData or e == error.BadLzw) {
+        if (lax.count < strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
+        return;
+    };
+    if (errorCode(lax.err) != errorCode(strict.err) or lax.count != strict.count or !strict.same(&lax, strict.count)) {
+        return error.LaxDiffers;
+    }
+}
+
+/// An optional error as an integer, 0 for none: `!=` on two `?Error` can
+/// find two nulls unequal on Zig 0.16's x86_64 backend (harness.zig's
+/// `errorCode` has the details).
+fn errorCode(err: ?image.gif.Decoder.Error) u16 {
+    return if (err) |e| @intFromError(e) else 0;
 }
 
 /// Writes into a buffer, dropping what does not fit: a file that runs out

@@ -47,11 +47,6 @@ inline fn append(t: *Table, k: u16, tail: u64, meta: u32, code: u16, byte: u8) v
     }
 }
 
-pub const Error = error{
-    /// A code names an entry the table does not hold yet.
-    BadLzw,
-};
-
 pub const Status = enum {
     /// `in` is used up: call again with more.
     need_input,
@@ -59,6 +54,10 @@ pub const Status = enum {
     out_full,
     /// The end-of-information code.
     end,
+    /// A code names an entry the table does not hold yet. `out_pos` is
+    /// past the strings before it, so a caller can use them; the decoder
+    /// must not be called again.
+    bad_code,
 };
 
 pub const Result = struct {
@@ -101,8 +100,9 @@ pub const Decoder = struct {
 
     /// Decodes codes from `in[in_pos..]`, writing their strings from
     /// `out[out_pos..]`, until the input runs out, the output is within
-    /// `out_slack` bytes of its end, or the end-of-information code.
-    pub noinline fn decode(z: *Decoder, in: []const u8, in_pos: usize, out: []u8, out_pos: usize) Error!Result {
+    /// `out_slack` bytes of its end, the end-of-information code, or a bad
+    /// code.
+    pub noinline fn decode(z: *Decoder, in: []const u8, in_pos: usize, out: []u8, out_pos: usize) Result {
         std.debug.assert(out.len >= out_slack);
         const t = z.table;
         const clear = z.clear;
@@ -163,7 +163,7 @@ pub const Decoder = struct {
                 next += 1;
                 _ = expand(t, prev_tail, prev_meta, out, o);
                 o += prev_meta >> 16;
-            } else return error.BadLzw;
+            } else break .bad_code;
             if (next >= @as(u32, 1) << @intCast(width) and width < 12) width += 1;
         } else .out_full;
         z.acc = acc;
@@ -288,7 +288,7 @@ fn decodeAll(table: *Table, codes: []const u8, min_bits: u4, out: []u8, step: us
         // Hand the input over `step` bytes at a time; the window keeps the
         // bytes not yet used.
         const end = @min(codes.len, fed + step);
-        const r = try z.decode(codes[0..end], pos, out, o);
+        const r = z.decode(codes[0..end], pos, out, o);
         pos = r.in_pos;
         o = r.out_pos;
         switch (r.status) {
@@ -298,6 +298,7 @@ fn decodeAll(table: *Table, codes: []const u8, min_bits: u4, out: []u8, step: us
                 fed = end;
             },
             .out_full => return error.OutFull,
+            .bad_code => return error.BadLzw,
         }
     }
 }

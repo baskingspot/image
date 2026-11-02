@@ -66,9 +66,17 @@ specifications leave room, and why. Results: `results/gif-20261101.md`.
   entirely outside has an empty region. The grown size is checked against
   `Limits` like any other, and every frame's own size is checked too, so a
   small canvas cannot hide a frame of 65535 × 65535.
-- **LZW data must be exact.** A frame's codes must decode to exactly its
-  pixels: fewer, when the sub-blocks end, is `NotEnoughData`; more is
-  `TooMuchData` (Wuffs's behavior; giflib drops the excess). Data after
+- **LZW data must be exact** by default (decision 12). A frame's codes
+  must decode to exactly its pixels: fewer, when the sub-blocks end, is
+  `NotEnoughData`; more is `TooMuchData` (Wuffs's behavior; giflib drops
+  the excess). `Options.ignore_too_much_data`, off by default, does what
+  Wuffs's IGNORE_TOO_MUCH_PIXEL_DATA quirk does: the extra pixels are
+  dropped, and a bad code once the frame is whole ends its data instead of
+  failing. "Whole" is Wuffs's reading, checked by probing it: every row
+  of every pass written; for a frame 0 columns wide, once any index comes;
+  for one 0 rows tall, from the start, unless it is interlaced, and then
+  never. The oracle holds both settings against Wuffs (test/oracle/gif.zig
+  picks one per input). Data after
   the end-of-information code is skipped. A stream that holds every pixel
   but no end code is accepted, since many encoders stop there. A code past
   the next free entry is `BadLzw`, as is a minimum code size past 8. A

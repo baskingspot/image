@@ -14,10 +14,13 @@
 //! - giflib rejects what Wuffs and this package accept: a file with no
 //!   frames, a zero-width or zero-height frame, and a byte where a block
 //!   should start, which Wuffs and this package read as the trailer.
-//! - giflib accepts what Wuffs and this package reject: a frame whose LZW
-//!   data holds more pixels than the frame (giflib drops the rest), a
-//!   graphic control extension whose block is not 4 bytes, and a signature
-//!   other than GIF87a or GIF89a.
+//! - giflib accepts what Wuffs and this package reject: a graphic control
+//!   extension whose block is not 4 bytes, a signature other than GIF87a
+//!   or GIF89a, and, without `ignore_too_much_data` (inputs whose screen
+//!   descriptor XORs to an even number), a frame whose LZW data holds more
+//!   pixels than the frame, which giflib drops. With it, Wuffs's
+//!   IGNORE_TOO_MUCH_PIXEL_DATA quirk and this package drop them too, and
+//!   all three ignore a bad code once the frame is whole.
 //! - Several graphic control extensions before a frame: Wuffs and this
 //!   package take the last, giflib's `DGifSavedExtensionToGCB` the first.
 //! - Disposal method 4, which the specification leaves undefined: Wuffs
@@ -57,14 +60,25 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
 threadlocal var saved: [(1 << 22) * 4]u8 = undefined;
 
 /// This package's decoder, compositing every frame into the one canvas
-/// compare.zig asks for.
+/// compare.zig asks for. Like gif.c's Wuffs oracle, it sets
+/// `ignore_too_much_data` when the screen descriptor's bytes XOR to an odd
+/// number, so both settings are held against Wuffs.
 pub const Decoder = struct {
     d: image.gif.Decoder,
 
     pub const Options = image.DecodeOptions;
 
     pub fn init(reader: *std.Io.Reader, options: Options) Decoder {
-        return .{ .d = .init(reader, options) };
+        const head = reader.peek(13) catch "";
+        var x: u8 = 0;
+        if (head.len == 13) for (head[6..13]) |b| {
+            x ^= b;
+        };
+        return .{ .d = .init(reader, .{
+            .limits = options.limits,
+            .blob_sink = options.blob_sink,
+            .ignore_too_much_data = x & 1 == 1,
+        }) };
     }
 
     pub fn decodeConfig(c: *Decoder) image.gif.Decoder.Error!image.Config {

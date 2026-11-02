@@ -51,12 +51,24 @@ static void to_bgra(struct image *img) {
   }
 }
 
+// Whether to decode `in` with too much LZW data accepted (Wuffs's
+// IGNORE_TOO_MUCH_PIXEL_DATA quirk, this package's ignore_too_much_data):
+// the low bit of the screen descriptor's bytes XORed together, so about
+// half the inputs test each setting. test/oracle/gif.zig picks the same.
+static int lax_of(const uint8_t *in, size_t len) {
+  if (len < 13) return 0;
+  uint8_t x = 0;
+  for (int i = 6; i < 13; i++) x ^= in[i];
+  return x & 1;
+}
+
 static enum status gif_wuffs(const uint8_t *in, size_t len, enum pixel_format format,
                              uint64_t max_pixels, struct image *out) {
   if (format != PF_RGBA8 && format != PF_BGRA8) return STATUS_SKIPPED;
   enum status result = STATUS_REJECTED;
   uint8_t *saved = NULL;
   wuffs_base__image_decoder *dec = wuffs_gif__decoder__alloc_as__wuffs_base__image_decoder();
+  wuffs_base__image_decoder__set_quirk(dec, WUFFS_GIF__QUIRK_IGNORE_TOO_MUCH_PIXEL_DATA, lax_of(in, len));
   wuffs_base__image_config ic = {0};
   wuffs_base__io_buffer src = wuffs_base__ptr_u8__reader((uint8_t *)in, len, true);
   wuffs_base__status st = wuffs_base__image_decoder__decode_image_config(dec, &ic, &src);

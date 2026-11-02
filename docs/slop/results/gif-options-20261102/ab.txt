@@ -1,0 +1,7 @@
+gif-decode-anim/1mp            3 1.046
+gif-decode-anim/icon           2 1.093
+gif-decode-anim/large          1 0.986
+gif-decode/1mp                22 1.021
+gif-decode/icon               14 1.028
+gif-decode/large              10 1.008
+all                           52 1.024

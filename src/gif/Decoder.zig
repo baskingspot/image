@@ -23,7 +23,8 @@
 //!
 //! Where the specification leaves room, this decoder does what Wuffs does
 //! by default: the canvas grows to hold the first frame, later frames are
-//! clipped to it, a frame's LZW data must hold exactly its pixels, an
+//! clipped to it, a frame's LZW data must hold exactly its pixels (unless
+//! `Options.ignore_too_much_data` lets it hold more), an
 //! index past the color table (or with no color table) is opaque black,
 //! the last of several graphic control extensions wins, and a byte that
 //! starts no block ends the image as the trailer does. A file cut short
@@ -41,7 +42,16 @@ const lzw = @import("lzw.zig");
 
 const Decoder = @This();
 
-pub const Options = decode.Options;
+pub const Options = struct {
+    limits: decode.Limits = .{},
+    blob_sink: ?decode.BlobSink = null,
+    /// Accept a frame whose LZW data holds more pixels than the frame:
+    /// the rest are dropped, and once the frame is whole, a bad code ends
+    /// its data instead of failing. This
+    /// is what Wuffs's IGNORE_TOO_MUCH_PIXEL_DATA quirk does (giflib drops
+    /// the rest too). Off by default: such a frame is `TooMuchData`.
+    ignore_too_much_data: bool = false,
+};
 
 pub const Error = decode.Error || error{
     /// A graphic control extension is not one block of 4 bytes.
@@ -51,7 +61,8 @@ pub const Error = decode.Error || error{
     BadLzw,
     /// The LZW data ends before the frame's last pixel.
     NotEnoughData,
-    /// The LZW data holds more pixels than the frame.
+    /// The LZW data holds more pixels than the frame (not with
+    /// `Options.ignore_too_much_data`).
     TooMuchData,
 };
 
@@ -374,7 +385,7 @@ fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
     if (dst.format != .rgba8) Converter.init(dst.format, .rgba8).run(palette, std.mem.sliceAsBytes(rgba), n);
 
     if (d.frames == 0) clearOutside(dst, frame);
-    var out: Out = .init(dst, palette[0 .. 256 * bpp], p, frame.blend == .src_over);
+    var out: Out = .init(dst, palette[0 .. 256 * bpp], p, frame.blend == .src_over, d.options.ignore_too_much_data);
     try d.pixels(&out, table, @intCast(min), indices, data);
     d.pending = null;
     d.frames += 1;
@@ -423,13 +434,17 @@ fn pixels(d: *Decoder, out: *Out, table: *lzw.Table, min: u4, indices: []u8, dat
                 len += n;
             }
         }
-        const r = try z.decode(data[0..len], pos, indices, 0);
+        const r = z.decode(data[0..len], pos, indices, 0);
         pos = r.in_pos;
         try out.emit(indices[0..r.out_pos]);
         switch (r.status) {
             .out_full => {},
             .need_input => if (ended) break,
             .end => break,
+            .bad_code => {
+                if (!(out.lax and out.whole())) return error.BadLzw;
+                break;
+            },
         }
     }
     if (out.rows_left != 0) return error.NotEnoughData;
@@ -444,6 +459,10 @@ const Out = struct {
     /// 256 entries in the destination's format.
     palette: []const u8,
     over: bool,
+    /// Drop indices past the frame's last pixel (`ignore_too_much_data`).
+    lax: bool,
+    /// Whether any index has come.
+    seen: bool = false,
     /// The transparent index, or 256, which no index equals.
     transparent: u16,
     x: u32,
@@ -459,11 +478,12 @@ const Out = struct {
     col: u32 = 0,
     rows_left: u32,
 
-    fn init(dst: PixelBuffer, palette: []const u8, p: Pending, over: bool) Out {
+    fn init(dst: PixelBuffer, palette: []const u8, p: Pending, over: bool, lax: bool) Out {
         return .{
             .dst = dst,
             .palette = palette,
             .over = over,
+            .lax = lax,
             .transparent = p.control.transparent orelse 256,
             .x = p.x,
             .y = p.y,
@@ -479,10 +499,21 @@ const Out = struct {
     const pass_start = [4]u32{ 0, 4, 2, 1 };
     const pass_step = [4]u32{ 8, 8, 4, 2 };
 
+    /// Whether the frame is whole, so that a bad code after it ends its
+    /// data under `ignore_too_much_data`, as Wuffs's quirk judges it: a
+    /// frame 0 rows tall is whole from the start unless it is interlaced,
+    /// and then never; one 0 columns wide once any index comes.
+    fn whole(o: *const Out) bool {
+        if (o.height == 0) return !o.interlaced;
+        if (o.width == 0) return o.seen;
+        return o.rows_left == 0;
+    }
+
     fn emit(o: *Out, indices: []const u8) Error!void {
+        if (indices.len != 0) o.seen = true;
         var i: usize = 0;
         while (i < indices.len) {
-            if (o.rows_left == 0) return error.TooMuchData;
+            if (o.rows_left == 0) return if (o.lax) {} else error.TooMuchData;
             const n: u32 = @intCast(@min(o.width - o.col, indices.len - i));
             const y = @as(u64, o.y) + o.row;
             if (y < o.dst.height and o.col < o.visible) {
@@ -848,6 +879,81 @@ test "a minimum code size of 0, as Wuffs and giflib read it" {
     _ = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 2, 2), work)).?;
     try testing.expectEqualSlices(u8, &(.{ 0, 0, 255, 255 } ** 4), &out);
     try testing.expectEqual(null, try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 2, 2), work));
+}
+
+test "too much LZW data: TooMuchData, or dropped with ignore_too_much_data" {
+    const a = testing.allocator;
+    const work = try a.alloc(u8, work_len);
+    defer a.free(work);
+    const colors = [2][3]u8{ .{ 1, 1, 1 }, .{ 2, 2, 2 } };
+    const Run = struct {
+        /// Decodes every frame of `file` into a 2 by 2 canvas.
+        fn run(file: []const u8, lax: bool, w: []u8, out: *[16]u8) Error!void {
+            var r: Io.Reader = .fixed(file);
+            var d: Decoder = .init(&r, .{ .ignore_too_much_data = lax });
+            _ = try d.decodeConfig();
+            const dst = try PixelBuffer.init(out, .rgba8, 2, 2);
+            while (try d.decodeFrame(dst, w)) |_| {}
+        }
+    };
+    const want = [4]u8{ 2, 2, 2, 255 } ++ .{ 1, 1, 1, 255 } ** 2 ++ .{ 2, 2, 2, 255 };
+    // Three pixels too many, in order and interlaced: dropped.
+    for ([_]bool{ false, true }) |interlaced| {
+        var t: TestGif = .{};
+        defer t.deinit();
+        try t.head(2, 2, &colors);
+        try t.frame(0, 0, 2, 2, &.{ 1, 0, 0, 1 }, .{ .min_bits = 2, .extra = 3, .interlaced = interlaced });
+        try t.put("\x3b");
+        var out: [16]u8 = undefined;
+        try testing.expectError(error.TooMuchData, Run.run(t.bytes.items, false, work, &out));
+        try Run.run(t.bytes.items, true, work, &out);
+        try testing.expectEqualSlices(u8, &want, &out);
+    }
+    // A bad code once the frame is whole ends it, as Wuffs's quirk reads
+    // it. Data (3-bit codes): `pixel` is clear, 1, then 7, past the next
+    // entry (6); `none` is clear, then 6, with no string before it.
+    const pixel = "\x02\xcc\x01";
+    const none = "\x01\x34";
+    const Case = struct {
+        w: u8,
+        h: u8,
+        flags: u8 = 0,
+        data: []const u8,
+        /// Without the option: the bad code, or a pixel the frame has no
+        /// room for.
+        strict: Error = error.BadLzw,
+        lax: ?Error = null,
+    };
+    for ([_]Case{
+        // Whole once its one pixel is in, interlaced or not.
+        .{ .w = 1, .h = 1, .data = pixel },
+        .{ .w = 1, .h = 1, .flags = 0x40, .data = pixel },
+        // Not whole: one pixel of two.
+        .{ .w = 2, .h = 1, .data = pixel, .lax = error.BadLzw },
+        // 0 columns wide: whole once an index comes.
+        .{ .w = 0, .h = 2, .data = pixel, .strict = error.TooMuchData },
+        .{ .w = 0, .h = 2, .flags = 0x40, .data = pixel, .strict = error.TooMuchData },
+        .{ .w = 0, .h = 2, .data = none, .lax = error.BadLzw },
+        // 0 rows tall: whole from the start, unless interlaced.
+        .{ .w = 1, .h = 0, .data = none },
+        .{ .w = 1, .h = 0, .flags = 0x40, .data = pixel, .strict = error.TooMuchData, .lax = error.BadLzw },
+    }) |case| {
+        var t: TestGif = .{};
+        defer t.deinit();
+        try t.head(2, 2, &colors);
+        try t.put(&.{ 0x2c, 0, 0, 0, 0, case.w, 0, case.h, 0, case.flags, 2 });
+        try t.put(case.data);
+        try t.put("\x00\x3b");
+        var out: [16]u8 = undefined;
+        try testing.expectError(case.strict, Run.run(t.bytes.items, false, work, &out));
+        if (case.lax) |e| {
+            try testing.expectError(e, Run.run(t.bytes.items, true, work, &out));
+        } else {
+            try Run.run(t.bytes.items, true, work, &out);
+            const first: [4]u8 = if (case.w == 1 and case.h == 1) .{ 2, 2, 2, 255 } else .{ 0, 0, 0, 0 };
+            try testing.expectEqualSlices(u8, &(first ++ .{ 0, 0, 0, 0 } ** 3), &out);
+        }
+    }
 }
 
 test "errors, and they stick" {
