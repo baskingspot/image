@@ -359,6 +359,14 @@ fn Run(comptime F: type) type {
     };
 }
 
+/// Orders a map's entries by their keys.
+const ByKey = struct {
+    keys: []const []const u8,
+    pub fn lessThan(c: ByKey, a: usize, b: usize) bool {
+        return std.mem.lessThan(u8, c.keys[a], c.keys[b]);
+    }
+};
+
 const Stats = struct {
     comparisons: usize = 0,
     mismatches: usize = 0,
@@ -460,6 +468,8 @@ const Stats = struct {
         std.debug.print("  {d} agree with every oracle, {d} mismatches, in {d:.1} s\n", .{
             s.agreed, s.mismatches, seconds,
         });
+        // In key order, not the order the workers' batches finished in.
+        s.split.sort(ByKey{ .keys = s.split.keys() });
         for (s.split.keys(), s.split.values(), 0..) |kind, count, k| {
             if (std.mem.eql(u8, kind, "mismatch")) continue;
             std.debug.print("  split-{d}: oracles disagree, {s}: {d}\n", .{ k, kind, count });

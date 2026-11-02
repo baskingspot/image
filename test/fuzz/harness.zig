@@ -457,6 +457,8 @@ pub const Corpus = struct {
 /// The files under `dirs` (relative to the working directory, and skipped
 /// when missing) whose names end in one of `extensions`, leaving out any of
 /// `max_len` bytes or more, such as bench/corpus-gen's 50-megapixel inputs.
+/// Each directory's files come in path order, not the file system's, so a
+/// seed picks the same inputs on every machine.
 pub fn loadCorpus(
     gpa: std.mem.Allocator,
     io: Io,
@@ -469,6 +471,11 @@ pub fn loadCorpus(
     for (dirs) |path| {
         var dir = Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch continue;
         defer dir.close(io);
+        var paths: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (paths.items) |p| gpa.free(p);
+            paths.deinit(gpa);
+        }
         var walker = try dir.walk(gpa);
         defer walker.deinit();
         while (try walker.next(io)) |entry| {
@@ -476,11 +483,19 @@ pub fn loadCorpus(
             for (extensions) |ext| {
                 if (std.mem.endsWith(u8, entry.basename, ext)) break;
             } else continue;
-            if ((try dir.statFile(io, entry.path, .{})).size >= max_len) {
+            try paths.append(gpa, try gpa.dupe(u8, entry.path));
+        }
+        std.mem.sortUnstable([]const u8, paths.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.lessThan);
+        for (paths.items) |p| {
+            if ((try dir.statFile(io, p, .{})).size >= max_len) {
                 too_large += 1;
                 continue;
             }
-            try files.append(gpa, try dir.readFileAlloc(io, entry.path, gpa, .limited(max_len)));
+            try files.append(gpa, try dir.readFileAlloc(io, p, gpa, .limited(max_len)));
         }
     }
     return .{ .files = try files.toOwnedSlice(gpa), .too_large = too_large };
@@ -493,6 +508,8 @@ test loadCorpus {
     defer tmp.cleanup();
     try tmp.dir.writeFile(io, .{ .sub_path = "small.qoi", .data = "qoif" });
     try tmp.dir.writeFile(io, .{ .sub_path = "large.qoi", .data = "qoif" ** 4 });
+    // Taken in path order, whatever order the directory lists them in.
+    for ("qcbpa") |c| try tmp.dir.writeFile(io, .{ .sub_path = &[_]u8{ c, '.', 'q', 'o', 'i' }, .data = &.{c} });
     try tmp.dir.writeFile(io, .{ .sub_path = "other.png", .data = "png" });
     const path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     defer gpa.free(path);
@@ -501,8 +518,9 @@ test loadCorpus {
         for (corpus.files) |f| gpa.free(f);
         gpa.free(corpus.files);
     }
-    try std.testing.expectEqual(1, corpus.files.len);
-    try std.testing.expectEqualStrings("qoif", corpus.files[0]);
+    try std.testing.expectEqual(6, corpus.files.len);
+    for (corpus.files[0..5], "abcpq") |f, c| try std.testing.expectEqualStrings(&.{c}, f);
+    try std.testing.expectEqualStrings("qoif", corpus.files[5]);
     try std.testing.expectEqual(1, corpus.too_large);
 }
 
