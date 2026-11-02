@@ -152,15 +152,28 @@ refuses, the decoder does the same, found by the oracle and pinned by it:
   rest on. Those it does rest on (width, height, BitsPerSample,
   Compression, offsets, counts, SamplesPerPixel, RowsPerStrip,
   PlanarConfig, tile sizes, SampleFormat) are `error.BadHeader` instead;
-  ExtraSamples with no values is ignored. Single values take any integer
-  type, signed ones too, but not negative values. Orientation outside 1–8
-  and ResolutionUnit outside 1–3 are BadHeader. Either tile tag makes the
-  page tiled; one without the other is BadHeader. The first of a repeated
-  tag wins.
+  ExtraSamples with no values is ignored. Single values take the integer
+  types libtiff reads a SHORT or LONG from (BYTE, SHORT, LONG, LONG8 and
+  their signed kinds, not UNDEFINED), but not negative values; BitsPerSample
+  and SampleFormat too, and Compression may have one value per sample,
+  which must agree. Fields libtiff reads as LONGs (width, height,
+  RowsPerStrip, tile sizes, T4/T6Options) take the IFD types as well.
+  YCbCrSubSampling takes any integer type held in the entry. Orientation outside 1–8 and ResolutionUnit outside 1–3
+  are BadHeader. Either tile tag makes the page tiled; a missing tile width
+  or length is the image width or RowsPerStrip, when RowsPerStrip came
+  before the tile tag (as libtiff sets them), and BadHeader otherwise.
+  RowsPerStrip 0 is BadHeader. The first of a repeated tag wins, valid or
+  not. The sizes of the out-of-IFD values of BitsPerSample, SampleFormat,
+  the sample range fields, the offsets and counts, ColorMap, and
+  TransferFunction must add up within 64 bits, read or not.
+- Strip and tile offsets or byte counts with fewer values than chunks are
+  padded with zeros, as libtiff pads them up to a million chunks.
 - Optional values that lie past the input's end are ignored. A next-IFD
   offset cut off by the end of the input ends the chain.
 - A palette page without a valid color map (or without BitsPerSample) is
   gray or RGB when its samples are 8 bits or wider, and BadHeader below.
+  The map takes any integer type; a negative or out-of-range entry, or a
+  count other than 3 × 2^bits, leaves it ignored.
   The map is read as 16-bit, as the specification has it; libtiff's guess
   that a map with every entry below 256 is 8-bit is not followed.
 - Missing Photometric: MinIsWhite for CCITT, RGB for three or more samples,
@@ -169,14 +182,19 @@ refuses, the decoder does the same, found by the oracle and pinned by it:
   4096 are cut to that.
 - Tiles decode whole, rows below the image included, so damage there fails
   as it does in libtiff.
-- LZW data must start with Clear. Only the codes the rows need are read:
+- LZW data must start with Clear. Whether it is old-style is decided by the
+  page's first chunk and holds for the rest, as libtiff decides it once. Only the codes the rows need are read:
   what follows them (EOI or not) is not checked.
 - A Deflate stream that ends together with the rows has its Adler-32
-  checked; one with data after the rows is not.
+  checked; one with data after the rows, or cut off after them, is not.
 - Group 3: bits before each row's EOL are skipped, fill or damage. When the
-  data ends before an EOL is found, the strip is decoded again from its
-  start expecting no EOLs, as libtiff 4.7 does; this goes back through the
-  seeker. Two EOLs in a row end the data.
+  data ends before a row's EOL is found, that row and the rest of the page
+  are read without EOLs, the row from its chunk's start again with the
+  rows before it and the reference row kept, as libtiff 4.7 does; this
+  goes back through the seeker. Two EOLs in a row end the data.
+- CCITT codes cut off by the end of the data are read with zeros added,
+  and a code that starts past the end is `error.NotEnoughData`, as libtiff
+  pads its bit buffer.
 
 ## JPEG (compression 7): what `image.jpeg` needs to provide
 

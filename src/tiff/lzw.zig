@@ -55,15 +55,18 @@ pub const Decoder = struct {
     next: u16 = first_free,
     prev: u16 = none,
     old: bool = false,
+    /// The style the caller has decided, or null to tell from the data.
+    style: ?bool,
     started: bool = false,
     cleared: bool = false,
 
     /// A decoder of the stream `src`, with `work` of at least `work_len`
     /// bytes.
-    pub fn init(src: *Io.Reader, work_in: []u8) Decoder {
+    pub fn init(src: *Io.Reader, work_in: []u8, style: ?bool) Decoder {
         const work = work_in[@intFromPtr(work_in.ptr) & 1 ..];
         var d: Decoder = .{
             .src = src,
+            .style = style,
             .prefix = @ptrCast(@alignCast(work[0 .. 2 * table_len])),
             .length = @ptrCast(@alignCast(work[2 * table_len .. 4 * table_len])),
             .suffix = work[4 * table_len ..][0..table_len],
@@ -149,6 +152,10 @@ pub const Decoder = struct {
 
     fn start(d: *Decoder) Error!void {
         d.started = true;
+        if (d.style) |old| {
+            d.old = old;
+            return;
+        }
         const head = d.src.peek(2) catch |e| switch (e) {
             error.EndOfStream => return,
             error.ReadFailed => return error.ReadFailed,
@@ -255,7 +262,7 @@ fn testRoundTrip(data: []const u8, old: bool, step: usize) !void {
     var r: Io.Reader = .fixed(z);
     const work = try gpa.alloc(u8, work_len);
     defer gpa.free(work);
-    var d: Decoder = .init(&r, work);
+    var d: Decoder = .init(&r, work, null);
     const out = try gpa.alloc(u8, data.len);
     defer gpa.free(out);
     var at: usize = 0;
@@ -297,19 +304,19 @@ test "malformed streams" {
     var out: [4]u8 = undefined;
     // Clear, then 259, past the table.
     var r: Io.Reader = .fixed(&.{ 0x80, 0x40, 0xc0, 0x00 });
-    var d: Decoder = .init(&r, work);
+    var d: Decoder = .init(&r, work, null);
     try testing.expectError(error.BadLzw, d.read(&out));
     // A literal, 3, with no Clear before it.
     r = .fixed(&.{ 0x01, 0x80, 0x00, 0x00 });
-    d = .init(&r, work);
+    d = .init(&r, work, null);
     try testing.expectError(error.BadLzw, d.read(out[0..1]));
     // Clear, 'a', EOI: one byte, then the end.
     const z = try testEncode(gpa, "a", false);
     defer gpa.free(z);
     r = .fixed(z);
-    d = .init(&r, work);
+    d = .init(&r, work, null);
     try testing.expectError(error.NotEnoughData, d.read(&out));
     r = .fixed(z[0..1]);
-    d = .init(&r, work);
+    d = .init(&r, work, null);
     try testing.expectError(error.NotEnoughData, d.read(&out));
 }

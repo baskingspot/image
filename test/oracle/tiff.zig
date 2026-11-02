@@ -1,11 +1,9 @@
 //! TIFF against libtiff (test/oracle/tiff.c): its RGBA interface, in RGBA8
 //! premultiplied, and its decompression with this package's sample rules,
 //! in the native format. Both decode the first page, with a seeker over
-//! the input. This decoder reads a copy of the input whose first IFD has no
-//! next IFD, so it decodes the first page alone too: with the whole chain,
-//! its canvas is as large as the largest page, and an error in a later
-//! page's IFD is an error in `decodeConfig`. Later pages are the fuzz
-//! harness's and the unit tests'.
+//! the input; this decoder has `max_frames` 1, so its canvas is the first
+//! page's and later IFDs do not fail `decodeConfig`. Later pages are the
+//! fuzz harness's and the unit tests'.
 //!
 //! `comparable` leaves out both answers for a first page with:
 //!
@@ -113,28 +111,25 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
     return true;
 }
 
-/// The decoder over a copy of the input that ends the IFD chain after the
-/// first IFD, with a seeker over the copy. The copy and its reader are
-/// per thread, since batches run on every core.
+/// The decoder on the first page alone, with a seeker over the input.
 const FirstPage = struct {
     inner: image.tiff.Decoder,
 
     pub const Options = image.DecodeOptions;
     pub const Error = image.tiff.Decoder.Error;
 
-    threadlocal var copy: std.ArrayList(u8) = .empty;
-    threadlocal var reader: std.Io.Reader = undefined;
-
     pub fn init(r: *std.Io.Reader, options: Options) FirstPage {
-        const in = r.buffered();
-        copy.clearRetainingCapacity();
-        copy.appendSlice(std.heap.page_allocator, in) catch @panic("out of memory");
-        endChain(copy.items);
-        reader = .fixed(copy.items);
-        return .{ .inner = .init(&reader, .{
-            .limits = options.limits,
+        var limits = options.limits;
+        limits.max_frames = 1;
+        // Work memory up to libtiff's single allocation limit in tiff.c: a
+        // page past it (one with tens of thousands of samples per pixel,
+        // say) both refuse, and the harness does not hold hundreds of
+        // megabytes per answer.
+        limits.max_work = @min(limits.max_work, 1 << 28);
+        return .{ .inner = .init(r, .{
+            .limits = limits,
             .blob_sink = options.blob_sink,
-            .seeker = .fixed(&reader),
+            .seeker = .fixed(r),
         }) };
     }
 
@@ -146,23 +141,6 @@ const FirstPage = struct {
         return d.inner.decodeFrame(dst, work);
     }
 };
-
-/// Zeroes the first IFD's next-IFD offset, where it is inside `in`.
-fn endChain(in: []u8) void {
-    if (in.len < 8) return;
-    const e: std.builtin.Endian = if (in[0] == 'I') .little else .big;
-    const big = std.mem.readInt(u16, in[2..4], e) == 43;
-    if (big and in.len < 16) return;
-    const off = if (big) std.mem.readInt(u64, in[8..16], e) else std.mem.readInt(u32, in[4..8], e);
-    const head: u64 = if (big) 8 else 2;
-    if (off > in.len or in.len - off < head) return;
-    const at: usize = @intCast(off);
-    const n = if (big) std.mem.readInt(u64, in[at..][0..8], e) else std.mem.readInt(u16, in[at..][0..2], e);
-    const next = std.math.add(u64, off + head, std.math.mul(u64, n, if (big) 20 else 12) catch return) catch return;
-    const len: u64 = if (big) 8 else 4;
-    if (next > in.len or in.len - next < len) return;
-    @memset(in[@intCast(next)..][0..@intCast(len)], 0);
-}
 
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
     _ = op;
@@ -206,7 +184,9 @@ fn firstPage(in: []const u8) ?Page {
     const n = if (big) std.mem.readInt(u64, in[at..][0..8], e) else std.mem.readInt(u16, in[at..][0..2], e);
     const size: u64 = if (big) 20 else 12;
     var p: Page = .{};
-    var ranges: [4]u64 = @splat(0);
+    var ranges: [4]?u64 = @splat(null);
+    // libtiff keeps a tag's first entry and ignores the rest.
+    var seen: std.StaticBitSet(1 << 16) = .initEmpty();
     var i: u64 = 0;
     while (i < n) : (i += 1) {
         const ent = off + head + i * size;
@@ -215,6 +195,8 @@ fn firstPage(in: []const u8) ?Page {
         const tag = std.mem.readInt(u16, b[0..2], e);
         const t = std.mem.readInt(u16, b[2..4], e);
         const count = if (big) std.mem.readInt(u64, b[4..12], e) else std.mem.readInt(u32, b[4..8], e);
+        if (seen.isSet(tag)) continue;
+        seen.set(tag);
         const vb = if (big) b[12..20] else b[8..12];
         const tsize: u64 = switch (t) {
             1, 2, 6, 7 => 1,
@@ -234,14 +216,19 @@ fn firstPage(in: []const u8) ?Page {
             },
             280, 281, 340, 341 => {
                 ranges[if (tag < 300) tag - 280 else tag - 338] = count;
+                // libtiff reads Min and MaxSampleValue as SHORTs and the
+                // SMin and SMax as DOUBLEs.
                 switch (t) {
-                    1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 16, 17 => {},
+                    1, 3, 4, 6, 8, 9, 16, 17 => {},
+                    5, 10, 11, 12 => if (tag < 300) {
+                        p.odd_sample_range = true;
+                    },
                     else => p.odd_sample_range = true,
                 }
             },
             else => {},
         }
-        const value = std.math.mul(u64, tsize, count) catch return null;
+        const value = std.math.mul(u64, tsize, count) catch std.math.maxInt(u64);
         const data: []const u8 = if (value <= vb.len) vb else blk: {
             const o = if (big) std.mem.readInt(u64, vb[0..8], e) else std.mem.readInt(u32, vb[0..4], e);
             if (o > in.len or in.len - o < value) {
@@ -250,25 +237,27 @@ fn firstPage(in: []const u8) ?Page {
             }
             break :blk in[@intCast(o)..][0..@intCast(value)];
         };
-        const first: u64 = if (count == 0) 0 else switch (t) {
-            3 => std.mem.readInt(u16, data[0..2], e),
-            4 => std.mem.readInt(u32, data[0..4], e),
-            16 => std.mem.readInt(u64, data[0..8], e),
-            else => data[0],
-        };
+        const first: u64 = if (count == 0) 0 else valueAt(t, data, 0, e);
         switch (tag) {
             258 => p.bits = first,
             259 => p.compression = first,
-            262 => p.photometric = first,
+            // libtiff ignores a count other than 1, and a type other than
+            // the integer ones.
+            262 => switch (t) {
+                1, 3, 4, 6, 8, 9, 16, 17 => if (count == 1) {
+                    p.photometric = first;
+                },
+                else => {},
+            },
             277 => p.spp = first,
             338 => p.extra = first,
             322 => p.tile_w = first,
             323 => p.tile_h = first,
             339 => p.format = if (first == 4) 1 else first,
-            320 => if (t == 3) {
+            320 => {
                 p.small_map = true;
                 for (0..@intCast(count)) |k| {
-                    if (std.mem.readInt(u16, data[2 * k ..][0..2], e) >= 256) p.small_map = false;
+                    if (valueAt(t, data, k, e) >= 256) p.small_map = false;
                 }
             },
             else => {},
@@ -278,10 +267,20 @@ fn firstPage(in: []const u8) ?Page {
     return p;
 }
 
+/// Value `k` of type `t` in `data`, unsigned.
+fn valueAt(t: u16, data: []const u8, k: usize, e: std.builtin.Endian) u64 {
+    return switch (t) {
+        3, 8 => std.mem.readInt(u16, data[2 * k ..][0..2], e),
+        4, 9 => std.mem.readInt(u32, data[4 * k ..][0..4], e),
+        16, 17 => std.mem.readInt(u64, data[8 * k ..][0..8], e),
+        else => data[k],
+    };
+}
+
 /// The counts of the sample range fields, checked against
 /// SamplesPerPixel once the whole IFD is read.
-fn checkRanges(p: *Page, counts: [4]u64) void {
-    for (counts) |c| if (c != 0 and c != p.spp) {
+fn checkRanges(p: *Page, counts: [4]?u64) void {
+    for (counts) |c| if (c != null and c != p.spp) {
         p.odd_sample_range = true;
     };
 }

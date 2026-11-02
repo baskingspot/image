@@ -39,8 +39,16 @@ pub const Input = struct {
     }
 
     pub fn read(in: *Input, dst: []u8) Error!void {
-        in.r.readSliceAll(dst) catch |e| return mapRead(e);
+        in.r.readSliceAll(dst) catch |e| return in.lost(e);
         in.pos += dst.len;
+    }
+
+    /// A read that failed partway has taken an unknown number of bytes:
+    /// the seeker, if any, moves the reader back to `pos`, so a later move
+    /// starts from where `pos` says.
+    fn lost(in: *Input, e: anytype) Error {
+        if (in.seeker) |s| s.seek(s.context, in.pos) catch return error.ReadFailed;
+        return mapRead(e);
     }
 
     pub fn int(in: *Input, comptime T: type) Error!T {
@@ -59,7 +67,7 @@ pub const Input = struct {
             var left = offset - in.pos;
             while (left > 0) {
                 const n: usize = @intCast(@min(left, 1 << 30));
-                in.r.discardAll(n) catch |e| return mapRead(e);
+                in.r.discardAll(n) catch |e| return in.lost(e);
                 left -= n;
                 in.pos += n;
             }
@@ -193,6 +201,9 @@ pub const Page = struct {
     rows_per_strip: u64 = std.math.maxInt(u32),
     tile_width: ?u64 = null,
     tile_height: ?u64 = null,
+    /// A tile's missing dimension: libtiff takes the width at the time and
+    /// RowsPerStrip, when RowsPerStrip comes before the tile fields.
+    strip_tile: [2]u64 = .{ 0, 0 },
     ink_set: u16 = 1,
     /// The first ExtraSamples value, and how many there are.
     extra: u16 = 0,
@@ -210,6 +221,7 @@ pub const Page = struct {
     offsets: Field = .{},
     counts: Field = .{},
     bits_field: Field = .{},
+    compression_field: Field = .{},
     format_field: Field = .{},
     extra_field: Field = .{},
     colormap: Field = .{},
@@ -271,6 +283,7 @@ pub fn readIfd(in: *Input, p: *Page) Error!void {
     p.endian = in.endian;
     const n = if (in.big) try in.int(u64) else try in.int(u16);
     var seen: std.StaticBitSet(48) = .initEmpty();
+    var data_len: u64 = 0;
     var i: u64 = 0;
     while (i < n) : (i += 1) {
         const e = if (in.big) try in.takeArray(20) else try in.takeArray(12);
@@ -279,6 +292,21 @@ pub fn readIfd(in: *Input, p: *Page) Error!void {
         const inline_len: u8 = if (in.big) 8 else 4;
         f.count = if (in.big) std.mem.readInt(u64, e[4..12], in.endian) else std.mem.readInt(u32, e[4..8], in.endian);
         const value = if (in.big) e[12..20] else e[8..12];
+        // The first of a repeated tag wins, valid or not, as in libtiff.
+        const slot = slotOf(tag);
+        if (slot) |k| {
+            if (seen.isSet(k)) continue;
+            seen.set(k);
+        }
+        // libtiff adds up the sizes of these fields' values stored outside
+        // the IFD, readable or not, and refuses the page if they overflow.
+        switch (tag) {
+            258, 273, 279, 280, 281, 301, 320, 324, 325, 339, 340, 341 => if (f.size() != 0) {
+                const bytes = f.len() orelse return error.BadHeader;
+                if (bytes > inline_len) data_len = std.math.add(u64, data_len, bytes) catch return error.BadHeader;
+            },
+            else => {},
+        }
         const total = (if (f.size() == 0 or f.count == 0) null else f.len()) orelse switch (tag) {
             // The fields the layout rests on must be readable, as libtiff
             // requires; others of an unknown type, with no values, or with
@@ -296,10 +324,7 @@ pub fn readIfd(in: *Input, p: *Page) Error!void {
             else
                 std.mem.readInt(u32, value[0..4], in.endian);
         }
-        const slot = slotOf(tag) orelse continue;
-        // The first of a repeated tag wins.
-        if (seen.isSet(slot)) continue;
-        seen.set(slot);
+        if (slot == null) continue;
         setField(in.endian, p, tag, f) catch |err| switch (tag) {
             // A field of the wrong type or count is ignored, as libtiff
             // ignores it, where the decoder has a default or can do
@@ -340,6 +365,15 @@ fn scalar(f: Field, endian: Endian) Error!u64 {
     return std.math.cast(u64, v) orelse error.BadHeader;
 }
 
+/// A single-valued field libtiff reads as a LONG, which takes the IFD
+/// types too.
+fn long(f: Field, endian: Endian) Error!u64 {
+    return switch (f.type) {
+        13, 18 => if (f.count != 1 or f.at != null) error.BadHeader else intAt(f.type, &f.raw, 0, endian),
+        else => scalar(f, endian),
+    };
+}
+
 fn small(f: Field, endian: Endian) Error!u16 {
     return std.math.cast(u16, try scalar(f, endian)) orelse error.BadHeader;
 }
@@ -347,53 +381,69 @@ fn small(f: Field, endian: Endian) Error!u16 {
 fn setField(endian: Endian, p: *Page, tag: u16, f: Field) Error!void {
     switch (tag) {
         256 => {
-            p.width = std.math.cast(u32, try scalar(f, endian)) orelse return error.ImageTooLarge;
+            p.width = std.math.cast(u32, try long(f, endian)) orelse return error.ImageTooLarge;
             p.has_width = true;
         },
         257 => {
-            p.height = std.math.cast(u32, try scalar(f, endian)) orelse return error.ImageTooLarge;
+            p.height = std.math.cast(u32, try long(f, endian)) orelse return error.ImageTooLarge;
             p.has_height = true;
         },
-        258 => {
-            if (f.type != 3) return error.BadHeader;
-            p.bits_field = f;
-            if (f.at == null) p.bits = @intCast(intAt(3, &f.raw, 0, endian));
+        258 => p.bits_field = f,
+        // One value, or one per sample, as older specifications had it:
+        // read with the other per-sample values.
+        259 => if (f.count == 1) {
+            p.compression = try small(f, endian);
+        } else {
+            p.compression_field = f;
         },
-        259 => p.compression = try small(f, endian),
         262 => p.photometric = try small(f, endian),
         266 => p.fill_order = try small(f, endian),
         273, 324 => p.offsets = f,
         279, 325 => p.counts = f,
         274 => p.orientation = try small(f, endian),
         277 => p.spp = try small(f, endian),
-        278 => p.rows_per_strip = try scalar(f, endian),
+        278 => {
+            p.rows_per_strip = try long(f, endian);
+            if (p.rows_per_strip == 0) return error.BadHeader;
+            if (!p.tiled()) p.strip_tile = .{ p.width, p.rows_per_strip };
+        },
         282 => p.xres = f,
         283 => p.yres = f,
         284 => p.planar = try small(f, endian),
-        292 => p.t4 = std.math.cast(u32, try scalar(f, endian)) orelse return error.BadHeader,
-        293 => p.t6 = std.math.cast(u32, try scalar(f, endian)) orelse return error.BadHeader,
+        292 => p.t4 = std.math.cast(u32, try long(f, endian)) orelse return error.BadHeader,
+        293 => p.t6 = std.math.cast(u32, try long(f, endian)) orelse return error.BadHeader,
         296 => p.res_unit = try small(f, endian),
         317 => p.predictor = try small(f, endian),
         320 => p.colormap = f,
-        322 => p.tile_width = try scalar(f, endian),
-        323 => p.tile_height = try scalar(f, endian),
+        322 => p.tile_width = try long(f, endian),
+        323 => p.tile_height = try long(f, endian),
         332 => p.ink_set = try small(f, endian),
         338 => {
             p.extra_field = f;
             p.extra_count = f.count;
             if (f.at == null) p.extra = @intCast(@min(0xffff, intAt(f.type, &f.raw, 0, endian)));
         },
-        339 => {
-            if (f.type != 3) return error.BadHeader;
-            p.format_field = f;
-            if (f.at == null) p.sample = try sampleKind(@intCast(intAt(3, &f.raw, 0, endian)));
-        },
+        339 => p.format_field = f,
         347 => p.jpeg_tables = f,
         529 => p.coefs_field = f,
         530 => {
-            // libtiff ignores a count other than 2.
-            if (f.type != 3 or f.count != 2) return error.BadHeader;
-            p.subsampling = .{ @intCast(intAt(3, &f.raw, 0, endian)), @intCast(intAt(3, &f.raw, 1, endian)) };
+            // libtiff ignores a count other than 2, a type other than an
+            // integer one, and a value out of range.
+            if (f.count != 2 or f.at != null) return error.BadHeader;
+            var sub: [2]u16 = undefined;
+            for (&sub, 0..) |*o, i| {
+                const v: i64 = switch (f.type) {
+                    1 => f.raw[i],
+                    3 => std.mem.readInt(u16, f.raw[2 * i ..][0..2], endian),
+                    4 => std.mem.readInt(u32, f.raw[4 * i ..][0..4], endian),
+                    6 => @as(i8, @bitCast(f.raw[i])),
+                    8 => std.mem.readInt(i16, f.raw[2 * i ..][0..2], endian),
+                    9 => std.mem.readInt(i32, f.raw[4 * i ..][0..4], endian),
+                    else => return error.BadHeader,
+                };
+                o.* = std.math.cast(u16, v) orelse return error.BadHeader;
+            }
+            p.subsampling = sub;
         },
         532 => p.ref_bw_field = f,
         700 => p.xmp = f,
@@ -436,10 +486,11 @@ pub fn loadValues(
     metadata: *decode.Metadata,
 ) Error!void {
     const Item = struct { field: *Field, kind: ValueKind };
-    var items: [10]Item = undefined;
+    var items: [11]Item = undefined;
     var n: usize = 0;
     const all = [_]Item{
         .{ .field = &p.bits_field, .kind = .bits },
+        .{ .field = &p.compression_field, .kind = .compression },
         .{ .field = &p.format_field, .kind = .format },
         .{ .field = &p.extra_field, .kind = .extra },
         .{ .field = &p.colormap, .kind = .colormap },
@@ -452,7 +503,7 @@ pub fn loadValues(
     };
     for (all) |item| {
         const layout = switch (item.kind) {
-            .bits, .format, .extra => true,
+            .bits, .compression, .format, .extra => true,
             else => false,
         };
         if (layout and !which.layout or !layout and !which.rest) continue;
@@ -468,7 +519,7 @@ pub fn loadValues(
     }.less);
     for (items[0..n]) |item| {
         const optional = switch (item.kind) {
-            .bits, .format, .extra => false,
+            .bits, .compression, .format, .extra => false,
             else => true,
         };
         loadValue(in, p, item.kind, item.field, colormap, sink, metadata) catch |e| {
@@ -483,7 +534,7 @@ pub fn loadValues(
     }
 }
 
-const ValueKind = enum { bits, format, extra, colormap, xres, yres, ref_bw, coefs, icc, xmp };
+const ValueKind = enum { bits, compression, format, extra, colormap, xres, yres, ref_bw, coefs, icc, xmp };
 
 fn loadValue(
     in: *Input,
@@ -514,6 +565,12 @@ fn loadValue(
             p.bits = std.math.cast(u16, first) orelse return error.BadHeader;
             try checkEnd(src, f);
         },
+        .compression => {
+            const first = try readInt(src, f);
+            for (1..@max(1, @min(f.count, p.spp))) |_| if (try readInt(src, f) != first) return error.BadHeader;
+            p.compression = std.math.cast(u16, first) orelse return error.BadHeader;
+            try checkEnd(src, f);
+        },
         .format => {
             const first = try readInt(src, f);
             for (1..@max(1, @min(f.count, p.spp))) |_| if (try readInt(src, f) != first) return error.Unsupported;
@@ -533,7 +590,11 @@ fn loadValue(
         .colormap => {
             // Its length is checked against BitsPerSample, which may come
             // later in the file, by the caller.
-            if (f.type != 3 or f.count % 3 != 0) {
+            const int_type = switch (f.type) {
+                1, 3, 4, 16, 6, 8, 9, 17 => true,
+                else => false,
+            };
+            if (!int_type or f.count % 3 != 0) {
                 // Ignored, as libtiff ignores it.
                 field.* = .{};
                 return;
@@ -541,13 +602,25 @@ fn loadValue(
             if (f.count > 3 * 256) {
                 // A 16-bit map, if it is there: one past the end of the
                 // input is ignored, as libtiff ignores it.
-                try src.goTo(f.at.? + 2 * f.count - 1);
+                try src.goTo(f.at.? + f.size() * f.count - 1);
                 _ = try src.takeArray(1);
                 return error.Unsupported;
             }
             const entries: usize = @intCast(f.count / 3);
             for (0..3) |c| {
-                for (0..entries) |i| colormap[c][i] = @intCast(try readInt(src, f));
+                for (0..entries) |i| {
+                    // A value out of SHORT's range makes libtiff ignore
+                    // the map.
+                    const v = readInt(src, f) catch |e| switch (e) {
+                        error.BadHeader => null,
+                        else => return e,
+                    };
+                    colormap[c][i] = std.math.cast(u16, v orelse 0) orelse 0;
+                    if (v == null or v.? > 0xffff) {
+                        field.* = .{};
+                        return;
+                    }
+                }
             }
         },
         .xres, .yres => {
@@ -600,13 +673,20 @@ fn metadataDensity(p: *Page) *[2]u32 {
 /// The next value of an integer field, from `in`, which is at the
 /// field's value.
 fn readInt(in: *Input, f: Field) Error!u64 {
-    return switch (f.type) {
-        1, 7 => (try in.takeArray(1))[0],
-        3 => try in.int(u16),
-        4, 13 => try in.int(u32),
-        16, 18 => try in.int(u64),
-        else => error.BadHeader,
+    // The integer types libtiff reads a SHORT or LONG array from; a
+    // negative value is out of range.
+    const v: i64 = switch (f.type) {
+        1 => return (try in.takeArray(1))[0],
+        3 => return try in.int(u16),
+        4 => return try in.int(u32),
+        16 => return try in.int(u64),
+        6 => @as(i8, @bitCast((try in.takeArray(1))[0])),
+        8 => @as(i16, @bitCast(try in.int(u16))),
+        9 => @as(i32, @bitCast(try in.int(u32))),
+        17 => @as(i64, @bitCast(try in.int(u64))),
+        else => return error.BadHeader,
     };
+    return std.math.cast(u64, v) orelse error.BadHeader;
 }
 
 /// A RATIONAL value rounded to an integer, or null for a zero denominator

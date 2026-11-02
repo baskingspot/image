@@ -173,6 +173,15 @@ pub const Decoder = struct {
         return .{ .src = src, .kind = kind, .two_d = two_d, .width = width, .ref = ref, .cur = words[n .. 2 * n] };
     }
 
+    /// Reads the data again from the start of `src`, which the caller has
+    /// moved back, without EOLs; the row above stays.
+    pub fn restart(d: *Decoder) void {
+        d.bits = 0;
+        d.nbits = 0;
+        d.eof = false;
+        d.no_eol = true;
+    }
+
     /// Decodes the next row into `dst`, `(width + 7) / 8` bytes.
     pub fn read(d: *Decoder, dst: []u8) Error!void {
         switch (d.kind) {
@@ -207,9 +216,21 @@ pub const Decoder = struct {
     }
 
     /// The next `n` bits, zeros past the end of the data.
-    fn peek(d: *Decoder, comptime n: u6) Error!u64 {
+    fn peekRaw(d: *Decoder, comptime n: u6) Error!u64 {
         if (d.nbits < n) try d.fill();
         return d.bits >> (64 - @as(u7, n));
+    }
+
+    /// The next `n` bits of a code. Data that ends partway through them
+    /// has zeros added to make `n`, and data that has ended is
+    /// `error.NotEnoughData`, as libtiff reads codes.
+    fn peek(d: *Decoder, comptime n: u6) Error!u64 {
+        const v = try d.peekRaw(n);
+        if (d.nbits < n) {
+            if (d.nbits == 0) return error.NotEnoughData;
+            d.nbits = n;
+        }
+        return v;
     }
 
     fn consume(d: *Decoder, n: u7) void {
@@ -236,7 +257,7 @@ pub const Decoder = struct {
         if (d.no_eol) return;
         var eols: u32 = 0;
         while (true) {
-            const v = try d.peek(12);
+            const v = try d.peekRaw(12);
             if (d.nbits == 0) return error.NotEnoughData;
             if (d.nbits < 12) {
                 if (eols == 0) return error.NoEol;

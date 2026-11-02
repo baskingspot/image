@@ -85,6 +85,12 @@ layout: Layout = undefined,
 /// Whether `page` is the next page to decode, already read.
 loaded: bool = false,
 colormap: [3][256]u16 = undefined,
+/// Whether the page's LZW data is old-style: its first chunk decides for
+/// all of them, as in libtiff.
+lzw_old: ?bool = null,
+/// Whether the page's Group 3 data is read without EOLs, as libtiff reads
+/// the rest of a page once one is missing.
+fax_no_eol: bool = false,
 /// The next frame's index, and its IFD's offset when not loaded.
 index: u32 = 0,
 next_ifd: u64 = 0,
@@ -452,8 +458,8 @@ fn planLayout(p: *ifd.Page) Error!Layout {
     l.swap = p.compression != 7 and bytes > 1 and predictor != 3 and samples.native_endian != p.endian;
     l.predictor = predictor;
     if (p.tiled()) {
-        const tw = p.tile_width orelse return error.BadHeader;
-        const th = p.tile_height orelse return error.BadHeader;
+        const tw = p.tile_width orelse p.strip_tile[0];
+        const th = p.tile_height orelse p.strip_tile[1];
         if (tw == 0 or th == 0) return error.BadHeader;
         // The tiles across and down must be countable in 32 bits, as in
         // libtiff.
@@ -487,11 +493,13 @@ fn planLayout(p: *ifd.Page) Error!Layout {
             3, 4, 16 => {},
             else => return error.BadHeader,
         }
-        if (f.count < chunks) return error.BadHeader;
+        // A short array is padded with zeros, as libtiff pads it up to a
+        // million chunks.
+        if (f.count < chunks and chunks > 1_000_000) return error.BadHeader;
     }
     var at: u64 = 0;
-    l.offsets_len = try arrayLen(p.offsets, chunks);
-    l.counts_len = try arrayLen(p.counts, chunks);
+    l.offsets_len = try arrayLen(p.offsets, @min(p.offsets.count, chunks));
+    l.counts_len = try arrayLen(p.counts, @min(p.counts.count, chunks));
     at = try add(at, l.offsets_len);
     at = try add(at, l.counts_len);
     l.stage_at = @intCast(at);
@@ -538,10 +546,12 @@ const Arrays = struct {
     endian: std.builtin.Endian,
 
     fn offset(a: *const Arrays, i: u64) u64 {
+        if (i >= a.offsets.count) return 0;
         return a.offsets.get(a.offsets_bytes, @intCast(i), a.endian);
     }
 
     fn count(a: *const Arrays, i: u64) u64 {
+        if (i >= a.counts.count) return 0;
         return a.counts.get(a.counts_bytes, @intCast(i), a.endian);
     }
 };
@@ -572,6 +582,8 @@ fn decodePage(d: *Decoder, region: PixelBuffer, work: []u8) Error!void {
     const p = &d.page;
     const l = &d.layout;
     const arrays = try d.loadArrays(work);
+    d.lzw_old = null;
+    d.fax_no_eol = false;
     var out: Out = undefined;
     out.init(p, l, &d.colormap, region);
     for (0..l.down) |cy| {
@@ -709,7 +721,7 @@ const Codec = union(enum) {
     packbits: packbits.Decoder,
     fax: fax.Decoder,
 
-    fn read(c: *Codec, src: *const Source, buf: []u8) LinesError!void {
+    fn read(c: *Codec, src: *const Source, buf: []u8) (Error || error{NoEol})!void {
         switch (c.*) {
             .lzw => |*z| z.read(buf) catch |e| return switch (e) {
                 error.ReadFailed => src.err orelse error.ReadFailed,
@@ -754,36 +766,21 @@ fn decodeChunk(
     const offset = arrays.offset(index);
     const end = std.math.add(u64, offset, len) catch return error.BadHeader;
     try d.in.goTo(offset);
-    d.decodeLines(work, len, lines, shown, target, false) catch |e| switch (e) {
-        // libtiff decodes Group 3 data without EOLs again from the start,
-        // expecting none; so does this decoder, with the seeker if it is
-        // behind.
-        error.NoEol => {
-            try d.in.goTo(offset);
-            d.decodeLines(work, len, lines, shown, target, true) catch |e2| return switch (e2) {
-                error.NoEol => unreachable,
-                else => |x| x,
-            };
-        },
-        else => |x| return x,
-    };
+    try d.decodeLines(work, offset, len, lines, shown, target);
     // What a decompressor read ahead of the rows depends on how the reader
     // chunks the input; past the chunk's end, it does not.
     try d.in.goTo(end);
 }
 
-/// The errors of decoding a chunk once.
-const LinesError = Error || error{NoEol};
-
 fn decodeLines(
     d: *Decoder,
     work: []u8,
+    offset: u64,
     len: u64,
     lines: u32,
     shown: u32,
     target: anytype,
-    no_eol: bool,
-) LinesError!void {
+) Error!void {
     const p = &d.page;
     const l = &d.layout;
     const temp = work[l.temp_at..][0..if (l.predictor == 3) l.line_len else 0];
@@ -814,7 +811,7 @@ fn decodeLines(
     var src: Source = .init(&d.in, len, p.fill_order == 2, work[l.stage_at..][0..stage_len]);
     const codec_mem = work[l.codec_at..l.lines_at];
     var codec: Codec = switch (p.compression) {
-        5 => .{ .lzw = .init(&src.reader, codec_mem) },
+        5 => .{ .lzw = .init(&src.reader, codec_mem, d.lzw_old) },
         8, 32946 => .{ .zlib = .init(&src.reader, codec_mem[0..@sizeOf(zlib.Reader.Buffer)], null) },
         32773 => .{ .packbits = .init(&src.reader) },
         2 => .{ .fax = .init(&src.reader, .mh, false, l.chunk_w, codec_mem) },
@@ -822,21 +819,42 @@ fn decodeLines(
         4 => .{ .fax = .init(&src.reader, .g4, true, l.chunk_w, codec_mem) },
         else => unreachable,
     };
-    if (codec == .fax) codec.fax.no_eol = no_eol;
+    if (codec == .fax) codec.fax.no_eol = d.fax_no_eol;
     for (0..lines) |ri| {
         const r: u32 = @intCast(ri);
         const buf = if (r < shown) target.buffer(r) else target.scratch(r);
-        try codec.read(&src, buf);
+        defer if (codec == .lzw and codec.lzw.started) {
+            d.lzw_old = codec.lzw.old;
+        };
+        codec.read(&src, buf) catch |e| switch (e) {
+            // Group 3 data whose EOL is missing at a row's start: libtiff
+            // reads the rest of the page's rows without EOLs, this one on
+            // from the chunk's start, keeping the rows before and the
+            // reference row; so does this decoder, with the seeker if the
+            // start is behind.
+            error.NoEol => {
+                d.fax_no_eol = true;
+                try d.in.goTo(offset);
+                src = .init(&d.in, len, p.fill_order == 2, work[l.stage_at..][0..stage_len]);
+                codec.fax.restart();
+                codec.read(&src, buf) catch |e2| return switch (e2) {
+                    error.NoEol => unreachable,
+                    else => |x| x,
+                };
+            },
+            else => |x| return x,
+        };
         if (r >= shown) continue;
         post(l, buf, temp);
         target.done(r, buf);
     }
     // A zlib stream that ends with the rows has its Adler-32 checked. One
-    // with more data after them is left unchecked, as libtiff leaves it.
+    // with more data after them, or cut off after them, is left unchecked,
+    // as libtiff leaves it.
     if (codec == .zlib) _ = codec.zlib.reader.peekByte() catch |e| switch (e) {
         error.EndOfStream => {},
         error.ReadFailed => return src.err orelse switch (codec.zlib.err orelse return error.BadZlib) {
-            error.Truncated => error.NotEnoughData,
+            error.Truncated => {},
             error.ReadFailed => error.ReadFailed,
             else => error.BadZlib,
         },
@@ -898,7 +916,7 @@ const Out = struct {
         else if (!planar and p.sample == .uint and (p.bits == 8 or p.bits == 16) and
             (model == .rgb or model == .gray and p.photometric.? == 1) and p.spp == o.e.used)
             .copy
-        else if (!planar and model == .gray and p.bits == 1 and p.spp == 1)
+        else if (!planar and model == .gray and p.bits == 1 and p.spp == 1 and p.sample == .uint)
             .gray1
         else
             .general;
@@ -1325,6 +1343,37 @@ test "CMYK keeps its inks, inverted, in cmyk8 or cmyk16, and converts to color n
         try testing.expectEqualSlices(u8, &.{ 255, 255, 255, 0, 255, 255, 125, 205, 205, 0, 0, 0 }, &rgb);
     }
 }
+
+test "signed 1-bit gray is offset by half its range" {
+    try testSigned1Bit(signed_1bit ++ "\x00\x00\x00\x00" ++ "\xa0");
+}
+
+test "a next IFD past the input's end leaves the page before it readable" {
+    try testSigned1Bit(signed_1bit ++ "\x00\x10\x00\x00" ++ "\xa0");
+}
+
+fn testSigned1Bit(file: []const u8) !void {
+    var r: Io.Reader = .fixed(file);
+    var d = Decoder.init(&r, .{ .seeker = .fixed(&r) });
+    const config = try d.decodeConfig();
+    var work: [64]u8 = undefined;
+    var pixels: [8]u8 = undefined;
+    _ = (try d.decodeFrame(try PixelBuffer.init(&pixels, .gray8, 8, 1), work[0..config.work_len])).?;
+    try testing.expectEqualSlices(u8, &.{ 0, 255, 0, 255, 255, 255, 255, 255 }, &pixels);
+}
+
+/// An 8×1 1-bit signed gray page whose one byte of data follows its IFD,
+/// up to the next-IFD offset.
+const signed_1bit = "II*\x00\x08\x00\x00\x00" ++ "\x09\x00" ++
+    "\x00\x01\x03\x00\x01\x00\x00\x00\x08\x00\x00\x00" ++ // width 8
+    "\x01\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // height 1
+    "\x02\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // 1 bit
+    "\x03\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // uncompressed
+    "\x06\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // MinIsBlack
+    "\x11\x01\x04\x00\x01\x00\x00\x00\x7a\x00\x00\x00" ++ // data at 122
+    "\x15\x01\x03\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // 1 sample
+    "\x17\x01\x04\x00\x01\x00\x00\x00\x01\x00\x00\x00" ++ // 1 byte
+    "\x53\x01\x03\x00\x01\x00\x00\x00\x02\x00\x00\x00"; // signed
 
 test "pages are frames: the canvas holds the largest, and data behind needs a seeker" {
     const gpa = testing.allocator;

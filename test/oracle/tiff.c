@@ -18,8 +18,14 @@
 //   them at their depth.
 //
 // Any error libtiff reports rejects the input; warnings do not, but for the
-// CCITT decoders' warnings about corrupt data, which libtiff conceals.
+// CCITT decoders' warnings about corrupt data, which libtiff conceals. A
+// CCITT line longer than the width skips the input instead: libtiff
+// makes one when a pass mode's b2 lies past the reference line's last
+// change, reading a stale run from an earlier row for it, and when that run
+// happens to be empty it ends the line at the width with no warning, as
+// this decoder does.
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <tiffio.h>
@@ -84,13 +90,17 @@ static int failed;
 // estimate from the image's size, as it does when they are missing or
 // look wrong to it; its answer is then about another file.
 static int estimated;
+// Whether libtiff warned of a CCITT line longer than the width.
+static int long_line;
 
 static int on_error(TIFF *tif, void *user, const char *module, const char *fmt, va_list ap) {
   (void)tif;
   (void)user;
   (void)module;
-  (void)fmt;
   (void)ap;
+  // libtiff reports a NumberOfInks that disagrees with InkNames or
+  // SamplesPerPixel as an error and reads on; this decoder reads neither.
+  if (strstr(fmt, "NumberOfInks")) return 1;
   failed = 1;
   return 1;
 }
@@ -98,19 +108,23 @@ static int on_error(TIFF *tif, void *user, const char *module, const char *fmt, 
 static int on_warning(TIFF *tif, void *user, const char *module, const char *fmt, va_list ap) {
   (void)tif;
   (void)user;
-  (void)fmt;
   // libtiff's CCITT decoders warn about a bad code or a row of the wrong
   // length, and conceal it; the data is corrupt, so it rejects. (Group 3
   // data without a first EOL is not.)
-  if (module && strncmp(module, "Fax", 3) == 0 && strncmp(fmt, "Try to decode", 13) != 0) failed = 1;
+  if (module && strncmp(module, "Fax", 3) == 0 && strncmp(fmt, "Try to decode", 13) != 0) {
+    failed = 1;
+    char msg[256];
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    if (strncmp(msg, "Line length mismatch", 20) == 0) long_line = 1;
+  }
   if (strstr(fmt, "calculating from imagelength")) estimated = 1;
-  (void)ap;
   return 1;
 }
 
 static TIFF *open_mem(struct mem *m) {
   failed = 0;
   estimated = 0;
+  long_line = 0;
   TIFFOpenOptions *o = TIFFOpenOptionsAlloc();
   TIFFOpenOptionsSetErrorHandlerExtR(o, on_error, NULL);
   TIFFOpenOptionsSetWarningHandlerExtR(o, on_warning, NULL);
@@ -133,7 +147,8 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
 // rows, or is corrupt only near their end, by zlib's reading. libtiff (with
 // libdeflate) then stops where its output is full, and may leave the last
 // bytes of a match that crosses the end unwritten, so its rows are not the
-// stream's, and it accepts a stream this decoder finds corrupt.
+// stream's, and it accepts a stream this decoder finds corrupt. The same
+// goes for the places below where libdeflate reads otherwise than zlib.
 static int deflate_overruns(TIFF *tif) {
   uint16_t c = COMPRESSION_NONE;
   TIFFGetFieldDefaulted(tif, TIFFTAG_COMPRESSION, &c);
@@ -176,6 +191,17 @@ static int deflate_overruns(TIFF *tif) {
         // before the error.
         if (made > (uint64_t)need || (made + 258 >= (uint64_t)need && r == Z_DATA_ERROR && z.msg &&
                                       strcmp(z.msg, "incorrect data check") != 0))
+          found = 1;
+        // An unused codeword of an incomplete Huffman code, which zlib
+        // rejects and libdeflate decodes as the code's one symbol, and a
+        // code without an end of block, which libdeflate reads on with.
+        if (r == Z_DATA_ERROR && z.msg &&
+            (strcmp(z.msg, "invalid literal/length code") == 0 || strcmp(z.msg, "invalid distance code") == 0 ||
+             strcmp(z.msg, "invalid code -- missing end-of-block") == 0))
+          found = 1;
+        // A stream cut off near the rows' end, which libdeflate reads on
+        // into as zero bits, up to eight bytes of them.
+        if (r != Z_STREAM_END && r != Z_DATA_ERROR && z.avail_in == 0 && made + 8 * 258 >= (uint64_t)need)
           found = 1;
         inflateEnd(&z);
       }
@@ -243,7 +269,7 @@ static enum status tiff_rgba(const uint8_t *in, size_t len, enum pixel_format fo
   result = STATUS_OK;
   goto done;
 fail:
-  if (raw_reads(in, len, max_pixels)) result = STATUS_SKIPPED;
+  if (long_line || raw_reads(in, len, max_pixels)) result = STATUS_SKIPPED;
 done:
   free(raster);
   TIFFClose(tif);
@@ -465,8 +491,22 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
     result = STATUS_SKIPPED;
     goto done;
   }
+  // The decoder leaves out inks other than CMYK, white-is-zero floats, and
+  // palette pages with extra samples or samples other than unsigned.
+  uint16_t ink = INKSET_CMYK;
+  if (cc == 4) TIFFGetFieldDefaulted(tif, TIFFTAG_INKSET, &ink);
+  if (ink != INKSET_CMYK || (p.fmt == SAMPLEFORMAT_IEEEFP && p.photometric == PHOTOMETRIC_MINISWHITE) ||
+      (p.photometric == PHOTOMETRIC_PALETTE && (p.spp != 1 || p.fmt != SAMPLEFORMAT_UINT))) {
+    result = STATUS_SKIPPED;
+    goto done;
+  }
   // The decoder's float widths; libtiff leaves the rest to the caller.
   if (p.fmt == SAMPLEFORMAT_IEEEFP && p.bits != 16 && p.bits != 24 && p.bits != 32 && p.bits != 64) goto done;
+  // Integer samples wider than 32 bits the decoder leaves out.
+  if (p.fmt != SAMPLEFORMAT_IEEEFP && p.bits > 32) {
+    result = STATUS_SKIPPED;
+    goto done;
+  }
   // CMYK has no alpha: its native cmyk8 and cmyk16 drop it.
   if (p.spp > cc && cc != 4) p.alpha = p.extra_type == 1 ? 1 : p.extra_type == 2 ? 2 : 0;
   int palette8 = 1;
@@ -626,6 +666,7 @@ static enum status tiff_raw(const uint8_t *in, size_t len, enum pixel_format for
   out->height = p.h;
   result = STATUS_OK;
 done:
+  if (result == STATUS_REJECTED && long_line) result = STATUS_SKIPPED;
   if (result != STATUS_OK && out->pixels) {
     free(out->pixels);
     out->pixels = NULL;
