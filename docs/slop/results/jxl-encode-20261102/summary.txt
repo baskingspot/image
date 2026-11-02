@@ -1,0 +1,29 @@
+image/arm, geomean              rows image MP/s   libjxl     ±   <1    ~   slowest vs libjxl
+JxlEncodeE1/icon                  13        0.4     0.24    2%   13    0   0.07 [0.07, 0.07] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE1/1mp                   23        6.0     0.05    1%   23    0   0.02 [0.02, 0.02] icon_512-actions_bookmark_new-512x512.raw
+JxlEncodeE1/large                  7        5.5     0.02    5%    7    0   0.02 [0.02, 0.02] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE2/icon                  13        0.4     0.21    6%   13    0   0.14 [0.09, 0.15] icon_32-actions_address_book_new-32x32.raw
+JxlEncodeE2/1mp                   23        6.0     0.52    4%   21    2   0.35 [0.32, 0.41] test-kodim23-768x512.raw
+JxlEncodeE2/large                  7        5.5     0.37    1%    7    0   0.32 [0.30, 0.33] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+JxlEncodeE3/icon                  13        0.4     0.26    3%   13    0   0.18 [0.17, 0.18] icon_32-actions_address_book_new-32x32.raw
+JxlEncodeE3/1mp                   23        6.0     0.98    3%    8    5   0.68 [0.66, 0.72] screenshot_game-3dbrick2-320x240.raw
+JxlEncodeE3/large                  7        5.5     0.86    2%    6    1   0.65 [0.63, 0.66] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+JxlEncodeE4/icon                  13        0.1     0.21    3%   13    0   0.12 [0.11, 0.13] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE4/1mp                   23        1.1     0.41    2%   22    1   0.21 [0.20, 0.21] test-testcard-256x256.raw
+JxlEncodeE4/large                  7        1.6     0.58    2%    7    0   0.47 [0.46, 0.48] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+JxlEncodeE5/icon                  13        0.1     0.28    2%   13    0   0.18 [0.17, 0.18] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE5/1mp                   23        1.1     0.58    3%   23    0   0.31 [0.28, 0.33] test-testcard-256x256.raw
+JxlEncodeE5/large                  7        1.6     0.73    3%    7    0   0.58 [0.58, 0.61] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE6/icon                  13        0.1     0.33    3%   13    0   0.21 [0.16, 0.23] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE6/1mp                   23        1.1     0.71    1%   19    1   0.36 [0.32, 0.37] test-testcard-256x256.raw
+JxlEncodeE6/large                  7        1.6     0.91    2%    4    1   0.70 [0.67, 0.72] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE7/icon                  13        0.1     0.43    1%   12    1   0.30 [0.30, 0.30] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE7/1mp                   23        1.1     0.99    3%   10    1   0.41 [0.33, 0.42] test-testcard-256x256.raw
+JxlEncodeE7/large                  7        1.6     1.27    1%    1    0   0.88 [0.80, 0.90] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE8/icon                  13        0.0     0.17    3%   13    0   0.10 [0.10, 0.11] icon_16-actions_appointment_new-16x16.raw
+JxlEncodeE8/1mp                   23        0.2     0.62    1%   19    3   0.41 [0.35, 0.43] screenshot_game-20XX_Menu_picture-634x406.raw
+JxlEncodeE8/large                  7        0.6     1.55    1%    0    1   1.00 [0.96, 1.04] photo_wikipedia-001-1276x850.raw
+JxlEncodeE9/icon                  13        0.0     0.25    1%   13    0   0.14 [0.14, 0.14] icon_16-actions_address_book_new-16x16.raw
+JxlEncodeE9/1mp                   23        0.2     1.03    2%   10    5   0.70 [0.65, 0.75] test-testcard_rgba-256x256.raw
+JxlEncodeE9/large                  7        0.7     2.87    2%    0    0   1.50 [1.44, 1.56] photo_wikipedia-001-1276x850.raw
+all                              387        0.7     0.43        310   22

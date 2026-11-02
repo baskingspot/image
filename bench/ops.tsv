@@ -92,3 +92,12 @@ webp-encode-z6	WebpEncodeZ6	webp_encode	5	own
 webp-encode-z7	WebpEncodeZ7	webp_encode	5	own
 webp-encode-z8	WebpEncodeZ8	webp_encode	5	own
 webp-encode-z9	WebpEncodeZ9	webp_encode	5	own
+jxl-encode-e1	JxlEncodeE1	jxl_encode	5	own
+jxl-encode-e2	JxlEncodeE2	jxl_encode	5	own
+jxl-encode-e3	JxlEncodeE3	jxl_encode	5	own
+jxl-encode-e4	JxlEncodeE4	jxl_encode	5	own
+jxl-encode-e5	JxlEncodeE5	jxl_encode	5	own
+jxl-encode-e6	JxlEncodeE6	jxl_encode	5	own
+jxl-encode-e7	JxlEncodeE7	jxl_encode	5	own
+jxl-encode-e8	JxlEncodeE8	jxl_encode	5	own
+jxl-encode-e9	JxlEncodeE9	jxl_encode	5	own

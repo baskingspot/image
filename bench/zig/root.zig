@@ -21,6 +21,7 @@ pub const tiff = @import("tiff.zig");
 pub const jxl = @import("jxl.zig");
 pub const webp_encode = @import("webp_encode.zig");
 pub const tiff_encode = @import("tiff_encode.zig");
+pub const jxl_encode = @import("jxl_encode.zig");
 
 const Self = @This();
 

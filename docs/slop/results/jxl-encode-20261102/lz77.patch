@@ -1,0 +1,716 @@
+diff --git a/src/jxl/encode.zig b/src/jxl/encode.zig
+index fb7cf54..ed6a851 100644
+--- a/src/jxl/encode.zig
++++ b/src/jxl/encode.zig
+@@ -29,6 +29,7 @@ const BitWriter = @import("encode_bits.zig").BitWriter;
+ const Bump = @import("encode_mem.zig").Bump;
+ const ent = @import("encode_entropy.zig");
+ const mod = @import("encode_modular.zig");
++const lz = @import("encode_lz77.zig");
+ const Plane = mod.Plane;
+ const Token = ent.Token;
+ 
+@@ -77,6 +78,8 @@ const Params = struct {
+     /// Splits are judged with this many of a node's cheapest predictors;
+     /// 0 for all.
+     search_predictors: u32,
++    /// LZ77 copies, or none.
++    lz77: ?lz.Options,
+ };
+ 
+ fn params(effort: Effort) Params {
+@@ -93,6 +96,7 @@ fn params(effort: Effort) Params {
+             .refs = 0,
+             .split_samples = 4096,
+             .search_predictors = 0,
++            .lz77 = null,
+         },
+         .default => .{
+             .predictors = &.{ .gradient, .weighted, .left, .top },
+@@ -106,6 +110,7 @@ fn params(effort: Effort) Params {
+             .refs = 2,
+             .split_samples = 16384,
+             .search_predictors = 2,
++            .lz77 = null,
+         },
+         .best => .{
+             .predictors = &.{
+@@ -122,6 +127,7 @@ fn params(effort: Effort) Params {
+             .refs = 3,
+             .split_samples = 16384,
+             .search_predictors = 0,
++            .lz77 = .{ .specials = 24, .hash = true },
+         },
+     };
+ }
+@@ -213,6 +219,7 @@ const Sizes = struct {
+     wp: usize,
+     store: usize,
+     streams: usize,
++    lz77: usize,
+ 
+     fn init(p: Params, w: u32, h: u32) ?Sizes {
+         if (w == 0 or h == 0 or w > max_side or h > max_side) return null;
+@@ -244,12 +251,15 @@ const Sizes = struct {
+             .samples = mod.Samples.memory(sampleCap(p, w, h), p.predictors.len, p.refs),
+             .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, p.max_leaves)),
+             .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
+-            .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
+-            .code = ent.buildMemory(leaves) + ent.buildMemory(6),
+-            .write = ent.writeMemory(leaves),
++            // The literals' histograms, then with copies (one context
++            // more, for distances), and the tree's.
++            .histograms = (2 * leaves + 1) * ent.alphabet * 4 + 6 * ent.alphabet * 4,
++            .code = ent.buildMemory(leaves + 1) + ent.buildMemory(6),
++            .write = ent.writeMemory(leaves + 1),
+             .wp = mod.Wp.memory(@max(gw, pal)),
+             .store = @as(usize, @intCast(@min(all_samples + pal * max_channels, store_tokens))) * 4,
+             .streams = (lay.num_groups + 1) * 4,
++            .lz77 = if (p.lz77 == null) 0 else lz.Costs.memory(leaves) + lz.Costs.memory(leaves + 1) + lz.memory(stream_samples),
+         };
+     }
+ 
+@@ -455,9 +465,7 @@ fn histCost(c: *const [64]u32, cfg: ent.Config) f64 {
+     for (c, 0..) |k, t| {
+         if (k == 0) continue;
+         const kf: f64 = @floatFromInt(k);
+-        const split = @as(u32, 1) << cfg.split_exp;
+-        const above: u32 = if (t < split) 0 else (@as(u32, @intCast(t)) - split) >> (cfg.msb + cfg.lsb);
+-        const extra: f64 = if (t < split) 0 else @floatFromInt(@as(u32, cfg.split_exp) - cfg.msb - cfg.lsb + above);
++        const extra: f64 = @floatFromInt(tokenExtra(cfg, @intCast(t)));
+         bits += kf * (lt - std.math.log2(kf) + extra);
+     }
+     return bits;
+@@ -815,7 +823,8 @@ fn encodeImpl(
+         var k: u32 = 0;
+         while (k < ns) : (k += 1) {
+             const s = streamAt(&lay, k, has_pal);
+-            const n = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
++            var width: u32 = undefined;
++            const n = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list, &width);
+             hist.addTokens(tokens[0..n], .{});
+             stream_len[k] = @intCast(n);
+             if (!keep) continue;
+@@ -830,7 +839,40 @@ fn encodeImpl(
+             stored += n;
+         }
+     }
+-    const code = try ent.Code.build(mem, &hist, .{});
++    // Copies where they save bits: chosen once by the literals' costs
++    // with estimated copy costs, then again by the costs those copies
++    // give, and made a third time, the same, as the tokens are written.
++    // They stand only if the histograms with them cost less than the
++    // literals': taking tokens out of a context makes the rest dearer,
++    // which the per-token costs miss.
++    var costs: lz.Costs = undefined;
++    var copies = false;
++    var lz_hist: ent.Histograms = undefined;
++    // Lengths follow the largest literal symbol.
++    const min_symbol = @max(8, hist.symbols());
++    if (p.lz77) |lo| {
++        costs = try .init(mem, &hist, .{}, min_symbol, null);
++        lz_hist = try .init(mem, tree.num_leaves + 1);
++        for (0..2) |round| {
++            if (round == 1) {
++                if (!copies) break;
++                costs = try .init(mem, &lz_hist, .{}, min_symbol, tree.num_leaves);
++                @memset(lz_hist.counts, 0);
++                copies = false;
++            }
++            var at: usize = 0;
++            var k: u32 = 0;
++            while (k < ns) : (k += 1) {
++                const n = stream_len[k];
++                const width = try literals(mem, &c, &lay, k, has_pal, &tree, flat, tokens, &plane_list, keep, store, &at, n);
++                const m = try lz.apply(mem, tokens[0..n], width, tree.num_leaves, &costs, lo);
++                copies = copies or m < n;
++                lz_hist.addTokensLz(tokens[0..m], .{}, min_symbol);
++            }
++        }
++        if (copies) copies = histBits(&lz_hist, min_symbol) < histBits(&hist, null);
++    }
++    const code = try ent.Code.build(mem, if (copies) &lz_hist else &hist, .{ .lz77 = copies, .lz_min_symbol = min_symbol });
+ 
+     // The sections.
+     var bw: BitWriter = .init(out_buf);
+@@ -852,18 +894,13 @@ fn encodeImpl(
+     }
+     try code.write(&bw, mem);
+     var start: usize = 0;
+-    var start_token: usize = 0;
++    var at: usize = 0;
+     var k: u32 = 0;
+     while (k < ns) : (k += 1) {
+-        const s = streamAt(&lay, k, has_pal);
+         writeStreamHeader(&bw, if (k == 0) &c.tr else null, nch);
+-        const n = stream_len[k];
+-        if (keep) {
+-            for (tokens[0..n], store[start_token..][0..n]) |*t, v| t.* = .{ .ctx = v & 0x7ff, .value = v >> 11 };
+-            start_token += n;
+-        } else {
+-            _ = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
+-        }
++        var n: usize = stream_len[k];
++        const width = try literals(mem, &c, &lay, k, has_pal, &tree, flat, tokens, &plane_list, keep, store, &at, n);
++        if (copies) n = try lz.apply(mem, tokens[0..n], width, tree.num_leaves, &costs, p.lz77.?);
+         // Even a stream without tokens (the global one, when every
+         // channel is coded in groups) carries its ANS state: decoders
+         // differ on whether they read it, and jxl-oxide does.
+@@ -895,7 +932,80 @@ fn encodeImpl(
+     try w.writeAll(bw.bytes());
+ }
+ 
+-/// Stream `s`'s tokens into `tokens`; returns how many.
++/// What `h`'s tokens cost coded with each context's own histogram, extra
++/// bits included. With `min_symbol`, the last context is distances and
++/// symbols from `min_symbol` in the others are copy lengths.
++fn histBits(h: *const ent.Histograms, min_symbol: ?u32) f64 {
++    const cfg: ent.Config = .{};
++    var bits: f64 = 0;
++    for (0..h.num_contexts) |ctx| {
++        const counts = h.of(ctx);
++        var total: u64 = 0;
++        for (counts) |k| total += k;
++        if (total == 0) continue;
++        const lt = std.math.log2(@as(f64, @floatFromInt(total)));
++        const lengths = if (min_symbol) |ms| (if (ctx + 1 < h.num_contexts) ms else null) else null;
++        for (counts, 0..) |k, sym| {
++            if (k == 0) continue;
++            const kf: f64 = @floatFromInt(k);
++            const t: u32 = @intCast(sym);
++            const extra = if (lengths != null and t >= lengths.?)
++                tokenExtra(ent.lz_len_config, t - lengths.?)
++            else
++                tokenExtra(cfg, t);
++            bits += kf * (lt - std.math.log2(kf) + @as(f64, @floatFromInt(extra)));
++        }
++    }
++    return bits;
++}
++
++/// The extra bits that follow `token` under `cfg`.
++fn tokenExtra(cfg: ent.Config, token: u32) u32 {
++    const split = @as(u32, 1) << cfg.split_exp;
++    if (token < split) return 0;
++    return @as(u32, cfg.split_exp) - cfg.msb - cfg.lsb + ((token - split) >> (cfg.msb + cfg.lsb));
++}
++
++/// Stream `k`'s `n` literal tokens into `tokens`, from the store when
++/// `keep` (at `at.*`, which moves past them) or made again; returns the
++/// stream's width.
++fn literals(
++    mem: *Bump,
++    c: *Ctx,
++    lay: *const Layout,
++    k: u32,
++    has_pal: bool,
++    tree: *const mod.Tree,
++    flat: []const mod.Flat,
++    tokens: []Token,
++    plane_list: *[max_channels + 1]Plane,
++    keep: bool,
++    store: []const u32,
++    at: *usize,
++    n: usize,
++) !u32 {
++    const s = streamAt(lay, k, has_pal);
++    if (!keep) {
++        var width: u32 = undefined;
++        _ = try streamTokens(mem, c, s, tree, flat, tokens, plane_list, &width);
++        return width;
++    }
++    for (tokens[0..n], store[at.*..][0..n]) |*t, v| t.* = .{ .ctx = v & 0x7ff, .value = v >> 11 };
++    at.* += n;
++    return streamWidth(c, s);
++}
++
++/// The widest channel stream `s` codes: the decoder's LZ77 distance
++/// multiplier.
++fn streamWidth(c: *const Ctx, s: Stream) u32 {
++    var width: u32 = 0;
++    if (s.meta) width = @intCast(c.tr.palette.?.len);
++    if (s.w > 0 and s.h > 0) width = @max(width, s.w);
++    return width;
++}
++
++/// Stream `s`'s tokens into `tokens`; returns how many, and its width in
++/// `width`.
+ fn streamTokens(
+     mem: *Bump,
+     c: *Ctx,
+@@ -904,8 +1014,10 @@ fn streamTokens(
+     flat: []const mod.Flat,
+     tokens: []Token,
+     plane_list: *[max_channels + 1]Plane,
++    width: *u32,
+ ) !usize {
+     const n = buildPlanes(c, s, plane_list);
++    width.* = streamWidth(c, s);
+     // The reference channels the tree tests.
+     var nref: usize = 0;
+     for (tree.nodes) |nd| {
+diff --git a/src/jxl/encode_entropy.zig b/src/jxl/encode_entropy.zig
+index 75bbff3..585ca9d 100644
+--- a/src/jxl/encode_entropy.zig
++++ b/src/jxl/encode_entropy.zig
+@@ -70,12 +70,38 @@ pub fn packSigned(v: i32) u32 {
+     return if (v >= 0) x << 1 else ((~x) << 1) | 1;
+ }
+ 
+-/// One symbol of a stream: a context and the integer it codes.
++/// One symbol of a stream: a context and the integer it codes. With
++/// `lz_length` set in `ctx`, the symbol is an LZ77 copy's length less
++/// `lz_min_length`, in the context of the position it starts at, coded
++/// from the code's first length symbol; the distance follows as a token in
++/// the last context.
+ pub const Token = struct {
+     ctx: u32,
+     value: u32,
++
++    pub inline fn context(t: Token) u32 {
++        return t.ctx & ~lz_length;
++    }
++
++    /// The symbol and extra bits, with `config` for a value and lengths
++    /// from `min_symbol`.
++    pub inline fn split(t: Token, config: Config, min_symbol: u32) Config.Split {
++        if (t.ctx & lz_length == 0) return config.split(t.value);
++        var s = lz_len_config.split(t.value);
++        s.token += min_symbol;
++        return s;
++    }
+ };
+ 
++/// LZ77, when a code has it: lengths are symbols from the code's
++/// `lz_min_symbol` (past every value's token, which keeps histograms
++/// short), at least `lz_min_length`, split by `lz_len_config`.
++pub const lz_length: u32 = 1 << 31;
++pub const lz_min_length = 3;
++pub const lz_len_config: Config = .{ .split_exp = 0, .msb = 0, .lsb = 0 };
++/// The decoder's window: no copy reaches further back.
++pub const lz_window = 1 << 20;
++
+ /// Token counts per context, `alphabet` per context.
+ pub const Histograms = struct {
+     counts: []u32,
+@@ -98,10 +124,30 @@ pub const Histograms = struct {
+     pub fn addTokens(h: *Histograms, tokens: []const Token, config: Config) void {
+         for (tokens) |t| h.add(t.ctx, config.split(t.value).token);
+     }
++
++    /// Adds tokens that may be copies, whose lengths start at `min_symbol`.
++    pub fn addTokensLz(h: *Histograms, tokens: []const Token, config: Config, min_symbol: u32) void {
++        for (tokens) |t| h.add(t.context(), t.split(config, min_symbol).token);
++    }
++
++    /// One past the largest symbol counted.
++    pub fn symbols(h: *const Histograms) u32 {
++        var n: u32 = 0;
++        for (0..h.num_contexts) |ctx| {
++            for (h.of(ctx), 0..) |k, s| {
++                if (k != 0) n = @max(n, @as(u32, @intCast(s)) + 1);
++            }
++        }
++        return n;
++    }
+ };
+ 
+ pub const BuildOptions = struct {
+     use_prefix: bool = false,
++    /// The histograms' last context is LZ77 distances, and tokens may be
++    /// copies, their lengths from `lz_min_symbol`.
++    lz77: bool = false,
++    lz_min_symbol: u32 = 224,
+     config: Config = .{},
+     /// At most this many clusters.
+     max_clusters: usize = max_clusters,
+@@ -124,6 +170,8 @@ pub const Code = struct {
+     context_map: []u8,
+     num_clusters: usize,
+     use_prefix: bool,
++    lz77: bool = false,
++    lz_min_symbol: u32 = 224,
+     log_alpha: u5,
+     configs: []Config,
+     /// Per cluster, `alphabet` entries: ANS frequencies (of 4096) or
+@@ -157,6 +205,8 @@ pub const Code = struct {
+             .context_map = context_map,
+             .num_clusters = num_clusters,
+             .use_prefix = options.use_prefix,
++            .lz77 = options.lz77,
++            .lz_min_symbol = options.lz_min_symbol,
+             .log_alpha = 8,
+             .configs = try mem.alloc(Config, num_clusters),
+             .freq = try mem.alloc(u16, num_clusters * alphabet),
+@@ -228,8 +278,12 @@ pub const Code = struct {
+ 
+     /// Writes the code as `entropy.Code.read` reads it.
+     pub fn write(code: *const Code, w: *BitWriter, mem: *Bump) error{WorkTooSmall}!void {
+-        // No LZ77.
+-        w.boolean(false);
++        w.boolean(code.lz77);
++        if (code.lz77) {
++            w.u32Dist(code.lz_min_symbol, .{ .v(224), .v(512), .v(4096), .bo(15, 8) });
++            w.u32Dist(lz_min_length, .{ .v(3), .v(4), .bo(2, 5), .bo(8, 9) });
++            lz_len_config.write(w, 8);
++        }
+         if (code.num_contexts > 1) try writeContextMap(w, mem, code.context_map, code.num_clusters);
+         w.boolean(code.use_prefix);
+         if (!code.use_prefix) w.bits(code.log_alpha - 5, 2);
+@@ -266,8 +320,8 @@ pub const Code = struct {
+     pub fn encode(code: *const Code, w: *BitWriter, tokens: []const Token, scratch: []u32) void {
+         if (code.use_prefix) {
+             for (tokens) |t| {
+-                const cl: usize = code.context_map[t.ctx];
+-                const s = code.configs[cl].split(t.value);
++                const cl: usize = code.context_map[t.context()];
++                const s = t.split(code.configs[cl], code.lz_min_symbol);
+                 const i = cl * alphabet + s.token;
+                 w.bits(code.start[i], @intCast(code.freq[i]));
+                 w.bits(s.extra, s.nbits);
+@@ -280,8 +334,8 @@ pub const Code = struct {
+         while (i > 0) {
+             i -= 1;
+             const t = tokens[i];
+-            const cl: usize = code.context_map[t.ctx];
+-            const s = code.configs[cl].split(t.value);
++            const cl: usize = code.context_map[t.context()];
++            const s = t.split(code.configs[cl], code.lz_min_symbol);
+             const k = cl * alphabet + s.token;
+             const f: u32 = code.freq[k];
+             var word: u32 = 0;
+@@ -296,8 +350,8 @@ pub const Code = struct {
+         w.bits(state, 32);
+         for (tokens, scratch[0..tokens.len]) |t, word| {
+             if (word != 0) w.bits(word & 0xffff, 16);
+-            const cl: usize = code.context_map[t.ctx];
+-            const s = code.configs[cl].split(t.value);
++            const cl: usize = code.context_map[t.context()];
++            const s = t.split(code.configs[cl], code.lz_min_symbol);
+             w.bits(s.extra, s.nbits);
+         }
+     }
+@@ -307,8 +361,8 @@ pub const Code = struct {
+     pub fn cost(code: *const Code, tokens: []const Token) f64 {
+         var bits: f64 = 0;
+         for (tokens) |t| {
+-            const cl: usize = code.context_map[t.ctx];
+-            const s = code.configs[cl].split(t.value);
++            const cl: usize = code.context_map[t.context()];
++            const s = t.split(code.configs[cl], code.lz_min_symbol);
+             const f = code.freq[cl * alphabet + s.token];
+             bits += @as(f64, @floatFromInt(s.nbits));
+             const ff: f64 = @floatFromInt(@max(f, 1));
+diff --git a/src/jxl/encode_lz77.zig b/src/jxl/encode_lz77.zig
+new file mode 100644
+index 0000000..9616fca
+--- /dev/null
++++ b/src/jxl/encode_lz77.zig
+@@ -0,0 +1,295 @@
++//! LZ77 for the JPEG XL encoder's token streams (ISO/IEC 18181-1, the
++//! entropy coding annex): copies of a stream's earlier values, at the
++//! specification's special distances (the pixel above, the one to the
++//! left, and the rest of a small neighbourhood, by the stream's widest
++//! channel) or at any distance a hash of the next values finds, wherever a
++//! copy costs less than the literals it replaces.
++//!
++//! The decoder's window holds the values, the integers before their
++//! tokens, so a copy repeats residuals: a run of zeros, or a row whose
++//! residuals repeat the row above's. Costs come from the literals'
++//! histograms, before any copy; a copy's own cost is estimated.
++
++const std = @import("std");
++const testing = std.testing;
++
++const ent = @import("encode_entropy.zig");
++const Token = ent.Token;
++const Config = ent.Config;
++const Bump = @import("encode_mem.zig").Bump;
++
++pub const Options = struct {
++    /// The special distances tried at every position: the first this
++    /// many of the specification's 120, nearest first.
++    specials: u8,
++    /// Whether a hash of the next four values finds copies at any
++    /// distance.
++    hash: bool,
++};
++
++const hash_bits = 15;
++/// A hashed copy is measured up to this long; the special distances
++/// remember how far theirs reach.
++const max_hashed_len = 1 << 12;
++const none = std.math.maxInt(u32);
++
++/// The specification's special distances: (dx, dy), a copy from dx
++/// values back and dy rows of the stream's width up.
++const special_distances = [120][2]i8{
++    .{ 0, 1 },  .{ 1, 0 },  .{ 1, 1 },  .{ -1, 1 }, .{ 0, 2 },  .{ 2, 0 },  .{ 1, 2 },  .{ -1, 2 },
++    .{ 2, 1 },  .{ -2, 1 }, .{ 2, 2 },  .{ -2, 2 }, .{ 0, 3 },  .{ 3, 0 },  .{ 1, 3 },  .{ -1, 3 },
++    .{ 3, 1 },  .{ -3, 1 }, .{ 2, 3 },  .{ -2, 3 }, .{ 3, 2 },  .{ -3, 2 }, .{ 0, 4 },  .{ 4, 0 },
++    .{ 1, 4 },  .{ -1, 4 }, .{ 4, 1 },  .{ -4, 1 }, .{ 3, 3 },  .{ -3, 3 }, .{ 2, 4 },  .{ -2, 4 },
++    .{ 4, 2 },  .{ -4, 2 }, .{ 0, 5 },  .{ 3, 4 },  .{ -3, 4 }, .{ 4, 3 },  .{ -4, 3 }, .{ 5, 0 },
++    .{ 1, 5 },  .{ -1, 5 }, .{ 5, 1 },  .{ -5, 1 }, .{ 2, 5 },  .{ -2, 5 }, .{ 5, 2 },  .{ -5, 2 },
++    .{ 4, 4 },  .{ -4, 4 }, .{ 3, 5 },  .{ -3, 5 }, .{ 5, 3 },  .{ -5, 3 }, .{ 0, 6 },  .{ 6, 0 },
++    .{ 1, 6 },  .{ -1, 6 }, .{ 6, 1 },  .{ -6, 1 }, .{ 2, 6 },  .{ -2, 6 }, .{ 6, 2 },  .{ -6, 2 },
++    .{ 4, 5 },  .{ -4, 5 }, .{ 5, 4 },  .{ -5, 4 }, .{ 3, 6 },  .{ -3, 6 }, .{ 6, 3 },  .{ -6, 3 },
++    .{ 0, 7 },  .{ 7, 0 },  .{ 1, 7 },  .{ -1, 7 }, .{ 5, 5 },  .{ -5, 5 }, .{ 7, 1 },  .{ -7, 1 },
++    .{ 4, 6 },  .{ -4, 6 }, .{ 6, 4 },  .{ -6, 4 }, .{ 2, 7 },  .{ -2, 7 }, .{ 7, 2 },  .{ -7, 2 },
++    .{ 3, 7 },  .{ -3, 7 }, .{ 7, 3 },  .{ -7, 3 }, .{ 5, 6 },  .{ -5, 6 }, .{ 6, 5 },  .{ -6, 5 },
++    .{ 8, 0 },  .{ 4, 7 },  .{ -4, 7 }, .{ 7, 4 },  .{ -7, 4 }, .{ 8, 1 },  .{ 8, 2 },  .{ 6, 6 },
++    .{ -6, 6 }, .{ 8, 3 },  .{ 5, 7 },  .{ -5, 7 }, .{ 7, 5 },  .{ -7, 5 }, .{ 8, 4 },  .{ 6, 7 },
++    .{ -6, 7 }, .{ 7, 6 },  .{ -7, 6 }, .{ 8, 5 },  .{ 7, 7 },  .{ -7, 7 }, .{ 8, 6 },  .{ 8, 7 },
++};
++
++/// What a symbol costs, in sixteenths of a bit, per context: its share of
++/// its context's histogram, and its extra bits. From the literals'
++/// histograms a copy's cost is estimated; from histograms with copies
++/// (`dist_ctx` set), it is looked up.
++pub const Costs = struct {
++    bits: []u16,
++    config: Config,
++    /// The first length symbol.
++    min_symbol: u32,
++    dist_ctx: ?u32 = null,
++
++    pub fn memory(num_contexts: usize) usize {
++        return num_contexts * ent.alphabet * 2 + 64;
++    }
++
++    pub fn init(mem: *Bump, h: *const ent.Histograms, config: Config, min_symbol: u32, dist_ctx: ?u32) !Costs {
++        const bits = try mem.alloc(u16, h.num_contexts * ent.alphabet);
++        for (0..h.num_contexts) |ctx| {
++            const counts = h.of(ctx);
++            var total: u64 = 0;
++            for (counts) |k| total += k;
++            const lt = if (total == 0) 0 else std.math.log2(@as(f64, @floatFromInt(total)));
++            for (counts, bits[ctx * ent.alphabet ..][0..ent.alphabet]) |k, *b| {
++                // A symbol not seen would cost at least what the rarest
++                // costs; 24 bits stands for that.
++                const v: f64 = if (k == 0) 24 else lt - std.math.log2(@as(f64, @floatFromInt(k)));
++                b.* = @intFromFloat(@min(v, 24) * 16);
++            }
++        }
++        return .{ .bits = bits, .config = config, .min_symbol = min_symbol, .dist_ctx = dist_ctx };
++    }
++
++    inline fn literal(c: *const Costs, t: Token) u32 {
++        const s = c.config.split(t.value);
++        return @as(u32, c.bits[t.ctx * ent.alphabet + s.token]) + 16 * @as(u32, s.nbits);
++    }
++
++    /// A copy's cost in context `ctx`: its length and distance symbols
++    /// and their extra bits.
++    inline fn copy(c: *const Costs, ctx: u32, len: usize, code: u32) u32 {
++        const ls = ent.lz_len_config.split(@intCast(len - ent.lz_min_length));
++        const ds = c.config.split(code);
++        const extra = 16 * (@as(u32, ls.nbits) + @as(u32, ds.nbits));
++        if (c.dist_ctx) |dc| {
++            return extra + c.bits[ctx * ent.alphabet + c.min_symbol + ls.token] +
++                c.bits[dc * ent.alphabet + ds.token];
++        }
++        // Estimates, before the copies' symbols have histograms.
++        const dist_bits: u32 = if (code < 8) 3 else if (code < 120) 6 else 9;
++        return extra + 16 * (5 + dist_bits);
++    }
++};
++
++/// The memory `apply` takes for a stream of up to `n` tokens.
++pub fn memory(n: usize) usize {
++    return (2 * n + 1) * 4 + (@as(usize, 1) << hash_bits) * 4 + 3 * 64;
++}
++
++/// Rewrites `tokens`, a stream's literals, in place with copies wherever
++/// they save bits; returns how many tokens remain. `width` is the
++/// stream's distance multiplier (its widest channel), as the decoder
++/// computes it, and `dist_ctx` the context distances are coded in.
++pub fn apply(
++    mem: *Bump,
++    tokens: []Token,
++    width: u32,
++    dist_ctx: u32,
++    costs: *const Costs,
++    options: Options,
++) error{WorkTooSmall}!usize {
++    const n = tokens.len;
++    if (n <= ent.lz_min_length) return n;
++    const m = mem.mark();
++    defer mem.release(m);
++    const values = try mem.alloc(u32, n);
++    for (values, tokens) |*v, t| v.* = t.value;
++    // cum[i]: what the literals before i cost.
++    const cum = try mem.alloc(u32, n + 1);
++    cum[0] = 0;
++    for (tokens, 0..) |t, i| cum[i + 1] = cum[i] + costs.literal(t);
++    const heads: []u32 = if (options.hash) try mem.alloc(u32, @as(usize, 1) << hash_bits) else &.{};
++    @memset(heads, none);
++
++    // The special distances' offsets back, and how far a copy at each
++    // reaches from where it was last measured.
++    const ns: usize = @min(options.specials, special_distances.len);
++    var offs: [special_distances.len]u32 = undefined;
++    var ends: [special_distances.len]usize = @splat(0);
++    for (special_distances, &offs) |sd, *o| {
++        const d = @as(i64, sd[0]) + @as(i64, width) * sd[1];
++        o.* = @intCast(std.math.clamp(d, 1, ent.lz_window));
++    }
++
++    var out: usize = 0;
++    var i: usize = 0;
++    while (i < n) {
++        var best_gain: i64 = 0;
++        var best_len: usize = 0;
++        var best_code: u32 = 0;
++        for (offs[0..ns], ends[0..ns], 0..) |d, *end, k| {
++            if (d > i) continue;
++            if (end.* <= i) end.* = i + matchLen(values, i, d, n - i);
++            const len = end.* - i;
++            if (len < ent.lz_min_length) continue;
++            const gain = @as(i64, cum[i + len] - cum[i]) - costs.copy(tokens[i].ctx, len, @intCast(k));
++            if (gain > best_gain) {
++                best_gain = gain;
++                best_len = len;
++                best_code = @intCast(k);
++            }
++        }
++        if (options.hash and i + 4 <= n) {
++            const h = hash(values[i..][0..4]);
++            const cand = heads[h];
++            heads[h] = @intCast(i);
++            if (cand != none and i - cand <= ent.lz_window) {
++                const d: u32 = @intCast(i - cand);
++                const code = codeOf(d, &offs);
++                // Measured only when it could beat the best so far, and
++                // not again at a special distance already measured.
++                const len = if (code < ns or i + best_len >= n or values[i + best_len] != values[i + best_len - d])
++                    0
++                else
++                    matchLen(values, i, d, @min(n - i, max_hashed_len));
++                if (len >= ent.lz_min_length) {
++                    const gain = @as(i64, cum[i + len] - cum[i]) - costs.copy(tokens[i].ctx, len, code);
++                    if (gain > best_gain) {
++                        best_gain = gain;
++                        best_len = len;
++                        best_code = code;
++                    }
++                }
++            }
++        }
++        if (best_len == 0) {
++            tokens[out] = tokens[i];
++            out += 1;
++            i += 1;
++            continue;
++        }
++        // A copy takes at least three positions and leaves two tokens,
++        // so writing never passes reading.
++        const ctx = tokens[i].ctx;
++        tokens[out] = .{ .ctx = ctx | ent.lz_length, .value = @intCast(best_len - ent.lz_min_length) };
++        tokens[out + 1] = .{ .ctx = dist_ctx, .value = best_code };
++        out += 2;
++        if (options.hash) {
++            var j = i + 1;
++            while (j < i + best_len and j + 4 <= n) : (j += 1) heads[hash(values[j..][0..4])] = @intCast(j);
++        }
++        i += best_len;
++    }
++    return out;
++}
++
++/// How many values from `i` repeat those `d` back, up to `max`.
++fn matchLen(values: []const u32, i: usize, d: u32, max: usize) usize {
++    var len: usize = 0;
++    while (len < max and values[i + len] == values[i + len - d]) len += 1;
++    return len;
++}
++
++/// The distance code for `d` values back: the first special distance
++/// that lands there, or the plain distance.
++fn codeOf(d: u32, offs: *const [special_distances.len]u32) u32 {
++    for (offs, 0..) |o, k| {
++        if (o == d) return @intCast(k);
++    }
++    return d + 119;
++}
++
++inline fn hash(v: *const [4]u32) usize {
++    var h: u64 = v[0];
++    h = h *% 0x9E3779B97F4A7C15 +% v[1];
++    h = h *% 0x9E3779B97F4A7C15 +% v[2];
++    h = h *% 0x9E3779B97F4A7C15 +% v[3];
++    return @intCast((h *% 0x9E3779B97F4A7C15) >> (64 - hash_bits));
++}
++
++test "copies round trip through the decoder" {
++    const entropy = @import("entropy.zig");
++    const BitReader = @import("BitReader.zig");
++    const Arena = @import("Arena.zig");
++    const BitWriter = @import("encode_bits.zig").BitWriter;
++    const gpa = testing.allocator;
++    const membuf = try gpa.alloc(u8, 16 << 20);
++    defer gpa.free(membuf);
++    var mem: Bump = .init(membuf);
++    // Rows of 37 with a run of zeros, a row repeating the one above, a
++    // pattern far back, and noise; two contexts.
++    const width = 37;
++    var prng: std.Random.DefaultPrng = .init(5);
++    const random = prng.random();
++    var lits: [width * 40]Token = undefined;
++    for (&lits, 0..) |*t, i| {
++        const y = i / width;
++        const x = i % width;
++        const v: u32 = switch (y % 5) {
++            0 => 0,
++            1 => @intCast(x * 3),
++            2 => lits[i - width].value,
++            3 => if (y > 10) lits[i - 10 * width].value else random.uintLessThan(u32, 50),
++            else => random.uintLessThan(u32, 1000),
++        };
++        t.* = .{ .ctx = @intCast(x & 1), .value = v };
++    }
++    var hist: ent.Histograms = try .init(&mem, 2);
++    hist.addTokens(&lits, .{});
++    const min_symbol = @max(8, hist.symbols());
++    const costs: Costs = try .init(&mem, &hist, .{}, min_symbol, null);
++    var tokens = lits;
++    const n = try apply(&mem, &tokens, width, 2, &costs, .{ .specials = 120, .hash = true });
++    try testing.expect(n < lits.len / 2);
++    var lz_hist: ent.Histograms = try .init(&mem, 3);
++    lz_hist.addTokensLz(tokens[0..n], .{}, min_symbol);
++    const code = try ent.Code.build(&mem, &lz_hist, .{ .lz77 = true, .lz_min_symbol = min_symbol });
++    const buf = try gpa.alloc(u8, 1 << 16);
++    defer gpa.free(buf);
++    var w: BitWriter = .init(buf);
++    // The decoder's source wants a codestream signature.
++    w.bits(0x0aff, 16);
++    try code.write(&w, &mem);
++    const scratch = try mem.alloc(u32, n);
++    code.encode(&w, tokens[0..n], scratch);
++    w.padToByte();
++    w.append(&@as([8]u8, @splat(0)));
++    try testing.expect(!w.overflow);
++
++    var r: std.Io.Reader = .fixed(w.bytes());
++    var br: BitReader = .init(&r, null);
++    _ = try br.bits(16);
++    const arena_buf = try gpa.alloc(u8, 8 << 20);
++    defer gpa.free(arena_buf);
++    var arena: Arena = .init(arena_buf);
++    // Two contexts; LZ77 adds the distances' third.
++    const dcode = try entropy.Code.read(&br, &arena, 2);
++    var rd = try entropy.Reader.init(&dcode, &br, &arena, width, lits.len);
++    for (lits) |t| try testing.expectEqual(t.value, try rd.read(&br, t.ctx));
++    try testing.expect(rd.finalOk());
++}
+diff --git a/src/jxl/root.zig b/src/jxl/root.zig
+index b7bdbc9..9ecc7dd 100644
+--- a/src/jxl/root.zig
++++ b/src/jxl/root.zig
+@@ -28,6 +28,7 @@ test {
+     _ = @import("splines.zig");
+     _ = @import("encode_bits.zig");
+     _ = @import("encode_entropy.zig");
++    _ = @import("encode_lz77.zig");
+     _ = @import("encode_modular.zig");
+     _ = @import("encode.zig");
+ }
