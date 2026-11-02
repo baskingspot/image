@@ -1,0 +1,7 @@
+op                     class     image    wuffs   giflib      stb image-rs       go
+gif-decode             icon(14)      2.2      3.0      2.5      2.6      3.1      3.5
+gif-decode             1mp(24)      6.8      7.6      7.0     15.8      9.0     47.2
+gif-decode             large(8)    215.3    215.6    215.5    647.5    264.0    404.8
+gif-decode-anim        icon(2)      2.2      3.0      2.4      2.6      3.2      3.1
+gif-decode-anim        1mp(3)      6.0      6.8      6.3     59.6     18.2     13.5
+gif-decode-anim        large(1)      8.2      9.1      8.5        -     26.7     11.2

@@ -1,0 +1,18 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, 4 threads
+image: ReleaseFast, native; C arms: cc -O3 -march=native; rust: target-cpu=native; go: GOAMD64=v3
+buffers: input 0 bytes past a page, output 2048; 50 ms a sample, 10 rounds
+wuffs       52 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+qoih         0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+stb         51 rows, 0 differ on own operations, 0 operations skipped, 1 inputs failed and skipped
+          skipped GifDecodeAnim/sprite-1600x900.gif: failed
+libpng       0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+spng         0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+giflib      52 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+image-rs    52 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+zune         0 rows, 0 differ on own operations, 2 operations skipped, 0 inputs failed and skipped
+go          52 rows, 0 differ on own operations, 0 operations skipped, 0 inputs failed and skipped
+
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   giflib image-rs     zune       go
+gif-decode                215.4    216.2        -    647.7        -        -    215.6    264.5        -    452.2
+gif-decode-anim             8.2      9.1        -     59.8        -        -      8.5     26.8        -     19.3
+

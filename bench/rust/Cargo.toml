@@ -18,7 +18,7 @@ image-rs = ["dep:image"]
 zune = ["dep:zune-core", "dep:zune-qoi", "dep:zune-png", "dep:zune-bmp", "dep:zune-ppm"]
 
 [dependencies]
-image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "bmp", "ico", "tga", "pnm"], optional = true }
+image = { version = "=0.25.9", default-features = false, features = ["qoi", "png", "gif", "bmp", "ico", "tga", "pnm"], optional = true }
 zune-core = { version = "=0.5.3", optional = true }
 zune-qoi = { version = "=0.5.2", optional = true }
 zune-png = { version = "=0.5.2", optional = true }

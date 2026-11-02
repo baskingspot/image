@@ -9,6 +9,8 @@ use std::sync::OnceLock;
 #[cfg(feature = "image-rs")]
 mod image_bmp;
 #[cfg(feature = "image-rs")]
+mod image_gif;
+#[cfg(feature = "image-rs")]
 mod image_ico;
 #[cfg(feature = "image-rs")]
 mod image_netpbm;
@@ -57,6 +59,8 @@ pub extern "C" fn bench_init() {
     let tables: &[&[Op]] = &[
         #[cfg(feature = "image-rs")]
         image_bmp::OPS,
+        #[cfg(feature = "image-rs")]
+        image_gif::OPS,
         #[cfg(feature = "image-rs")]
         image_ico::OPS,
         #[cfg(feature = "image-rs")]

@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s    wuffs      stb   giflib image-rs       go     ±   <1    ~   slowest vs wuffs
+GifDecode/icon                    14      399.5     0.95     2.73     3.17     2.26     7.43    3%    4    9   0.87 [0.83, 0.90] textures_pk-_0mod_button1-64x64.gif
+GifDecode/1mp                     24      816.6     1.21     6.06     5.97     3.92     6.02    2%    3    5   0.92 [0.86, 1.00] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.gif
+GifDecode/large                    8      695.2     1.24     6.45     5.49     3.52     5.35    5%    0    1   1.03 [0.99, 1.10] screenshot_web-apple_com-1313x4755.gif
+GifDecodeAnim/1mp                  3      296.9     1.21     7.79     5.49    10.09     6.08    2%    1    0   0.88 [0.74, 0.88] bounce-320x240.gif
+GifDecodeAnim/icon                 2      118.7     0.88     2.70     3.27     3.67     6.12    3%    1    1   0.78 [0.77, 0.87] icons-32x32.gif
+GifDecodeAnim/large                1      658.4     1.11        -     4.66    15.19     5.01    2%    0    0   1.11 [1.10, 1.13] sprite-1600x900.gif
+all                               52      573.2     1.12     4.83     4.81     3.59     6.24          9   16
