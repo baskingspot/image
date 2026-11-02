@@ -11,3 +11,4 @@ pub const qoi_encode = @import("qoi_encode.zig");
 pub const tga = @import("tga.zig");
 pub const netpbm = @import("netpbm.zig");
 pub const wbmp = @import("wbmp.zig");
+pub const webp = @import("webp.zig");

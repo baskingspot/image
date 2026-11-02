@@ -29,6 +29,7 @@ All notable changes to image are recorded here. The format follows
 - `image.gif.Decoder` reports `Config.loop_count` as 1, not null, for a file without a loop extension, as browsers play it once.
 - `image.gif.Decoder.Options.ignore_too_much_data` accepts a frame whose LZW data holds more pixels than the frame, dropping them, as Wuffs's IGNORE_TOO_MUCH_PIXEL_DATA quirk does; off by default, when such a frame is `error.TooMuchData`.
 - `image.gif.Decoder` reports ICC profiles and XMP packets to `DecodeOptions.blob_sink` and `Config.metadata`, and ones after the first frame through `image.Decoder.finalConfig`.
+- `image.webp.Decoder`, a streaming WebP decoder for lossless (VP8L) files, simple and extended, with ICCP, EXIF, and XMP reported; `Options.max_prefix_groups` (default 2600) bounds its work memory, and lossy and animated files are `error.Unsupported` for now.
 - `image.EncodeError`, the errors every encoder shares; each format's encoder will be `encode(writer, pixels, options, work)` with `workLen` for its work memory.
 - The package depends on `compress` at commit 1cdd3d8 (after 0.2.0, for its faster inflate), which brings `fastmem`.
 - `image.wbmp`: WBMP type 0, a streaming `wbmp.Decoder` that writes any pixel format, and `wbmp.encode`, which stores gray of at least 128 as white.

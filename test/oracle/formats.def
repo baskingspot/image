@@ -12,3 +12,4 @@ FORMAT(tga) // link: MagickWand
 FORMAT(netpbm) // link: MagickWand
 FORMAT(gif) // link: -lgif
 FORMAT(wbmp) // link: MagickWand
+FORMAT(webp) // link: libwebp
