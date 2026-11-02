@@ -1,10 +1,11 @@
-// The oracle's protocol, little endian. Requests on stdin, each
+// The oracle's protocol, little endian. On stdin, the u64 length of the
+// batch of requests that follows, each
 //
 //   u8 name length, name (an op from a format's table, such as "qoi-wuffs"),
 //   u8 pixel format (image.PixelFormat), u64 pixel limit, u32 length, bytes
 //
 // where a length of 0xffffffff, with no bytes, means the previous request's
-// input again, so an input asked for in many formats and of many oracles
+// input again, so an input asked for in many formats and of an oracle
 // crosses the pipe once;
 //
 // and one response per request on stdout, after all of stdin is read:
@@ -130,12 +131,24 @@ static uint64_t xxh64(const uint8_t *p, size_t len) {
 }
 
 int main(void) {
-  // All of stdin first, so a client can write a whole batch, then read.
-  size_t cap = 1 << 20;
-  input = malloc(cap);
-  for (size_t n; (n = fread(input + input_len, 1, cap - input_len, stdin)) > 0;) {
-    input_len += n;
-    if (input_len == cap) input = realloc(input, cap *= 2);
+  // All of stdin first, so a client can write a whole batch, then read:
+  // its length, then the batch, read into one allocation of that size.
+  uint8_t total_bytes[8];
+  if (fread(total_bytes, 1, 8, stdin) != 8) {
+    fprintf(stderr, "oracle: no batch length\n");
+    return 1;
+  }
+  uint64_t total = 0;
+  for (int i = 7; i >= 0; i--) total = total << 8 | total_bytes[i];
+  input = malloc(total ? total : 1);
+  if (!input) {
+    fprintf(stderr, "oracle: cannot allocate a batch of %llu bytes\n", (unsigned long long)total);
+    return 1;
+  }
+  input_len = fread(input, 1, total, stdin);
+  if (input_len != total || fgetc(stdin) != EOF) {
+    fprintf(stderr, "oracle: the batch is not %llu bytes\n", (unsigned long long)total);
+    return 1;
   }
   const uint8_t *last = NULL;
   size_t last_len = 0;

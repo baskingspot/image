@@ -68,34 +68,12 @@ pub const RunError = error{ OracleFailed, BadResponse } || mem.Allocator.Error |
 /// Runs one batch through the oracle and returns a response per request,
 /// in order. Free the result with `free`.
 pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
-    var batch: std.ArrayList(u8) = .empty;
-    defer batch.deinit(oracle.gpa);
-    var last: ?Request = null;
-    for (requests) |req| {
-        try batch.append(oracle.gpa, @intCast(req.op.len));
-        try batch.appendSlice(oracle.gpa, req.op);
-        try batch.append(oracle.gpa, @intFromEnum(req.format));
-        var nums: [12]u8 = undefined;
-        mem.writeInt(u64, nums[0..8], req.max_pixels, .little);
-        // The same input as the last request's goes once (oracle.c). An
-        // encode op's input is the source's width and height, then its
-        // pixels.
-        const again = if (last) |l| l.input.ptr == req.input.ptr and l.input.len == req.input.len and
-            std.meta.eql(l.size, req.size) else false;
-        const len = req.input.len + @as(usize, if (req.size != null) 8 else 0);
-        mem.writeInt(u32, nums[8..12], if (again) same_input else @intCast(len), .little);
-        try batch.appendSlice(oracle.gpa, &nums);
-        if (!again) {
-            if (req.size) |size| {
-                var dims: [8]u8 = undefined;
-                mem.writeInt(u32, dims[0..4], size[0], .little);
-                mem.writeInt(u32, dims[4..8], size[1], .little);
-                try batch.appendSlice(oracle.gpa, &dims);
-            }
-            try batch.appendSlice(oracle.gpa, req.input);
-        }
-        last = req;
-    }
+    // The batch streams to the oracle behind its length, so neither side
+    // holds a copy that grows by doubling: the oracle allocates it once.
+    var count_buf: [256]u8 = undefined;
+    var counter: Io.Writer.Discarding = .init(&count_buf);
+    writeRequests(&counter.writer, requests) catch unreachable;
+    const total = counter.fullCount();
 
     var child = try std.process.spawn(oracle.io, .{
         .argv = &.{oracle.path},
@@ -105,7 +83,11 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     defer if (child.id != null) child.kill(oracle.io);
     // The oracle reads to EOF before it writes, so the whole batch goes in
     // first.
-    try child.stdin.?.writeStreamingAll(oracle.io, batch.items);
+    var write_buf: [64 * 1024]u8 = undefined;
+    var stdin = child.stdin.?.writerStreaming(oracle.io, &write_buf);
+    stdin.interface.writeInt(u64, total, .little) catch return stdin.err.?;
+    writeRequests(&stdin.interface, requests) catch return stdin.err.?;
+    stdin.interface.flush() catch return stdin.err.?;
     child.stdin.?.close(oracle.io);
     child.stdin = null;
     var buf: [64 * 1024]u8 = undefined;
@@ -129,6 +111,32 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
         };
     }
     return responses;
+}
+
+/// The batch as oracle.c reads it, after its length.
+fn writeRequests(w: *Io.Writer, requests: []const Request) Io.Writer.Error!void {
+    var last: ?Request = null;
+    for (requests) |req| {
+        try w.writeByte(@intCast(req.op.len));
+        try w.writeAll(req.op);
+        try w.writeByte(@intFromEnum(req.format));
+        try w.writeInt(u64, req.max_pixels, .little);
+        // The same input as the last request's goes once (oracle.c). An
+        // encode op's input is the source's width and height, then its
+        // pixels.
+        const again = if (last) |l| l.input.ptr == req.input.ptr and l.input.len == req.input.len and
+            std.meta.eql(l.size, req.size) else false;
+        const len = req.input.len + @as(usize, if (req.size != null) 8 else 0);
+        try w.writeInt(u32, if (again) same_input else @intCast(len), .little);
+        if (!again) {
+            if (req.size) |size| {
+                try w.writeInt(u32, size[0], .little);
+                try w.writeInt(u32, size[1], .little);
+            }
+            try w.writeAll(req.input);
+        }
+        last = req;
+    }
 }
 
 /// Frees what `run` returned.
