@@ -1,0 +1,10 @@
+op/class                                main   bench-image
+webp-decode-lossless/icon                2.4           2.4
+webp-decode-lossless/1mp                11.5          11.4
+webp-decode-lossless/large              40.1          40.0
+webp-decode-lossless-large/large         232.4         232.4
+webp-decode-lossy/icon                   2.4           2.4
+webp-decode-lossy/1mp                    9.9           9.8
+webp-decode-lossy/large                196.6         196.6
+webp-decode-anim/icon                    2.5           2.4
+webp-decode-anim/1mp                     6.8           6.7

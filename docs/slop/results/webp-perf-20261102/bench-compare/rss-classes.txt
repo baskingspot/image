@@ -1,0 +1,15 @@
+peak RSS (MiB)                image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp  libtiff image-rs     zune       go
+webp-decode-lossless           40.2     67.5        -        -        -        -        -        -        -     72.2        -    100.0        -    244.3
+  icon                          2.4      3.2        -        -        -        -        -        -        -      2.9        -      3.6        -      4.7
+  1mp                          11.4     12.2        -        -        -        -        -        -        -     15.9        -     19.4        -     55.8
+  large                        40.1     67.4        -        -        -        -        -        -        -     72.3        -    100.0        -    191.4
+webp-decode-lossless-large    232.4        -        -        -        -        -        -        -        -    422.5        -    567.9        -    458.3
+  large                       232.4        -        -        -        -        -        -        -        -    422.4        -    568.0        -    651.1
+webp-decode-lossy             197.5    270.8        -        -        -        -        -        -        -    198.1        -    536.9        -    368.6
+  icon                          2.4      3.4        -        -        -        -        -        -        -      3.0        -      3.6        -      4.7
+  1mp                           9.8     10.1        -        -        -        -        -        -        -     11.8        -     18.4        -     43.9
+  large                       196.6    270.5        -        -        -        -        -        -        -    197.1        -    534.8        -    416.1
+webp-decode-anim                6.7        -        -        -        -        -        -        -        -      8.5        -     11.3        -        -
+  icon                          2.4        -        -        -        -        -        -        -        -      3.1        -      3.8        -        -
+  1mp                           6.7        -        -        -        -        -        -        -        -      9.4        -     10.0        -        -
+

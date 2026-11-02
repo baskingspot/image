@@ -1,0 +1,1 @@
+# SKIP BenchmarkWebpDecodeAnim: no function in this arm

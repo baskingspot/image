@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s    wuffs  libwebp image-rs       go     ±   <1    ~   slowest vs wuffs
+WebpDecodeLossless/icon           13       58.9     3.03     2.14     1.71     5.74    2%    0    0   2.32 [2.24, 2.46] icon_32-actions_contact_new-32x32.webp
+WebpDecodeLossless/1mp            23      141.2     3.42     1.15     1.83     3.72    1%    0    0   1.99 [1.90, 2.06] screenshot_game-3dbrick2-320x240.webp
+WebpDecodeLossless/large           7       98.3     3.12     1.11     1.78     3.01    1%    0    0   2.77 [2.60, 2.83] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.webp
+WebpDecodeLosslessLarge/large      1       52.4        -     1.10     1.51     2.20     -    0    0   -
+WebpDecodeLossy/icon              13       43.4     2.11     1.77     2.30     4.89    2%    0    0   1.75 [1.75, 1.90] icon_16-actions_bookmark_new-16x16.webp
+WebpDecodeLossy/1mp               23      138.2     3.08     1.14     3.20     8.91    2%    0    0   2.07 [2.05, 2.08] photo_kodak-kodim01-768x512.webp
+WebpDecodeLossy/large              8      161.6     2.91     1.04     3.30     9.51    1%    0    0   2.51 [2.47, 2.57] screenshot_web-cnn_com-1313x5241.webp
+WebpDecodeAnim/1mp                 4       33.7        -     1.23     2.14        -     -    0    0   -
+WebpDecodeAnim/icon                2        5.9        -     1.50     1.75        -     -    0    0   -
+all                               94       90.6     2.97     1.32     2.26     5.52          0    0
