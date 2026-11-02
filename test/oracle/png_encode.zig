@@ -52,6 +52,8 @@ const variants = [_]image.png.EncodeOptions{
     .{ .effort = .best },
     .{ .reduce = false },
     .{ .filter = .paeth },
+    .{ .max_depth = .@"8" },
+    .{ .max_depth = .@"8", .reduce = false },
 };
 
 var work: [4 << 20]u8 = undefined;

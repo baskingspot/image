@@ -5,6 +5,7 @@ pub const Decoder = @import("Decoder.zig");
 
 const encoder = @import("encode.zig");
 pub const EncodeOptions = encoder.EncodeOptions;
+pub const MaxDepth = encoder.MaxDepth;
 pub const EncodeError = encoder.EncodeError;
 pub const encode = encoder.encode;
 pub const encodeAnimation = encoder.encodeAnimation;

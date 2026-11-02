@@ -1,5 +1,5 @@
 //! The PNG encoder's fuzz target: `harness.checkEncoder` through each
-//! effort, filter, and with reduction off, and an APNG round trip of up to
+//! effort, filter, with reduction off, and with the 8-bit cap, and an APNG round trip of up to
 //! four frames in mixed pixel formats, regions, disposals, and blends.
 //! `generate` builds pixels from a few colors, often gray, opaque, or with
 //! one transparent color, so that every palette depth, gray depth, and
@@ -29,6 +29,8 @@ const variants = [_]png.EncodeOptions{
     .{ .filter = .up },
     .{ .filter = .average },
     .{ .filter = .paeth },
+    .{ .max_depth = .@"8" },
+    .{ .max_depth = .@"8", .reduce = false },
 };
 
 pub fn check(input: []const u8, choice: u64) !void {

@@ -8,7 +8,8 @@
 //!
 //! - The file decodes to the source converted by `image.convert` to the
 //!   base format: the source's channels, straight, at 8 bits for 8-bit
-//!   sources and 16 bits otherwise. Alpha that is everywhere opaque is
+//!   sources and 16 bits otherwise (8 with `EncodeOptions.max_depth`
+//!   `.@"8"`, each row converted as it is read). Alpha that is everywhere opaque is
 //!   dropped, never composited. Colors under transparent pixels are kept.
 //! - Rows are not interlaced. Palette and sub-byte images are not filtered,
 //!   as section 12.7 suggests; the rest take `EncodeOptions.filter`, or the
@@ -66,6 +67,8 @@ pub const Icc = struct {
     profile: []const u8,
 };
 
+pub const MaxDepth = enum { @"8", @"16" };
+
 pub const EncodeOptions = struct {
     effort: Effort = .default,
     /// One filter for every row that is filtered, instead of the effort's.
@@ -73,6 +76,11 @@ pub const EncodeOptions = struct {
     /// Write the smallest color type and bit depth that hold the pixels
     /// exactly; otherwise the base format's.
     reduce: bool = true,
+    /// The most bits a sample may have: `.@"8"` stores 16-bit and float
+    /// sources at 8 bits, converting each row as it is read (no more work
+    /// memory), and reduction still picks the smallest type that holds
+    /// those 8-bit samples. ICO's PNG entries use it.
+    max_depth: MaxDepth = .@"16",
     /// gAMA: the image's gamma times 100,000.
     gamma: ?u32 = null,
     /// cHRM: red, green, blue, and white xy, as `Metadata.primaries`
@@ -229,7 +237,7 @@ fn write(
         rest = rest[row_len..];
     }
 
-    const plan = makePlan(frames, options.reduce, rows.base, &fixed.palette);
+    const plan = makePlan(frames, options, rows.base, &fixed.palette);
 
     // Signature, header, and the chunks before the image data.
     try w.writeAll("\x89PNG\r\n\x1a\n");
@@ -301,14 +309,21 @@ const Rows = struct {
     outs: [5][]u8,
 };
 
-fn makePlan(frames: []const AnimationFrame, reduce_on: bool, row: []u8, palette: *reduce.Palette) reduce.Plan {
+fn makePlan(frames: []const AnimationFrame, options: EncodeOptions, row: []u8, palette: *reduce.Palette) reduce.Plan {
     var base = reduce.baseOf(frames[0].pixels.format);
     var float = false;
     for (frames) |f| {
         base = reduce.baseOfAll(&[_]PixelFormat{ base, f.pixels.format });
         float = float or f.pixels.format.sample() == .f32;
     }
-    if (!reduce_on) {
+    if (options.max_depth == .@"8") base = switch (base) {
+        .gray16 => .gray8,
+        .gray_alpha16 => .gray_alpha8,
+        .rgb16 => .rgb8,
+        .rgba16 => .rgba8,
+        else => base,
+    };
+    if (!options.reduce) {
         const color: reduce.ColorType = switch (base) {
             .gray8, .gray16 => .gray,
             .gray_alpha8, .gray_alpha16 => .gray_alpha,
@@ -654,6 +669,52 @@ test "a still image reads back" {
     _ = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 3, 2), testWork())).?;
     try testing.expectEqualSlices(u8, &px, &out);
     try testing.expectEqual(null, try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 3, 2), testWork()));
+}
+
+test "max_depth 8 stores 16-bit sources at 8 bits, still reduced" {
+    const convertBuffer = @import("../convert.zig").convertBuffer;
+    var file: [4096]u8 = undefined;
+    var px: [8 * 256]u8 = undefined;
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    // 256 RGBA16 pixels of three opaque colors whose low bytes are not
+    // their high bytes, so only 16 bits hold them exactly; and the same of
+    // random colors with alpha.
+    for ([_]bool{ true, false }) |few| {
+        for (0..256) |i| {
+            const c: u16 = random.uintLessThan(u16, 3);
+            for (0..4) |k| {
+                const kk: u16 = @intCast(k);
+                const color = 0x1234 +% c *% 0x3111 +% kk *% 0x0707;
+                const v: u16 = if (!few) random.int(u16) else if (k == 3) 0xffff else color;
+                std.mem.writeInt(u16, px[i * 8 + k * 2 ..][0..2], v, .little);
+            }
+        }
+        const src = try PixelBuffer.init(&px, .rgba16, 16, 16);
+        for ([_]MaxDepth{ .@"16", .@"8" }) |max| {
+            var w: Io.Writer = .fixed(&file);
+            try encode(&w, src, .{ .max_depth = max }, testWork());
+            const f = w.buffered();
+            // IHDR's depth and color type.
+            const depth = f[24];
+            const color = f[25];
+            if (max == .@"16") {
+                try testing.expectEqual(16, depth);
+                continue;
+            }
+            try testing.expect(depth <= 8);
+            // Three colors, opaque: a palette; random colors: RGBA.
+            try testing.expectEqual(@as(u8, if (few) 3 else 6), color);
+            var r: Io.Reader = .fixed(f);
+            var d: Decoder = .init(&r, .{});
+            _ = try d.decodeConfig();
+            var out: [4 * 256]u8 = undefined;
+            var want: [4 * 256]u8 = undefined;
+            _ = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 16, 16), testWork())).?;
+            try convertBuffer(try PixelBuffer.init(&want, .rgba8, 16, 16), src);
+            try testing.expectEqualSlices(u8, &want, &out);
+        }
+    }
 }
 
 test "the bytes do not depend on what the work memory held" {
