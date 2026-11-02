@@ -10,6 +10,11 @@
 //!     // bytes of pixels and config.work_len bytes of work memory.
 //!     while (try d.decodeFrame(pixels, work)) |frame| { ... }
 //!
+//! `decodeFrameConfig` returns the next frame before `decodeFrame` draws
+//! it, for a caller that must save the region a `previous` disposal
+//! restores; formats with at most one frame may leave it out, and
+//! `image.Decoder` serves it for them.
+//!
 //! Nothing allocates: the caller owns every buffer.
 
 const std = @import("std");

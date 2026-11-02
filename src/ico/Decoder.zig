@@ -87,8 +87,10 @@ pub fn Generic(comptime Png: type) type {
         cursor: bool = false,
         count: u16 = 0,
         canvas: [2]u32 = .{ 0, 0 },
-        /// The next entry `decodeFrame` decodes.
+        /// The next entry `decodeFrame` decodes, and its header once
+        /// `decodeFrameConfig` has read it.
         next: u16 = 0,
+        pending: ?dib.Header = null,
         /// The picked entry's header, read by `decodeConfig`.
         picked: union(enum) { none, bmp: dib.Header, png: if (has_png) Png else void } = .none,
         png_config: if (has_png) decode.Config else void = undefined,
@@ -123,6 +125,18 @@ pub fn Generic(comptime Png: type) type {
                 .native = .bgra8,
                 .frame_count = if (d.options.entry == null) d.count else 1,
             };
+        }
+
+        /// Reads up to the next entry's pixels and returns the frame
+        /// `decodeFrame` will decode next, without drawing it, or null
+        /// after the last.
+        pub fn decodeFrameConfig(d: *Self) Error!?decode.Frame {
+            if (d.err) |e| return e;
+            if (d.state == .done) return null;
+            _ = try d.decodeConfig();
+            if (d.options.entry) |i| return .{ .index = i, .width = d.canvas[0], .height = d.canvas[1] };
+            const h = d.nextHeader() catch |e| return d.fail(e);
+            return .{ .index = d.next, .width = h.width, .height = h.height };
         }
 
         /// Decodes the next entry into the top-left corner of `dst`, which
@@ -239,15 +253,24 @@ pub fn Generic(comptime Png: type) type {
                 return .{ .index = i, .width = dst.width, .height = dst.height };
             }
             const i = d.next;
-            try d.goTo(d.entry(i).offset);
+            const h = try d.nextHeader();
+            d.pending = null;
+            try decodeBmp(&d.in, h, dst.sub(0, 0, h.width, h.height));
+            d.next += 1;
+            return .{ .index = i, .width = h.width, .height = h.height };
+        }
+
+        /// The header of entry `next`, read once.
+        fn nextHeader(d: *Self) Error!dib.Header {
+            if (d.pending) |h| return h;
+            try d.goTo(d.entry(d.next).offset);
             // PNG entries need `Options.entry`, which sizes their work
             // memory from their own header.
             if (try d.isPng()) return error.Unsupported;
             const h = try dib.readHeader(&d.in, .ico, 0);
-            if (h.width > dst.width or h.height > dst.height) return error.EntryTooLarge;
-            try decodeBmp(&d.in, h, dst.sub(0, 0, h.width, h.height));
-            d.next += 1;
-            return .{ .index = i, .width = h.width, .height = h.height };
+            if (h.width > d.canvas[0] or h.height > d.canvas[1]) return error.EntryTooLarge;
+            d.pending = h;
+            return h;
         }
     };
 }
@@ -324,6 +347,35 @@ test "an entry behind the reader needs a seeker" {
     _ = try d.decodeFrame(dst, &.{});
     try testing.expectError(error.EntryBehind, d.decodeFrame(dst, &.{}));
     try testing.expectError(error.EntryBehind, d.decodeFrame(dst, &.{}));
+}
+
+test "decodeFrameConfig announces each frame" {
+    for ([_]bool{ false, true }) |reversed| {
+        const file = if (reversed) testFile(1, true) else testFile(1, false);
+        for ([_]?u16{ null, 1 }) |pick| {
+            var r: Io.Reader = .fixed(file);
+            var d: TestDecoder = .init(&r, .{ .seeker = if (reversed) .fixed(&r) else null, .entry = pick });
+            const config = try d.decodeConfig();
+            var out: [8]u8 = undefined;
+            const dst = try PixelBuffer.init(&out, .rgba8, config.width, config.height);
+            var n: u32 = 0;
+            while (try d.decodeFrameConfig()) |next| : (n += 1) {
+                try testing.expectEqual(next, (try d.decodeFrameConfig()).?);
+                try testing.expectEqual(next, (try d.decodeFrame(dst, &.{})).?);
+            }
+            try testing.expectEqual(config.frame_count.?, n);
+            try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+        }
+    }
+    // The second entry is B, 1 by 1, on a 2 by 1 canvas.
+    var r: Io.Reader = .fixed(testFile(1, false));
+    var d: TestDecoder = .init(&r, .{});
+    var out: [8]u8 = undefined;
+    _ = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 2, 1), &.{})).?;
+    try testing.expectEqual(.{ 1, 1, 1 }, blk: {
+        const f = (try d.decodeFrameConfig()).?;
+        break :blk .{ f.index, f.width, f.height };
+    });
 }
 
 test "one entry, picked, never seeks" {

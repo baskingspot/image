@@ -26,7 +26,8 @@ pub const Error = blk: {
 };
 
 impl: Union,
-/// Whether `decodeFrame` has returned null.
+/// The frames `decodeFrame` has returned, and whether it has returned null.
+frames: u32 = 0,
 done: bool = false,
 
 /// One field per format; a format without a decoder in this build holds
@@ -112,8 +113,26 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
     switch (d.impl) {
         inline else => |*impl| {
             const frame = try impl.decodeFrame(dst, work);
-            if (frame == null) d.done = true;
+            if (frame == null) d.done = true else d.frames += 1;
             return frame;
+        },
+    }
+}
+
+/// The frame the next `decodeFrame` call returns, read before it draws
+/// anything, or null where that call returns null; see the format's
+/// `decodeFrameConfig`. A format without one has at most one frame, and
+/// its frame is the whole canvas, as its `decodeFrame` returns it; a format
+/// that may have more frames and lacks one is `Unsupported` here.
+pub fn decodeFrameConfig(d: *Decoder) Error!?decode.Frame {
+    switch (d.impl) {
+        inline else => |*impl| {
+            if (comptime @hasDecl(@TypeOf(impl.*), "decodeFrameConfig")) return impl.decodeFrameConfig();
+            const config = try impl.decodeConfig();
+            const count = config.frame_count orelse return error.Unsupported;
+            if (count > 1) return error.Unsupported;
+            if (d.frames >= count) return null;
+            return .{ .width = config.width, .height = config.height, .is_opaque = config.is_opaque };
         },
     }
 }
@@ -231,4 +250,38 @@ test "the final config, with what followed the frames" {
     try testing.expectEqual(.{ 2, 3, 45455 }, .{ final.width, final.height, final.metadata.gamma.? });
     try testing.expectEqual(.{ 1, 2, 3, 255 }, final.background.?);
     try testing.expectEqual(.right_top, final.metadata.orientation);
+}
+
+test "the next frame's config, before it is drawn" {
+    var out: [4]u8 = undefined;
+    // QOI has no decodeFrameConfig: its one frame is the canvas.
+    const qoi = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    var r: Io.Reader = .fixed(qoi);
+    var d: Decoder = try .initDetect(&r, .{});
+    const dst = try PixelBuffer.init(&out, .rgba8, 1, 1);
+    const next = (try d.decodeFrameConfig()).?;
+    try testing.expectEqual(next, (try d.decodeFrameConfig()).?);
+    try testing.expectEqual(next, (try d.decodeFrame(dst, &.{})).?);
+    try testing.expectEqual(null, try d.decodeFrameConfig());
+    try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+    // GIF has its own: a 1 by 1 image, palette index 0.
+    if (comptime supports(.gif)) {
+        const gif = "GIF89a\x01\x00\x01\x00\x80\x00\x00" ++ "\x0a\x14\x1e\x00\x00\x00" ++
+            "\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b";
+        r = .fixed(gif);
+        d = try .initDetect(&r, .{});
+        const config = try d.decodeConfig();
+        var work: [1 << 17]u8 = undefined;
+        const g = (try d.decodeFrameConfig()).?;
+        try testing.expectEqual(g, (try d.decodeFrame(dst, work[0..config.work_len])).?);
+        try testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, &out);
+        try testing.expectEqual(null, try d.decodeFrameConfig());
+    }
+    // Netpbm's raw files do not say how many images follow, and it has no
+    // decodeFrameConfig yet.
+    if (comptime supports(.netpbm)) {
+        r = .fixed("P5 1 1 255\n\x07");
+        d = try .initDetect(&r, .{});
+        try testing.expectError(error.Unsupported, d.decodeFrameConfig());
+    }
 }

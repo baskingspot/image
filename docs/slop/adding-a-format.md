@@ -68,6 +68,17 @@ flake already has every phase-1 oracle and comparison library.
   with the canvas before writing. Write native rows straight into `dst` when
   the formats match, and otherwise decode a span into a small stack buffer and
   convert it with `image.convert.Converter`, as `src/qoi/Decoder.zig` does.
+- `pub fn decodeFrameConfig(d: *Decoder) Error!?image.Frame` (plan.md
+  decision 11): reads up to the next frame's pixels and returns the `Frame`
+  the next `decodeFrame` returns, without drawing, or null where it returns
+  null; calling it again returns the same frame. A caller saves the region a
+  `previous` disposal restores from it, as with Wuffs's
+  `decode_frame_config`. Every format whose `Config.frame_count` can be
+  other than 0 or 1, or is null, has it (`src/gif/` and `src/ico/` do). A
+  format with at most one frame may leave it out: `image.Decoder` then
+  reports its frame as the whole canvas, index 0, with `Config.is_opaque`,
+  so its `decodeFrame` must return exactly that; it is `Unsupported` there
+  for a format with more frames and no `decodeFrameConfig`.
 - After any error, every later call returns the same error.
 
 Rules every decoder keeps (AGENTS.md has the reasons):

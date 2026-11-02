@@ -14,6 +14,13 @@ rules that differ.
   entry's own size; an entry larger than the canvas is
   `error.EntryTooLarge`. `entry(i)`, `entryCount`, and `isCursor` report
   the directory, with a CUR's hotspot in `planes` and `bits`.
+- `decodeFrameConfig` (plan.md decision 11) reads the next entry's header,
+  moving to it as `decodeFrame` would, and returns its frame; the header is
+  kept for `decodeFrame`, so nothing is read twice and no seek is needed.
+  With `Options.entry` the frame is the canvas. Every frame here replaces
+  its region and has disposal `none`, so a caller has nothing to save, but
+  `image.Decoder` cannot synthesize the call for a multi-frame format.
+  ICO has no `applyTrailer`: nothing follows its entries.
 - `Options.entry = i`: entry `i` alone, on a canvas of its own size, which
   comes from its header. A PNG entry decodes through `image.png` this way
   (behind `@hasDecl`, so the build works without it); without it, PNG

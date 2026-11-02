@@ -22,7 +22,8 @@ pub fn check(input: []const u8, choice: u64) !void {
 var canvases: [2][256 * 256 * 4]u8 = undefined;
 
 /// Decoding every entry with a seeker gives what decoding without one does
-/// until that fails with `EntryBehind`, and never fails that way itself.
+/// until that fails with `EntryBehind`, and never fails that way itself;
+/// and with a seeker, `decodeFrameConfig` announces each frame or error.
 fn checkSeeking(input: []const u8) !void {
     var fr: std.Io.Reader = .fixed(input);
     var sr: std.Io.Reader = .fixed(input);
@@ -42,20 +43,36 @@ fn checkSeeking(input: []const u8) !void {
     while (true) {
         const want = f.decodeFrame(fd, &.{}) catch |e| {
             if (e == error.EntryBehind) {
-                while (s.decodeFrame(sd, &.{}) catch |e2| {
+                while (try announced(&s, sd) catch |e2| {
                     if (e2 == error.EntryBehind) return error.SeekDiffers;
                     return;
                 }) |_| {}
                 return;
             }
-            if (s.decodeFrame(sd, &.{})) |_| return error.SeekDiffers else |e2| if (e2 != e) return error.SeekDiffers;
+            if (try announced(&s, sd)) |_| return error.SeekDiffers else |e2| if (e2 != e) return error.SeekDiffers;
             return;
         };
-        const got = s.decodeFrame(sd, &.{}) catch return error.SeekDiffers;
+        const got = try announced(&s, sd) catch return error.SeekDiffers;
         if (!std.meta.eql(want, got)) return error.SeekDiffers;
         if (!std.mem.eql(u8, canvases[0][0..len], canvases[1][0..len])) return error.SeekDiffers;
         if (want == null) return;
     }
+}
+
+/// `s.decodeFrame`, after checking it against `decodeFrameConfig`: a frame
+/// it returns is the one announced, and an error announced is its error.
+/// An announced frame may still fail in its pixels.
+fn announced(s: *image.ico.Decoder, dst: image.PixelBuffer) !(image.ico.Decoder.Error!?image.Frame) {
+    const next = s.decodeFrameConfig();
+    const got = s.decodeFrame(dst, &.{});
+    if (next) |n| {
+        if (got) |g| {
+            if (!std.meta.eql(n, g)) return error.FrameConfigDiffers;
+        } else |_| {}
+    } else |e| {
+        if (got) |_| return error.FrameConfigDiffers else |e2| if (e2 != e) return error.FrameConfigDiffers;
+    }
+    return got;
 }
 
 /// The decoder with `Options.entry` 0, under the generic contract.
