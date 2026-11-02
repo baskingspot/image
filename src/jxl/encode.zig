@@ -396,6 +396,45 @@ inline fn rct(t: u32, v_in: [3]i32) [3]i32 {
     return .{ a, s, c };
 }
 
+/// The 42 transforms' 126 channels hold fewer distinct functions of R, G,
+/// and B: `unique` has one transform and channel for each, and `of` maps
+/// each transform's channels to them. Functions are told apart by their
+/// values on a few colors.
+const rct_channels = blk: {
+    @setEvalBranchQuota(100000);
+    const probes = [_][3]i32{
+        .{ 0, 0, 0 },        .{ 1, 0, 0 },      .{ 0, 1, 0 },     .{ 0, 0, 1 },
+        .{ 255, 3, 70 },     .{ 9, 200, 31 },   .{ 77, 12, 254 }, .{ -5, 300, 41 },
+        .{ 1000, -999, 13 }, .{ 7, 7, 65535 },  .{ 123, 45, 67 }, .{ 31, 63, 127 },
+        .{ 3, 1, 2 },        .{ 65535, 2, 99 }, .{ 50, 51, 49 },  .{ 600, 17, 333 },
+    };
+    var unique: [126][2]u32 = undefined;
+    var sig: [126][probes.len]i32 = undefined;
+    var nu: usize = 0;
+    var of: [42][3]u8 = undefined;
+    for (0..42) |t| {
+        for (0..3) |c| {
+            var v: [probes.len]i32 = undefined;
+            for (probes, 0..) |pr, i| v[i] = rct(t, pr)[c];
+            const e = for (sig[0..nu], 0..) |s, i| {
+                if (std.mem.eql(i32, &s, &v)) break i;
+            } else new: {
+                sig[nu] = v;
+                unique[nu] = .{ t, c };
+                nu += 1;
+                break :new nu - 1;
+            };
+            of[t][c] = e;
+        }
+    }
+    const unique_final = unique[0..nu].*;
+    const of_final = of;
+    break :blk struct {
+        unique: [nu][2]u32,
+        of: [42][3]u8,
+    }{ .unique = unique_final, .of = of_final };
+};
+
 /// The transform whose sampled gradient residuals cost least, over about
 /// `pixels` pixels: row segments as many as they are wide, spread over
 /// the image.
@@ -405,7 +444,7 @@ fn chooseRct(lay: *const Layout, rr: *const RowReader, rows: *[2][max_channels][
     const n_rows: u32 = @intCast(@max(1, @min(lay.h - 1, std.math.sqrt(pixels))));
     const seg: u32 = @intCast(@max(2, @min(w, group_dim, pixels / n_rows)));
     const step = (lay.h - 1) / n_rows;
-    var counts: [42][3][64]u32 = @splat(@splat(@splat(0)));
+    var counts: [rct_channels.unique.len][64]u32 = @splat(@splat(0));
     const cfg: ent.Config = .{};
     var k: u32 = 0;
     while (k < n_rows) : (k += 1) {
@@ -414,32 +453,30 @@ fn chooseRct(lay: *const Layout, rr: *const RowReader, rows: *[2][max_channels][
         const n = seg;
         rr.read(x0, y - 1, n, &rows[0]);
         rr.read(x0, y, n, &rows[1]);
-        // Each transform, specialized, over the two rows at once.
-        inline for (0..42) |t| {
-            var tr: [2][3][group_dim]i32 = undefined;
+        // Each distinct transformed channel, specialized, over the two
+        // rows at once.
+        inline for (rct_channels.unique, 0..) |tc, e| {
+            var tr: [2][group_dim]i32 = undefined;
             for (0..2) |r| {
-                for (0..n) |x| {
-                    const v = rct(t, .{ rows[r][0][x], rows[r][1][x], rows[r][2][x] });
-                    for (0..3) |c| tr[r][c][x] = v[c];
-                }
+                for (0..n) |x| tr[r][x] = rct(tc[0], .{ rows[r][0][x], rows[r][1][x], rows[r][2][x] })[tc[1]];
             }
-            for (0..3) |c| {
-                const up = tr[0][c][0..n];
-                const cur = tr[1][c][0..n];
-                const hist = &counts[t][c];
-                for (1..n) |x| {
-                    const g = mod.clampedGradient(up[x], cur[x - 1], up[x - 1]);
-                    const tok = cfg.split(ent.packSigned(@truncate(cur[x] - g))).token;
-                    hist[@min(tok, 63)] += 1;
-                }
+            const up = tr[0][0..n];
+            const cur = tr[1][0..n];
+            const hist = &counts[e];
+            for (1..n) |x| {
+                const g = mod.clampedGradient(up[x], cur[x - 1], up[x - 1]);
+                const tok = cfg.split(ent.packSigned(@truncate(cur[x] - g))).token;
+                hist[@min(tok, 63)] += 1;
             }
         }
     }
+    var cost: [rct_channels.unique.len]f64 = undefined;
+    for (&cost, &counts) |*c, *h| c.* = histCost(h, cfg);
     var best: u32 = 6;
     var best_cost: f64 = std.math.inf(f64);
     for (0..42) |t| {
         var bits: f64 = 0;
-        for (0..3) |c| bits += histCost(&counts[t][c], cfg);
+        for (0..3) |c| bits += cost[rct_channels.of[t][c]];
         // Prefer YCoCg on ties.
         if (bits < best_cost or (bits == best_cost and t == 6)) {
             best_cost = bits;

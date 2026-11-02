@@ -697,6 +697,7 @@ pub fn learnMemory(cap: usize, options: LearnOptions) usize {
         nprops * max_buckets * 4 + 64 + // thresholds
         cap * 4 + // sort scratch
         nprops * max_buckets * np * learn_tokens * 2 + // counts
+        nprops * max_buckets * np * 8 + // their masks
         nprops * max_buckets * 4 + // samples per bucket
         (2 * options.max_leaves + 1) * (@sizeOf(Node) + @sizeOf(Range)) + 1024;
 }
@@ -721,6 +722,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     const buckets = try mem.alloc(u8, n * nprops);
     const sort_buf = try mem.alloc(i32, thresholdSamples(n));
     const max_thr: usize = @min(options.max_thresholds, max_buckets - 1);
+    var hist: [sort_range]u32 = undefined;
     for (0..nprops) |p| {
         nthr[p] = 0;
         if (p == 1 or (p == wp_prop and !options.wp_prop)) continue;
@@ -728,7 +730,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         const m = thresholdSamples(n);
         const sorted = sort_buf[0..m];
         for (sorted, 0..) |*v, i| v.* = s.props[(i * n / m) * nprops + p];
-        std.sort.pdq(i32, sorted, {}, std.sort.asc(i32));
+        sortValues(sorted, &hist);
         // Thresholds: every distinct value when there are few, else half
         // at even quantiles of the samples and half spread over the
         // distinct values, so that a long tail still gets some. A
@@ -796,6 +798,10 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     const counts = try mem.alloc(u16, nprops * max_buckets * np * learn_tokens);
     const bucket_n = try mem.alloc(u32, nprops * max_buckets);
     @memset(bucket_n, 0);
+    // Per row of `counts`, which of its entries are not zero, so that a
+    // sweep visits only those.
+    const masks = try mem.alloc(u64, nprops * max_buckets * np);
+    @memset(masks, 0);
     // `counts` is zero up to here, and each node clears what it counted,
     // so a small node costs little.
     var clean: usize = 0;
@@ -890,7 +896,11 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
                 if (nthr[p] == 0) continue;
                 bucket_n[off[p] + b[p]] += 1;
                 const base = (off[p] + b[p]) * ns;
-                for (sel[0..ns], 0..) |k, j| cn[(base + j) * na + amap[tk[k]]] += 1;
+                for (sel[0..ns], 0..) |k, j| {
+                    const a = amap[tk[k]];
+                    cn[(base + j) * na + a] += 1;
+                    masks[base + j] |= @as(u64, 1) << @intCast(a);
+                }
             }
         }
         var tot: [max_predictors][learn_tokens]u32 = undefined;
@@ -933,9 +943,10 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
                 if (left_n == n_items) break;
                 for (0..ns) |k| {
                     const row = cn[(base + k) * na ..][0..na];
-                    for (row, 0..) |c16, a| {
-                        if (c16 == 0) continue;
-                        const c: u32 = c16;
+                    var nonzero = masks[base + k];
+                    while (nonzero != 0) : (nonzero &= nonzero - 1) {
+                        const a = @ctz(nonzero);
+                        const c: u32 = row[a];
                         const old = left[k][a];
                         const new = old + c;
                         left[k][a] = new;
@@ -973,11 +984,13 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
                     bucket_n[off[p] + b[p]] = 0;
                     const base = (off[p] + b[p]) * ns;
                     for (sel[0..ns], 0..) |k, j| cn[(base + j) * na + amap[tk[k]]] = 0;
+                    @memset(masks[base..][0..ns], 0);
                 }
             }
         } else {
             @memset(cn, 0);
             @memset(bucket_n[0..rows], 0);
+            @memset(masks[0 .. rows * ns], 0);
         }
         if (best_gain <= options.split_cost) continue;
         // Split: samples above the threshold first.
@@ -1006,6 +1019,31 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     var t: Tree = .{ .nodes = nodes[0..num_nodes], .num_leaves = 0 };
     t.numberLeaves();
     return t;
+}
+
+/// Values spanning fewer than this are sorted by counting.
+const sort_range = 4096;
+
+/// Sorts `v` ascending: by counting when its values span less than
+/// `sort_range`, as most properties' do, else by comparison.
+fn sortValues(v: []i32, hist: *[sort_range]u32) void {
+    if (v.len == 0) return;
+    var lo = v[0];
+    var hi = v[0];
+    for (v) |x| {
+        lo = @min(lo, x);
+        hi = @max(hi, x);
+    }
+    const span = @as(i64, hi) - lo;
+    if (span >= sort_range) return std.sort.pdq(i32, v, {}, std.sort.asc(i32));
+    const h = hist[0..@intCast(span + 1)];
+    @memset(h, 0);
+    for (v) |x| h[@intCast(x - lo)] += 1;
+    var at: usize = 0;
+    for (h, 0..) |c, k| {
+        @memset(v[at..][0..c], lo + @as(i32, @intCast(k)));
+        at += c;
+    }
 }
 
 /// Bits to code `c`'s tokens with their own histogram.
