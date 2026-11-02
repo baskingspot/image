@@ -21,11 +21,13 @@
 //! GIF has one way to put a frame on the canvas: its transparent pixels
 //! show what is beneath. With `crop`, `encodeAnimation` stores each frame
 //! as only what it changes: it trims rows and columns that are transparent
-//! or equal to the previous frame (when that frame covers the same region,
-//! is left in place, and was stored exactly), and makes such pixels inside
-//! the trimmed region transparent, which compresses better. A frame whose
-//! disposal clears its region to the background is not trimmed, since
-//! that would clear less.
+//! or equal to the previous frame (when that frame covers the same region
+//! and is left in place), and makes such pixels inside the trimmed region
+//! transparent, which compresses better. Only what is stored is quantized.
+//! The pixels left out show as the canvas shows them, so after a quantized
+//! frame, a frame with at most 256 colors is stored whole, to stay exact. A
+//! frame whose disposal clears its region to the background is not
+//! trimmed, since that would clear less.
 //!
 //! The work memory is a few rows, the LZW table, and, for an image of more
 //! than 256 pixels, the quantizer's tables (about 2.6 MiB); with both
@@ -232,7 +234,7 @@ const State = struct {
     lookup: ?*quantize.Lookup,
     image: ?[]u8,
     global: quantize.Palette = .{},
-    /// Whether the previous frame was stored exactly.
+    /// Whether the canvas shows the previous frame's pixels exactly.
     prev_exact: bool = false,
 };
 
@@ -374,14 +376,18 @@ fn delayOf(duration: u64) u16 {
 
 fn writeFrame(s: *State, f: AnimationFrame, prev_frame: ?AnimationFrame, first: bool) EncodeError!void {
     const o = s.options;
-    // What the frame may leave out.
-    const may_skip = s.animated and o.crop and s.prev_exact and if (prev_frame) |p|
+    const full = f.pixels;
+    // What the frame may leave out: pixels equal to the previous frame's,
+    // which show as the previous frame stored them. When that was not
+    // exactly, a frame with at most 256 colors is stored whole instead, so
+    // it stays exact.
+    const same_region = s.animated and o.crop and if (prev_frame) |p|
         p.disposal == .none and p.x == f.x and p.y == f.y and
             p.pixels.width == f.pixels.width and p.pixels.height == f.pixels.height
     else
         false;
+    const may_skip = same_region and (s.prev_exact or !countColors(s, full, null));
     const may_trim = s.animated and o.crop and f.disposal != .background;
-    const full = f.pixels;
     const prev_pixels: ?PixelBuffer = if (may_skip) prev_frame.?.pixels else null;
 
     // The region: everything not left out, or the whole frame.
@@ -457,7 +463,9 @@ fn writeFrame(s: *State, f: AnimationFrame, prev_frame: ?AnimationFrame, first: 
     try control(s, f, plan.transparent);
     try descriptor(s, &plan, first);
     try writePixels(s, region, old_region, &plan);
-    s.prev_exact = plan.exact;
+    // The canvas shows the frame's pixels exactly only if the pixels it
+    // left out were shown exactly too.
+    s.prev_exact = plan.exact and (!may_skip or s.prev_exact);
 }
 
 /// Counts the colors of `region`, pixels equal to `prev`'s counting as
@@ -822,6 +830,51 @@ test "an animation keeps every frame, crops to what changes, and stores its timi
     try testing.expectEqual(4 * 7_056_000, all.frames[3].duration);
     try testing.expectEqual(decode.Frame.Disposal.background, all.frames[3].disposal);
     try testing.expectEqual(w, all.frames[3].width);
+}
+
+test "after a quantized frame, a change is cropped, and a frame with few colors stays exact" {
+    const gpa = testing.allocator;
+    const w = 40;
+    const h = 30;
+    var bufs: [3][w * h * 4]u8 = undefined;
+    var prng: std.Random.DefaultPrng = .init(9);
+    const random = prng.random();
+    // Frame 0: noise on the left, too many colors, and four on the right.
+    for (0..h) |y| for (0..w) |x| {
+        const p = bufs[0][(y * w + x) * 4 ..][0..4];
+        if (x < w / 2) random.bytes(p[0..3]) else p[0..3].* = @splat(random.uintLessThan(u8, 4) * 80);
+        p[3] = 255;
+    };
+    // Frame 1 changes a square; frame 2 has four colors, the right half
+    // unchanged.
+    bufs[1] = bufs[0];
+    for (5..9) |y| for (10..20) |x| {
+        bufs[1][(y * w + x) * 4 ..][0..3].* = .{ 1, 2, 3 };
+    };
+    bufs[2] = bufs[1];
+    for (0..h) |y| for (0..w / 2) |x| {
+        bufs[2][(y * w + x) * 4 ..][0..3].* = @splat(@as(u8, @intCast((x + y) % 4)) * 80);
+    };
+    var frames: [3]AnimationFrame = undefined;
+    for (&frames, 0..) |*f, i| f.* = .{ .pixels = try PixelBuffer.init(&bufs[i], .rgba8, w, h) };
+    const work = try gpa.alloc(u8, workLen(.{}, w, h).?);
+    defer gpa.free(work);
+    var aw: Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    try encodeAnimation(&aw.writer, w, h, &frames, .{}, work);
+    const all = try decodeAll(gpa, aw.written());
+    defer freeAll(gpa, all);
+    const f1 = all.frames[1];
+    try testing.expectEqual([4]u32{ 10, 5, 10, 4 }, [4]u32{ f1.x, f1.y, f1.width, f1.height });
+    // The square exactly, over frame 0 as it was shown.
+    for (0..h) |y| for (0..w) |x| {
+        const i = (y * w + x) * 4;
+        const in_square = y >= 5 and y < 9 and x >= 10 and x < 20;
+        const want = if (in_square) bufs[1][i..][0..4] else all.canvases[0][i..][0..4];
+        try testing.expectEqualSlices(u8, want, all.canvases[1][i..][0..4]);
+    };
+    try testing.expectEqual(w * h, all.frames[2].width * all.frames[2].height);
+    try testing.expectEqualSlices(u8, &bufs[2], all.canvases[2]);
 }
 
 test "the contract's errors" {
