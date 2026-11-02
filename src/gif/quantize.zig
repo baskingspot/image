@@ -91,14 +91,14 @@ pub const Histogram = struct {
     }
 
     /// A palette of at most `max` colors (1 to 256) for the pixels added,
-    /// which must be at least one; this consumes the histogram.
-    pub fn palette(h: Histogram, method: Method, max: u16, refine: u8, out: *Palette) void {
+    /// at least one and at most `pixels`; this consumes the histogram.
+    pub fn palette(h: Histogram, method: Method, max: u16, refine: u8, pixels: u64, out: *Palette) void {
         std.debug.assert(max >= 1);
         std.debug.assert(max <= 256);
         // Wu's method reads the moments; the others, and k-means, cells.
         const n = if (method == .wu and refine == 0) 0 else h.gatherCells();
         switch (method) {
-            .wu => wu(h.work, max, out),
+            .wu => wu(h.work, max, pixels, out),
             .median_cut => medianCut(h.work.cells[0..n], max, out),
             .octree => octree(h.work, max, out),
         }
@@ -145,163 +145,212 @@ fn toByte(v: f64) u8 {
 /// A box of cells, each bound exclusive below and inclusive above.
 const Box = struct { lo: [3]u8, hi: [3]u8 };
 
-fn at(m: *const [cells]Moment, r: usize, g: usize, b: usize) *const Moment {
-    return &m[(r * side + g) * side + b];
+/// A frame of at most this many pixels has every count and channel sum
+/// below 2^32, so Wu's cumulative table holds them in `u32`: sums over a
+/// box come out exact in wrapping arithmetic, and the table takes 24 bytes
+/// a cell instead of 40 (842 KiB instead of 1.4 MiB) to write and read.
+const narrow_pixels = std.math.maxInt(u32) / 255;
+
+fn wu(work: *Work, max: u16, pixels: u64, out: *Palette) void {
+    if (pixels <= narrow_pixels) Wu(u32).run(work, max, out) else Wu(u64).run(work, max, out);
 }
 
-/// The sums over `box`, from the cumulative moments.
-fn volume(m: *const [cells]Moment, box: Box) Moment {
-    const r0 = box.lo[0];
-    const r1 = box.hi[0];
-    const g0 = box.lo[1];
-    const g1 = box.hi[1];
-    const b0 = box.lo[2];
-    const b1 = box.hi[2];
-    var out: Moment = undefined;
-    inline for (.{ "w", "r", "g", "b", "m2" }) |f| {
-        // Added in an order that cannot go below zero.
-        @field(out, f) = @field(at(m, r1, g1, b1), f) -% @field(at(m, r1, g1, b0), f) -%
-            @field(at(m, r1, g0, b1), f) +% @field(at(m, r1, g0, b0), f) -%
-            @field(at(m, r0, g1, b1), f) +% @field(at(m, r0, g1, b0), f) +%
-            @field(at(m, r0, g0, b1), f) -% @field(at(m, r0, g0, b0), f);
-    }
-    return out;
-}
+/// Wu's quantizer over a cumulative table of `U` counts and channel sums.
+fn Wu(comptime U: type) type {
+    return struct {
+        /// A cell of the cumulative table: the sums over the box from the
+        /// origin to the cell.
+        const Cum = struct { w: U, r: U, g: U, b: U, m2: u64 };
+        const Table = [cells]Cum;
+        /// A cumulative entry's weight and color sums, the part a cut reads.
+        const Sums = @Vector(4, U);
 
-/// The squared distance of a box's sum from the origin over its weight:
-/// what a box's mean contributes, the term a cut maximizes.
-fn spread(v: Moment) f64 {
-    const r: f64 = @floatFromInt(v.r);
-    const g: f64 = @floatFromInt(v.g);
-    const b: f64 = @floatFromInt(v.b);
-    return (r * r + g * g + b * b) / @as(f64, @floatFromInt(v.w));
-}
-
-fn variance(m: *const [cells]Moment, box: Box) f64 {
-    const v = volume(m, box);
-    if (v.w == 0) return 0;
-    return @as(f64, @floatFromInt(v.m2)) - spread(v);
-}
-
-/// A moment's weight and color sums, the part a cut reads.
-const Sums = @Vector(4, u64);
-
-fn sums(m: *const Moment) Sums {
-    return .{ m.w, m.r, m.g, m.b };
-}
-
-/// The sums over `box`'s cells whose coordinate on axis `d` is at most
-/// `i`, less those at most 0 on it: the cumulative moments at the four
-/// corners of that plane of the box.
-fn plane(m: *const [cells]Moment, box: Box, d: usize, i: u8) Sums {
-    const e = (d + 1) % 3;
-    const f = (d + 2) % 3;
-    var p: [3]usize = .{ box.hi[0], box.hi[1], box.hi[2] };
-    p[d] = i;
-    const hh = sums(at(m, p[0], p[1], p[2]));
-    p[f] = box.lo[f];
-    const hl = sums(at(m, p[0], p[1], p[2]));
-    p[e] = box.lo[e];
-    const ll = sums(at(m, p[0], p[1], p[2]));
-    p[f] = box.hi[f];
-    const lh = sums(at(m, p[0], p[1], p[2]));
-    // Added in an order that cannot go below zero.
-    return hh -% hl -% lh +% ll;
-}
-
-fn spreadOf(v: Sums) f64 {
-    const r: f64 = @floatFromInt(v[1]);
-    const g: f64 = @floatFromInt(v[2]);
-    const b: f64 = @floatFromInt(v[3]);
-    return (r * r + g * g + b * b) / @as(f64, @floatFromInt(v[0]));
-}
-
-/// Cuts `box` in two at the plane that leaves the least variance; false
-/// when no plane leaves pixels on both sides. The sums below a plane at
-/// `i` on axis `d` are the plane's less the box's lower face's, so each
-/// plane costs four lookups.
-fn cut(m: *const [cells]Moment, box: *Box, upper: *Box) bool {
-    var best: f64 = -1;
-    var best_dir: usize = 0;
-    var best_at: u8 = 0;
-    for (0..3) |d| {
-        const base = plane(m, box.*, d, box.lo[d]);
-        const whole = plane(m, box.*, d, box.hi[d]) -% base;
-        var i = box.lo[d] + 1;
-        while (i < box.hi[d]) : (i += 1) {
-            const lower = plane(m, box.*, d, i) -% base;
-            if (lower[0] == 0 or lower[0] == whole[0]) continue;
-            const s = spreadOf(lower) + spreadOf(whole -% lower);
-            if (s > best) {
-                best = s;
-                best_dir = d;
-                best_at = i;
-            }
+        fn at(m: *const Table, r: usize, g: usize, b: usize) *const Cum {
+            return &m[(r * side + g) * side + b];
         }
-    }
-    if (best < 0) return false;
-    upper.* = box.*;
-    upper.lo[best_dir] = best_at;
-    box.hi[best_dir] = best_at;
-    return true;
-}
 
-fn wu(work: *Work, max: u16, out: *Palette) void {
-    const m = &work.moments;
-    // Cumulative moments: each entry the sum over the box from the origin,
-    // and the zero planes below the cells.
-    const zero = std.mem.zeroes(Moment);
-    for (0..side) |r| {
-        var area: [side]Moment = @splat(zero);
-        for (0..side) |g| {
-            var line = zero;
-            for (0..side) |b| {
-                const i = (r * side + g) * side + b;
-                if (r == 0 or g == 0 or b == 0) {
-                    m[i] = zero;
-                    continue;
-                }
-                const v = raw(work, i);
-                inline for (.{ "w", "r", "g", "b", "m2" }) |f| {
-                    @field(line, f) += @field(v, f);
-                    @field(area[b], f) += @field(line, f);
-                    @field(m[i], f) = @field(m[i - side * side], f) + @field(area[b], f);
+        /// The sums over `box`, from the cumulative moments.
+        fn volume(m: *const Table, box: Box) Cum {
+            const r0 = box.lo[0];
+            const r1 = box.hi[0];
+            const g0 = box.lo[1];
+            const g1 = box.hi[1];
+            const b0 = box.lo[2];
+            const b1 = box.hi[2];
+            var out: Cum = undefined;
+            inline for (.{ "w", "r", "g", "b", "m2" }) |f| {
+                // Added in an order that cannot go below zero.
+                @field(out, f) = @field(at(m, r1, g1, b1), f) -% @field(at(m, r1, g1, b0), f) -%
+                    @field(at(m, r1, g0, b1), f) +% @field(at(m, r1, g0, b0), f) -%
+                    @field(at(m, r0, g1, b1), f) +% @field(at(m, r0, g1, b0), f) +%
+                    @field(at(m, r0, g0, b1), f) -% @field(at(m, r0, g0, b0), f);
+            }
+            return out;
+        }
+
+        fn variance(m: *const Table, box: Box) f64 {
+            const v = volume(m, box);
+            if (v.w == 0) return 0;
+            return @as(f64, @floatFromInt(v.m2)) - spreadOf(.{ v.w, v.r, v.g, v.b });
+        }
+
+        fn sums(m: *const Cum) Sums {
+            return .{ m.w, m.r, m.g, m.b };
+        }
+
+        /// The sums over `box`'s cells whose coordinate on axis `d` is at
+        /// most `i`, less those at most 0 on it: the cumulative moments at
+        /// the four corners of that plane of the box.
+        fn plane(m: *const Table, box: Box, d: usize, i: u8) Sums {
+            const e = (d + 1) % 3;
+            const f = (d + 2) % 3;
+            var p: [3]usize = .{ box.hi[0], box.hi[1], box.hi[2] };
+            p[d] = i;
+            const hh = sums(at(m, p[0], p[1], p[2]));
+            p[f] = box.lo[f];
+            const hl = sums(at(m, p[0], p[1], p[2]));
+            p[e] = box.lo[e];
+            const ll = sums(at(m, p[0], p[1], p[2]));
+            p[f] = box.hi[f];
+            const lh = sums(at(m, p[0], p[1], p[2]));
+            // Added in an order that cannot go below zero.
+            return hh -% hl -% lh +% ll;
+        }
+
+        /// The squared distance of a box's sum from the origin over its
+        /// weight: what a box's mean contributes, the term a cut maximizes.
+        fn spreadOf(v: Sums) f64 {
+            const r: f64 = @floatFromInt(v[1]);
+            const g: f64 = @floatFromInt(v[2]);
+            const b: f64 = @floatFromInt(v[3]);
+            return (r * r + g * g + b * b) / @as(f64, @floatFromInt(v[0]));
+        }
+
+        /// Cuts `box` in two at the plane that leaves the least variance;
+        /// false when no plane leaves pixels on both sides. The sums below
+        /// a plane at `i` on axis `d` are the plane's less the box's lower
+        /// face's, so each plane costs four lookups.
+        fn cut(m: *const Table, box: *Box, upper: *Box) bool {
+            var best: f64 = -1;
+            var best_dir: usize = 0;
+            var best_at: u8 = 0;
+            for (0..3) |d| {
+                const base = plane(m, box.*, d, box.lo[d]);
+                const whole = plane(m, box.*, d, box.hi[d]) -% base;
+                var i = box.lo[d] + 1;
+                while (i < box.hi[d]) : (i += 1) {
+                    const lower = plane(m, box.*, d, i) -% base;
+                    if (lower[0] == 0 or lower[0] == whole[0]) continue;
+                    const s = spreadOf(lower) + spreadOf(whole -% lower);
+                    if (s > best) {
+                        best = s;
+                        best_dir = d;
+                        best_at = i;
+                    }
                 }
             }
+            if (best < 0) return false;
+            upper.* = box.*;
+            upper.lo[best_dir] = best_at;
+            box.hi[best_dir] = best_at;
+            shrink(m, box, best_dir);
+            shrink(m, upper, best_dir);
+            return true;
         }
-    }
-    var boxes: [256]Box = undefined;
-    var vv: [256]f64 = undefined;
-    boxes[0] = .{ .lo = .{ 0, 0, 0 }, .hi = .{ 32, 32, 32 } };
-    vv[0] = variance(m, boxes[0]);
-    var n: usize = 1;
-    var next: usize = 0;
-    while (n < max) {
-        if (cut(m, &boxes[next], &boxes[n])) {
-            vv[next] = if (cellsIn(boxes[next]) > 1) variance(m, boxes[next]) else 0;
-            vv[n] = if (cellsIn(boxes[n]) > 1) variance(m, boxes[n]) else 0;
-            n += 1;
-        } else {
-            vv[next] = 0;
+
+        /// Shrinks a nonempty `box` on axis `d` to the cells that hold its
+        /// pixels. The planes it drops leave no pixels on one side, so
+        /// they never win a cut, and the sums over the box do not change;
+        /// a sparse histogram's boxes are mostly empty cells, which every
+        /// cut would scan. The sums below a plane only grow along the
+        /// axis, so the first plane with pixels below it and the first
+        /// with all of them are found by bisection. After a cut, only the
+        /// cut axis is shrunk: the others rarely shrink by much, and
+        /// bisecting them cost more than it saved.
+        fn shrink(m: *const Table, box: *Box, d: usize) void {
+            const base = plane(m, box.*, d, box.lo[d])[0];
+            const whole = plane(m, box.*, d, box.hi[d])[0] -% base;
+            box.lo[d] = firstPlane(m, box.*, d, base, 1) - 1;
+            box.hi[d] = firstPlane(m, box.*, d, base, whole);
         }
-        next = 0;
-        for (vv[0..n], 0..) |v, i| {
-            if (v > vv[next]) next = i;
+
+        /// The first plane on axis `d` in (lo, hi] with at least `want`
+        /// pixels below it and above the lower face, whose weight is
+        /// `origin`; `hi` has them all.
+        fn firstPlane(m: *const Table, box: Box, d: usize, origin: U, want: U) u8 {
+            var lo = box.lo[d];
+            var hi = box.hi[d];
+            while (hi - lo > 1) {
+                const mid = lo + (hi - lo) / 2;
+                if (plane(m, box, d, mid)[0] -% origin >= want) hi = mid else lo = mid;
+            }
+            return hi;
         }
-        if (vv[next] <= 0) break;
-    }
-    out.len = 0;
-    for (boxes[0..n]) |box| {
-        const v = volume(m, box);
-        if (v.w == 0) continue;
-        const w: f64 = @floatFromInt(v.w);
-        out.colors[out.len] = .{
-            toByte(@as(f64, @floatFromInt(v.r)) / w),
-            toByte(@as(f64, @floatFromInt(v.g)) / w),
-            toByte(@as(f64, @floatFromInt(v.b)) / w),
-        };
-        out.len += 1;
-    }
+
+        fn run(work: *Work, max: u16, out: *Palette) void {
+            // The cumulative table replaces the histogram in place: entry
+            // i is written after raw cell i is read, and entries are no
+            // larger than cells, so no cell is overwritten before it is
+            // read.
+            comptime std.debug.assert(@sizeOf(Cum) <= @sizeOf(Moment));
+            const m: *Table = @ptrCast(&work.moments);
+            // Cumulative moments: each entry the sum over the box from the
+            // origin, and the zero planes below the cells.
+            const zero = std.mem.zeroes(Cum);
+            for (0..side) |r| {
+                var area: [side]Cum = @splat(zero);
+                for (0..side) |g| {
+                    var line = zero;
+                    for (0..side) |b| {
+                        const i = (r * side + g) * side + b;
+                        if (r == 0 or g == 0 or b == 0) {
+                            m[i] = zero;
+                            continue;
+                        }
+                        const v = raw(work, i);
+                        inline for (.{ "w", "r", "g", "b", "m2" }) |f| {
+                            @field(line, f) +%= @intCast(@field(v, f));
+                            @field(area[b], f) +%= @field(line, f);
+                            @field(m[i], f) = @field(m[i - side * side], f) +% @field(area[b], f);
+                        }
+                    }
+                }
+            }
+            var boxes: [256]Box = undefined;
+            var vv: [256]f64 = undefined;
+            boxes[0] = .{ .lo = .{ 0, 0, 0 }, .hi = .{ 32, 32, 32 } };
+            for (0..3) |d| shrink(m, &boxes[0], d);
+            vv[0] = variance(m, boxes[0]);
+            var n: usize = 1;
+            var next: usize = 0;
+            while (n < max) {
+                if (cut(m, &boxes[next], &boxes[n])) {
+                    vv[next] = if (cellsIn(boxes[next]) > 1) variance(m, boxes[next]) else 0;
+                    vv[n] = if (cellsIn(boxes[n]) > 1) variance(m, boxes[n]) else 0;
+                    n += 1;
+                } else {
+                    vv[next] = 0;
+                }
+                next = 0;
+                for (vv[0..n], 0..) |v, i| {
+                    if (v > vv[next]) next = i;
+                }
+                if (vv[next] <= 0) break;
+            }
+            out.len = 0;
+            for (boxes[0..n]) |box| {
+                const v = volume(m, box);
+                if (v.w == 0) continue;
+                const w: f64 = @floatFromInt(v.w);
+                out.colors[out.len] = .{
+                    toByte(@as(f64, @floatFromInt(v.r)) / w),
+                    toByte(@as(f64, @floatFromInt(v.g)) / w),
+                    toByte(@as(f64, @floatFromInt(v.b)) / w),
+                };
+                out.len += 1;
+            }
+        }
+    };
 }
 
 fn cellsIn(box: Box) u32 {
@@ -698,7 +747,7 @@ test "each method keeps a few colors exactly and fits many into the palette" {
         const four = [_][3]u8{ .{ 0, 0, 0 }, .{ 255, 0, 0 }, .{ 10, 200, 30 }, .{ 255, 255, 255 } };
         for (four, 0..) |c, i| for (0..i + 1) |_| h.add(c[0], c[1], c[2]);
         var p: Palette = .{};
-        h.palette(method, 16, 0, &p);
+        h.palette(method, 16, 0, 10, &p);
         try testing.expectEqual(4, p.len);
         for (four) |c| {
             var found = false;
@@ -708,9 +757,43 @@ test "each method keeps a few colors exactly and fits many into the palette" {
         // Noise fills the palette, every entry within the noise's range.
         h.clear();
         for (0..20000) |_| h.add(random.intRangeAtMost(u8, 20, 220), random.int(u8), random.intRangeAtMost(u8, 0, 99));
-        h.palette(method, 256, 2, &p);
+        h.palette(method, 256, 2, 20000, &p);
         try testing.expect(p.len > 200 and p.len <= 256);
         for (p.colors[0..p.len]) |q| try testing.expect(q[0] >= 20 and q[0] <= 220 and q[2] <= 99);
+    }
+}
+
+test "Wu's narrow table gives the palette its wide one does" {
+    const gpa = testing.allocator;
+    const a = try gpa.create(Work);
+    defer gpa.destroy(a);
+    const b = try gpa.create(Work);
+    defer gpa.destroy(b);
+    var prng: std.Random.DefaultPrng = .init(11);
+    const random = prng.random();
+    for ([_]usize{ 300, 5000, 200_000 }) |n| {
+        const h: Histogram = .{ .work = a };
+        h.clear();
+        // Clusters of every size and a spread of bright pixels, so cuts
+        // reach the top cells and many boxes empty out.
+        for (0..n) |i| {
+            const c: u8 = @intCast(i % 7 * 36);
+            h.add(c +| random.uintLessThan(u8, 30), random.int(u8), 255 - c / 2);
+        }
+        b.* = a.*;
+        for ([_]u16{ 16, 255, 256 }) |max| {
+            var narrow: Palette = .{};
+            var wide: Palette = .{};
+            const keep = try gpa.create(Work);
+            defer gpa.destroy(keep);
+            keep.* = a.*;
+            Wu(u32).run(a, max, &narrow);
+            Wu(u64).run(b, max, &wide);
+            try testing.expectEqual(wide.len, narrow.len);
+            try testing.expectEqualSlices([3]u8, wide.colors[0..wide.len], narrow.colors[0..narrow.len]);
+            a.* = keep.*;
+            b.* = keep.*;
+        }
     }
 }
 

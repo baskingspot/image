@@ -57,6 +57,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.gif.encode` quantizes small images faster with `Quantizer.wu`: 1.16× on 32×32 and 64×64 icons and icon animations, with the same palettes.
 - `image.gif.Dither.floyd_steinberg` passes on no error from a pixel within 1 a channel of its palette entry: 1.3% smaller files on photos and screenshots (up to 14% on graphics), with PSNR +0.36 dB and SSIM +0.003.
 - `image.gif.encode` stores an image of at most 256 colors 1.14–1.25× faster, reading its pixels once instead of twice up to about 2.4 megapixels, with the same bytes and work memory.
 - `image.jpeg.encode` is faster: baseline color over 1 MP from 0.93× to 1.18× libjpeg-turbo's speed (4:4:4 from 0.98× to 1.26×), and 2.16× over all encode benchmark rows, with the same bytes.

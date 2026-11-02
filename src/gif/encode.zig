@@ -532,7 +532,7 @@ fn quantizeFrame(s: *State, region: PixelBuffer, prev: ?PixelBuffer, plan: *Plan
     }
     // More than 256 colors, so at least 256 opaque pixels.
     const max: u16 = if (any_clear) 255 else 256;
-    h.palette(s.options.quantizer, max, s.options.refine, &plan.palette);
+    h.palette(s.options.quantizer, max, s.options.refine, @as(u64, region.width) * region.height, &plan.palette);
     s.lookup.?.init(&plan.palette);
     if (any_clear) {
         plan.transparent = @intCast(plan.palette.len);

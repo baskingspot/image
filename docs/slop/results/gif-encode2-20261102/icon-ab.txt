@@ -1,0 +1,9 @@
+# ab.py, A = dither dead zone (5e64459), B = shrunk boxes on the cut axis and the u32 cumulative table; ratio B/A (throughput), R=9
+gif-encode-anim/1mp            2 1.009
+gif-encode-anim/icon           1 1.176
+gif-encode-anim/large          1 1.013
+gif-encode/1mp                 5 1.019
+gif-encode/icon                2 1.164
+gif-encode/large               4 0.994
+all                           15 1.039
+# bench-image check gif-encode gif-encode-anim gif-encode-few: identical before and after (26 rows)

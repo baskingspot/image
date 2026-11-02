@@ -1,0 +1,26 @@
+# Scratch harness: image.gif.encode of the two quantized icons of gif_encode/true (default options), best of 15 runs of 200 calls, microseconds a call; builds run in turn on core 3, the median of R rounds.
+# base = 5e64459; v2 = every box shrunk on all three axes after a cut, u64 table; v3 = v2 with the u32 table; v4 = v3 shrinking only the cut axis (the change)
+# R=7
+icon_32-acti base 291.9 us
+icon_32-acti v2 235.9 us
+icon_32-acti v3 207.8 us
+icon_32-acti v4 213.4 us
+icon_64-acti base 355.9 us
+icon_64-acti v2 370.9 us
+icon_64-acti v3 333.8 us
+icon_64-acti v4 305.2 us
+# R=15
+icon_32-acti base 257.8 us
+icon_32-acti v3 207.6 us
+icon_32-acti v4 203.5 us
+icon_64-acti base 358.8 us
+icon_64-acti v3 329.4 us
+icon_64-acti v4 307.6 us
+# R=11, v4 (br) against a branchless plane scan (bl; select instead of branches, empty sides as NaN): not taken
+icon_32-acti bl 223.9 us
+icon_32-acti br 203.4 us
+icon_64-acti bl 318.3 us
+icon_64-acti br 304.5 us
+# Where the 32x32 icon's time goes (rdtsc around phases, which adds about 25 us; one run, microseconds a call):
+# before (base): Wu 200 of 254 (cumulative table 69, cuts 131 of which choosing the next box about 25), mapping, dithering, and LZW 25, histogram 4, lookup setup 4
+# after (v4): Wu about 165 (cumulative 45-55, cuts about 85 for 3,678 planes, shrinking 20, choosing the next box 14), mapping and LZW 27

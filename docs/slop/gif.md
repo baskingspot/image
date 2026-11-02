@@ -177,7 +177,14 @@ pixels, position, duration in flicks, and disposal), allocation-free with
   its nearest palette entry (filled lazily, the search 16 entries at a
   time), and the ditherer. Only the touched-cell bitset is cleared per
   frame, not the 1.4 MB table: `add` writes a cell's first pixel, and
-  readers mask cells it never wrote.
+  readers mask cells it never wrote. Wu's cumulative table replaces the
+  histogram in place, in `u32` counts and channel sums for a frame of at
+  most 16.8 megapixels (24 bytes a cell instead of 40; exact, since no sum
+  reaches 2^32 and box sums are taken in wrapping arithmetic), and each box
+  is shrunk to the cells that hold its pixels on the axis it was cut
+  along, so a sparse histogram's cuts scan fewer empty planes. Both leave
+  the palette unchanged; together they make a quantized icon 1.16× faster
+  (results/gif-encode2-20261102.md).
 - Work memory: two RGBA8 rows, a row of indices, two rows of dither
   errors, the LZW table, and the exact color set, about 6 KiB for a small
   image; an image of more than 256 pixels adds the quantizer (about 2.4 MiB
