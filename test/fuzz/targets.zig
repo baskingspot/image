@@ -12,6 +12,7 @@ pub const ico = @import("ico.zig");
 pub const ico_encode = @import("ico_encode.zig");
 pub const gif = @import("gif.zig");
 pub const png = @import("png.zig");
+pub const png_encode = @import("png_encode.zig");
 pub const jpeg = @import("jpeg.zig");
 pub const qoi = @import("qoi.zig");
 pub const qoi_encode = @import("qoi_encode.zig");
