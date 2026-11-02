@@ -1143,6 +1143,17 @@ fn post(l: *const Layout, buf: []u8, temp: []u8) void {
 /// Pixels converted per step.
 const span = 256;
 
+/// A byte of 1-bit gray as eight 8-bit pixels, most significant bit first,
+/// with a set bit 255.
+const gray1_pixels: [256][8]u8 = blk: {
+    @setEvalBranchQuota(4000);
+    var t: [256][8]u8 = undefined;
+    for (&t, 0..) |*px, b| {
+        for (px, 0..) |*v, k| v.* = if (b >> (7 - k) & 1 != 0) 255 else 0;
+    }
+    break :blk t;
+};
+
 /// Where a page's rows go: the caller's region, in its format, by way of
 /// the native format.
 const Out = struct {
@@ -1232,13 +1243,19 @@ const Out = struct {
             },
             .gray1 => {
                 const row = planes[0];
-                const on: u8 = if (o.e.min_is_white) 0 else 255;
+                const flip: @Vector(8, u8) = @splat(if (o.e.min_is_white) 255 else 0);
                 var buf: [span]u8 = undefined;
                 var x: usize = 0;
                 while (x < n) {
                     const m: usize = @min(span, n - x);
                     const out = if (o.direct) dst[x..][0..m] else buf[0..m];
-                    for (out, x..) |*v, i| v.* = if (row[i / 8] >> @intCast(7 - i % 8) & 1 != 0) on else ~on;
+                    // A byte's eight pixels at a time; `x` is a multiple of 8.
+                    const bytes = row[x / 8 ..][0 .. (m + 7) / 8];
+                    for (0..m / 8) |j| out[8 * j ..][0..8].* = @as(@Vector(8, u8), gray1_pixels[bytes[j]]) ^ flip;
+                    if (m % 8 != 0) {
+                        const last: [8]u8 = @as(@Vector(8, u8), gray1_pixels[bytes[m / 8]]) ^ flip;
+                        @memcpy(out[m / 8 * 8 ..], last[0 .. m % 8]);
+                    }
                     if (!o.direct) o.to_dst.run(dst[x * o.dbpp ..], out, m);
                     x += m;
                 }
