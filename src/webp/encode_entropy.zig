@@ -47,8 +47,15 @@ fn poolLen(tiles: u64, pixels: u64) u64 {
 /// of `pixels` pixels, into at most `groups` groups.
 pub fn workLen(tiles: u64, cols: u64, pixels: u64, groups: u64) u64 {
     if (tiles == 0) return 0;
+    const k = startGroups(tiles, pixels, groups);
     return poolLen(tiles, pixels) * 4 + (tiles + 1) * 4 + tiles * 4 + tiles * 16 +
-        groups * symbols * 4 + cols * symbols * 2 + tiles * 4 + groups * 13 + groups * mask_words * 8 + 72;
+        groups * symbols * 4 + k * k * 4 + cols * symbols * 2 + tiles * 4 + groups * 13 +
+        (groups + cols) * mask_words * 8 + 72;
+}
+
+/// How many groups the clustering starts with, the most it ever has.
+fn startGroups(tiles: u64, pixels: u64, max_groups: u64) u64 {
+    return @max(1, @min(max_groups, tiles, pixels / 1024));
 }
 
 const Mem = struct {
@@ -57,6 +64,9 @@ const Mem = struct {
     cost: []f32,
     feature: []f32,
     group_cost: []f32,
+    /// Each pair of groups' cost together, by `histCost`, while the merge
+    /// runs.
+    pair: []f32,
     dense: []u16,
     order: []u32,
     cost_of: []f32,
@@ -65,6 +75,8 @@ const Mem = struct {
     alive: []bool,
     /// Each group's used symbols as bits.
     mask: [][mask_words]u64,
+    /// Each tile of a row's used symbols as bits, while counting.
+    seen: [][mask_words]u64,
     histos: []codes.Histogram,
 
     fn init(mem: []u8, tiles: usize, cols: usize, pixels: usize, groups: usize) Mem {
@@ -75,6 +87,8 @@ const Mem = struct {
         const cost = take(f32, mem, &at, tiles);
         const feature = take(f32, mem, &at, 4 * tiles);
         const gc = take(f32, mem, &at, groups * symbols);
+        const k: usize = @intCast(startGroups(tiles, pixels, groups));
+        const pair = take(f32, mem, &at, k * k);
         const dense = take(u16, mem, &at, cols * symbols);
         at = std.mem.alignForward(usize, at, 4);
         const order = take(u32, mem, &at, tiles);
@@ -84,14 +98,17 @@ const Mem = struct {
         const alive = take(bool, mem, &at, groups);
         at = std.mem.alignForward(usize, at, 8);
         const mask = take([mask_words]u64, mem, &at, groups);
+        const seen = take([mask_words]u64, mem, &at, cols);
         return .{
             .mask = mask,
+            .seen = seen,
             .histos = undefined,
             .pool = pool,
             .start = start,
             .cost = cost,
             .feature = feature,
             .group_cost = gc,
+            .pair = pair,
             .dense = dense,
             .order = order,
             .cost_of = cost_of,
@@ -146,19 +163,28 @@ pub fn cluster(in: Input) usize {
     // pixel. Each row of tiles is counted in one walk over its tokens,
     // with a dense count array per tile of the row.
     @memset(m.dense, 0);
+    @memset(m.seen, @splat(0));
     var at: usize = 0;
     var t: usize = 0;
     var p: usize = 0;
+    // Pixel `p`'s column.
+    var x: usize = 0;
     for (0..th) |ty| {
         const y1 = @min(h, (ty + 1) << in.bits);
         while (t < in.tokens.len and p < y1 * @as(usize, w)) {
-            const tx = (p % w) >> in.bits;
+            const tx = x >> in.bits;
             var syms: [4]u16 = undefined;
             const k = tokenSymbols(in.px, in.tokens, t, p, &syms);
             const d = m.dense[tx * symbols ..][0..symbols];
-            for (syms[0..k]) |sym| d[sym] += 1;
+            for (syms[0..k]) |sym| {
+                d[sym] += 1;
+                m.seen[tx][sym / 64] |= @as(u64, 1) << @intCast(sym % 64);
+            }
             const copy = in.tokens[t] & lz77.copy_flag != 0;
-            p += if (copy) in.tokens[t] & 0xffff else 1;
+            const len = if (copy) in.tokens[t] & 0xffff else 1;
+            p += len;
+            x += len;
+            if (x >= w) x %= w;
             t += if (copy) 2 else 1;
         }
         for (0..tw) |tx| {
@@ -166,12 +192,15 @@ pub fn cluster(in: Input) usize {
             m.start[ti] = @intCast(at);
             const d = m.dense[tx * symbols ..][0..symbols];
             var total: u32 = 0;
-            for (d, 0..) |*c, sym| {
-                if (c.* == 0) continue;
-                m.pool[at] = .{ .symbol = @intCast(sym), .count = c.* };
-                at += 1;
-                total += c.*;
-                c.* = 0;
+            // The used symbols, in order, by their bits.
+            for (&m.seen[tx], 0..) |*word, wi| {
+                while (word.* != 0) : (word.* &= word.* - 1) {
+                    const sym = wi * 64 + @ctz(word.*);
+                    m.pool[at] = .{ .symbol = @intCast(sym), .count = d[sym] };
+                    at += 1;
+                    total += d[sym];
+                    d[sym] = 0;
+                }
             }
             // Green's (with lengths and cache codes), red's, and blue's
             // bits a pixel on their own.
@@ -202,7 +231,7 @@ pub fn cluster(in: Input) usize {
     // Start 0: the tiles in order of their bits a pixel, cut into runs of
     // equal length. Start 1: the tiles binned by their three features,
     // each cut into even ranges.
-    const k0 = @max(1, @min(in.max_groups, tiles, in.px.len / 1024));
+    const k0: usize = @intCast(startGroups(tiles, in.px.len, in.max_groups));
     if (in.start == 0) {
         for (m.order[0..tiles], 0..) |*o, ti| o.* = @intCast(ti);
         std.sort.pdq(u32, m.order[0..tiles], m.feature, struct {
@@ -284,7 +313,14 @@ fn merge(in: Input, m: Mem, tiles: usize, groups: usize) void {
         m.cost_of[g] = histCost(m, g, g, false, gs);
         m.alive[g] = true;
     }
-    for (0..groups) |g| bestPartner(in, m, groups, g);
+    // A pair's cost together stays until one of the two changes; the same
+    // either way round.
+    for (0..groups) |g| for (g + 1..groups) |k| {
+        const c = histCost(m, g, k, true, gs);
+        m.pair[g * groups + k] = c;
+        m.pair[k * groups + g] = c;
+    };
+    for (0..groups) |g| bestPartner(m, groups, g);
     while (true) {
         var g: usize = groups;
         var low: f32 = 0;
@@ -303,15 +339,21 @@ fn merge(in: Input, m: Mem, tiles: usize, groups: usize) void {
         for (in.tile_group[0..tiles]) |*t| {
             if (t.* == h) t.* = @intCast(g);
         }
+        for (0..groups) |k| {
+            if (!m.alive[k] or k == g) continue;
+            const c = histCost(m, k, g, true, gs);
+            m.pair[g * groups + k] = c;
+            m.pair[k * groups + g] = c;
+        }
         // The merged group's partners, and the groups whose best partner
         // was either of the two.
-        bestPartner(in, m, groups, g);
+        bestPartner(m, groups, g);
         for (0..groups) |k| {
             if (!m.alive[k] or k == g) continue;
             if (m.best[k] == g or m.best[k] == h) {
-                bestPartner(in, m, groups, k);
+                bestPartner(m, groups, k);
             } else {
-                const d = histCost(m, k, g, true, gs) - m.cost_of[k] - m.cost_of[g];
+                const d = m.pair[k * groups + g] - m.cost_of[k] - m.cost_of[g];
                 if (d < m.best_delta[k]) {
                     m.best_delta[k] = d;
                     m.best[k] = @intCast(g);
@@ -321,11 +363,11 @@ fn merge(in: Input, m: Mem, tiles: usize, groups: usize) void {
     }
 }
 
-fn bestPartner(in: Input, m: Mem, groups: usize, g: usize) void {
+fn bestPartner(m: Mem, groups: usize, g: usize) void {
     m.best_delta[g] = std.math.inf(f32);
     for (0..groups) |k| {
         if (!m.alive[k] or k == g) continue;
-        const d = histCost(m, g, k, true, in.green_size) - m.cost_of[g] - m.cost_of[k];
+        const d = m.pair[g * groups + k] - m.cost_of[g] - m.cost_of[k];
         if (d < m.best_delta[g]) {
             m.best_delta[g] = d;
             m.best[g] = @intCast(k);

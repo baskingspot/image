@@ -55,6 +55,9 @@ pub const Distances = struct {
     /// The smallest code meaning distance 1: codes whose neighbor lies at
     /// or past the current pixel mean 1 too.
     one: u8,
+    /// The codes for the pixel above and the one to the left.
+    up: u32 = 0,
+    left: u32 = 0,
 
     pub fn init(width: u32) Distances {
         var d: Distances = .{ .width = width, .near = @splat(@splat(0)), .one = 2 };
@@ -64,6 +67,8 @@ pub const Distances = struct {
             d.near[@intCast(xy[1])][@intCast(xy[0] + 8)] = @intCast(c);
             if (@as(i64, xy[0]) + @as(i64, xy[1]) * width <= 1) d.one = @intCast(c);
         }
+        d.up = d.code(width);
+        d.left = d.code(1);
         return d;
     }
 
@@ -167,6 +172,31 @@ inline fn matchLen(px: []const u32, a: usize, b: usize, max: usize) usize {
     return k;
 }
 
+/// What is known of the matches at one distance from a long match before:
+/// the pixels before `end` match, and when `exact`, the one at `end` does
+/// not.
+const Known = struct {
+    end: usize = 0,
+    exact: bool = false,
+
+    /// `matchLen(px, i, i - d, max)`, from what an earlier pixel's match at
+    /// distance `d` showed: in a long match, each pixel's is the one
+    /// before's less one.
+    inline fn len(k: *Known, px: []const u32, i: usize, d: usize, max: usize) usize {
+        if (k.end > i) {
+            const known = k.end - i;
+            if (known >= max) return max;
+            if (k.exact) return known;
+            const l = known + matchLen(px, i + known, i - d + known, max - known);
+            k.* = .{ .end = i + l, .exact = l < max };
+            return l;
+        }
+        const l = matchLen(px, i, i - d, max);
+        if (l >= 2) k.* = .{ .end = i + l, .exact = l < max };
+        return l;
+    }
+};
+
 /// Finds each pixel's longest reference into `matches`, as its length
 /// less one above bit 20 and its distance code below, or 0 for none.
 /// Distance codes stay below 2^20 (`max_distance`).
@@ -176,12 +206,20 @@ pub fn findMatches(px: []const u32, width: u32, params: Params, chain: Chain, ma
     @memset(chain.head, none);
     const mask = chain.ring.len - 1;
     var prev: u32 = 0;
+    // The first pixel of the run of equal pixels that pixel `i` is in.
+    var run_start: usize = 0;
+    var near: [2]Known = .{ .{}, .{} };
     for (0..n) |i| {
         if (i + 1 >= n) {
             matches[i] = 0;
             break;
         }
-        const m = if ((prev >> 20) >= params.nice) prev - (1 << 20) else longestMatch(px, i, &dists, params, chain);
+        if (i > 0 and px[i] != px[i - 1]) run_start = i;
+        // Inside a run that goes on past `i`, the chain starts with the
+        // run's pixels before `i`, newest first: each matches only to the
+        // run's end, as the left pixel does, so the search passes them by.
+        const skip = if (px[i + 1] == px[i]) i - run_start else 0;
+        const m = if ((prev >> 20) >= params.nice) prev - (1 << 20) else longestMatch(px, i, &dists, params, chain, &near, skip);
         matches[i] = m;
         prev = m;
         if (params.chain != 0) insert(chain, px, i, mask);
@@ -199,8 +237,17 @@ inline fn pack(len: usize, code: u32) u32 {
 }
 
 /// The longest reference from pixel `i`, which has a pixel after it; of
-/// equal lengths, the left and upper pixels' first.
-fn longestMatch(px: []const u32, i: usize, dists: *const Distances, params: Params, chain: Chain) u32 {
+/// equal lengths, the left and upper pixels' first. The chain's first
+/// `skip` entries, pixels `i - 1` down to `i - skip`, cannot be longer.
+fn longestMatch(
+    px: []const u32,
+    i: usize,
+    dists: *const Distances,
+    params: Params,
+    chain: Chain,
+    near: *[2]Known,
+    skip: usize,
+) u32 {
     const n = px.len;
     const max = @min(max_length, n - i);
     const w = dists.width;
@@ -209,17 +256,17 @@ fn longestMatch(px: []const u32, i: usize, dists: *const Distances, params: Para
     inline for (.{ 1, 0 }) |which| {
         const d: usize = if (which == 1) 1 else w;
         if (d <= i and (which == 1 or d != 1)) {
-            const len = matchLen(px, i, i - d, max);
+            const len = near[which].len(px, i, d, max);
             if (len > longest) {
                 longest = len;
-                code = dists.code(@intCast(d));
+                code = if (which == 1) dists.left else dists.up;
             }
         }
     }
-    if (params.chain != 0 and longest < @min(max, params.nice)) {
+    if (params.chain > skip and longest < @min(max, params.nice)) {
         const mask = chain.ring.len - 1;
-        var j = chain.head[chain.hash(px[i], px[i + 1])];
-        var left = params.chain;
+        var j = if (skip != 0) chain.ring[(i - skip) & mask] else chain.head[chain.hash(px[i], px[i + 1])];
+        var left = params.chain - skip;
         while (j != none and left > 0) : (left -= 1) {
             const d = i - j;
             if (d > max_distance) break;
@@ -334,6 +381,7 @@ pub fn parseOptimal(
     // The first `near_codes` neighborhood codes, each distance once.
     var near: [120]struct { dist: u32, code: u32 } = undefined;
     var near_n: usize = 0;
+    var known: [120]Known = @splat(.{});
     for (plane[0..@min(near_codes, 120)], 1..) |xy, code| {
         const raw = @as(i64, xy[0]) + @as(i64, xy[1]) * width;
         const d: u32 = if (raw < 1) 1 else @intCast(raw);
@@ -366,9 +414,9 @@ pub fn parseOptimal(
         // The nearest pixels' matches too, when not the longest: their
         // codes are the cheapest.
         const max = @min(len, n - i);
-        for (near[0..near_n]) |nd| {
+        for (near[0..near_n], known[0..near_n]) |nd, *k| {
             if (nd.dist > i or nd.code == m & 0xfffff) continue;
-            const l = matchLen(px, i, i - nd.dist, max);
+            const l = k.len(px, i, nd.dist, max);
             if (l >= 2) relaxAll(cost, from, i, @intCast(l), here, nd.code, costs);
         }
     }

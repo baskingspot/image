@@ -527,7 +527,7 @@ pub fn crossColor(px: []u32, w: u32, h: u32, bits: u5, sample: u32, out: []u32, 
             const y1 = @min(h, y0 + (@as(usize, 1) << bits));
             // Every `sample`th pixel of the tile weighs the choices.
             var n: usize = 0;
-            var k: usize = 0;
+            var k: usize = sample;
             var sgg: i64 = 0;
             var srr: i64 = 0;
             var sgr: i64 = 0;
@@ -535,8 +535,9 @@ pub fn crossColor(px: []u32, w: u32, h: u32, bits: u5, sample: u32, out: []u32, 
             var sbg: i64 = 0;
             var sbr: i64 = 0;
             for (y0..y1) |y| for (x0..x1) |x| {
-                k += 1;
-                if (k % sample != 0) continue;
+                k -= 1;
+                if (k != 0) continue;
+                k = sample;
                 const p = px[y * W + x];
                 const g: i8 = @bitCast(@as(u8, @truncate(p >> 8)));
                 const r: i8 = @bitCast(@as(u8, @truncate(p >> 16)));

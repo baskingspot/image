@@ -62,8 +62,8 @@ const Plan = struct {
     /// The color transform's search weighs every this many pixels.
     cross_sample: u8 = 1,
     lz: lz77.Params = .{ .chain = 16 },
-    /// Color cache sizes to try, in bits; 0 is none.
-    cache: []const u5 = &all_cache,
+    /// Whether to try the color cache sizes; without, there is none.
+    cache: bool = true,
     /// The entropy image's smallest tile bits, or 0 for one group.
     meta_bits: u5 = 4,
     /// The most tiles the entropy image has, raising its tile bits.
@@ -94,7 +94,7 @@ const Plan = struct {
                 .pred_modes = 1 << 1 | 1 << 2 | 1 << 11,
                 .cross = false,
                 .lz = .{ .chain = 0, .nice = 16 },
-                .cache = &.{0},
+                .cache = false,
                 .meta_bits = 0,
                 .passes = 0,
                 .starts = 1,
@@ -144,8 +144,6 @@ const Plan = struct {
             else => .{ .lz = .{ .chain = 128 }, .clusters = 256, .rounds = 5, .tries = 2, .pred_refine = 1 },
         };
     }
-
-    const all_cache = [_]u5{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
     /// The entropy image's tile bits for a `width` by `height` image, or
     /// 0 for one group.
@@ -237,7 +235,7 @@ const Layout = struct {
             @sizeOf(transform.PredictScratch),
             if (plan.cross) @sizeOf(transform.ColorScratch) else 0,
             @sizeOf(transform.ColorTable),
-            if (plan.cache.len > 1) @sizeOf(CacheScratch) else 0,
+            if (plan.cache) @sizeOf(CacheScratch) else 0,
             cluster_len,
             @sizeOf(Analysis),
             if (plan.passes != 0) @sizeOf(lz77.Costs) else 0,
@@ -279,10 +277,11 @@ pub fn workLen(options: EncodeOptions, width: u32, height: u32) ?usize {
 /// Histograms of the literals' symbols with each color cache size, to
 /// choose one.
 const CacheScratch = struct {
-    green: [codes.max_cache_bits + 1][256 + (1 << codes.max_cache_bits)]u32,
-    rest: [codes.max_cache_bits + 1][3][256]u32,
-    /// Every literal's channels, before any cache takes some.
-    all: [4][256]u32,
+    /// Each size's cache symbols: size 2^b's at 2^b.
+    symbols: [2 << codes.max_cache_bits]u32,
+    /// The literals' green, red, blue, and alpha, by the smallest cache
+    /// that holds them; the last for none.
+    first: [codes.max_cache_bits + 2][4][256]u32,
 };
 
 /// An entropy-coded image, as the stream writes it.
@@ -623,12 +622,12 @@ fn rankModes(argb: []const u32, width: u32, plan: Plan, wk: Work, l: Layout, ord
     @memset(std.mem.asBytes(h), 0);
     const w: usize = width;
     var y: usize = 0;
-    while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w) |i| {
+    while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w, 0..) |i, x| {
         const p = argb[i];
-        const left = if (i % w != 0) argb[i - 1] else 0xff000000;
-        if (p == left or (i >= w and p == argb[i - w])) continue;
-        const up = if (i >= w) argb[i - w] else left;
-        const upleft = if (i > w and i % w != 0) argb[i - w - 1] else up;
+        const left = if (x != 0) argb[i - 1] else 0xff000000;
+        if (p == left or (y != 0 and p == argb[i - w])) continue;
+        const up = if (y != 0) argb[i - w] else left;
+        const upleft = if (y != 0 and x != 0) argb[i - w - 1] else up;
         const r = transform.sub(p, select(left, up, upleft));
         const g = (p >> 8) & 0xff;
         const rg = (r >> 8) & 0xff;
@@ -666,10 +665,10 @@ fn rankModes(argb: []const u32, width: u32, plan: Plan, wk: Work, l: Layout, ord
             // The indices' entropy over the same pixels, and the palette.
             var idx: [256]u32 = @splat(0);
             y = 0;
-            while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w) |i| {
+            while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w, 0..) |i, x| {
                 const p = argb[i];
-                const left = if (i % w != 0) argb[i - 1] else 0xff000000;
-                if (p == left or (i >= w and p == argb[i - w])) continue;
+                const left = if (x != 0) argb[i - 1] else 0xff000000;
+                if (p == left or (y != 0 and p == argb[i - w])) continue;
                 idx[table.index(p)] += 1;
             };
             cost[4] = shannon(&idx) + @as(f64, @floatFromInt(count * 16 / plan.analysis_step));
@@ -779,10 +778,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
     const first = lz77.parse(main_px, matches, model, tokens_all);
     const cache = wk.slice(u32, l.cache, 2 << codes.max_cache_bits);
     const cache_scratch = wk.one(CacheScratch, l.cache_scratch);
-    const cache_bits = if (plan.cache.len == 1)
-        plan.cache[0]
-    else
-        chooseCache(main_px, tokens_all[0..first], plan.cache, cache_scratch, cache);
+    const cache_bits = if (plan.cache) chooseCache(main_px, tokens_all[0..first], cache_scratch, cache) else 0;
     lz77.applyCache(main_px, tokens_all[0..first], cache_bits, cache);
     const green_size = codes.green_base + if (cache_bits == 0) 0 else @as(usize, 1) << cache_bits;
     var tokens = tokens_all[0..first];
@@ -944,20 +940,17 @@ fn toArgb(src: PixelBuffer, argb: []u32) void {
     }
 }
 
-/// The color cache size, of `candidates`, whose literals cost least, by
-/// their histograms' entropy and a rough cost for the larger codes.
-fn chooseCache(px: []const u32, tokens: []const u32, candidates: []const u5, cs: *CacheScratch, cache: []u32) u5 {
-    var max: u5 = 0;
-    for (candidates) |b| max = @max(max, b);
-    for (candidates) |b| {
-        @memset(cs.green[b][0 .. 256 + (@as(usize, 1) << b)], 0);
-        for (&cs.rest[b]) |*r| @memset(r, 0);
-    }
-    for (&cs.all) |*a| @memset(a, 0);
-    // One cache for each size, side by side: size 2^b starts at 2^b. Each
-    // literal is counted once in `all`, and what each cache takes instead
-    // in that cache's histograms, to subtract after.
-    @memset(cache[0 .. @as(usize, 2) << max], 0);
+/// The color cache size whose literals cost least, by their histograms'
+/// entropy and a rough cost for the larger codes.
+fn chooseCache(px: []const u32, tokens: []const u32, cs: *CacheScratch, cache: []u32) u5 {
+    const max = codes.max_cache_bits;
+    @memset(std.mem.asBytes(cs), 0);
+    // One cache for each size, side by side: size 2^b starts at 2^b. Every
+    // cache sees the same pixels, and a cache's slot holds the last pixel
+    // whose hash starts with its index, so a pixel that one cache holds,
+    // every larger one does too: a literal's channels are counted once, by
+    // the smallest cache that holds it.
+    @memset(cache[0 .. 2 << max], 0);
     var p: usize = 0;
     var t: usize = 0;
     while (t < tokens.len) {
@@ -969,55 +962,53 @@ fn chooseCache(px: []const u32, tokens: []const u32, candidates: []const u5, cs:
             for (px[p..][0..len]) |v| {
                 if (v == last) continue;
                 last = v;
-                for (candidates) |b| {
-                    if (b != 0) cache[(@as(usize, 1) << b) + lz77.cacheIndex(v, b)] = v;
-                }
+                inline for (1..max + 1) |b| cache[(1 << b) + lz77.cacheIndex(v, b)] = v;
             }
             p += len;
             t += 2;
             continue;
         }
         const v = px[p];
-        const g = (v >> 8) & 0xff;
-        const r = (v >> 16) & 0xff;
-        const bl = v & 0xff;
-        const a = v >> 24;
-        cs.all[0][g] += 1;
-        cs.all[1][r] += 1;
-        cs.all[2][bl] += 1;
-        cs.all[3][a] += 1;
-        for (candidates) |b| {
-            if (b == 0) continue;
-            const k = lz77.cacheIndex(v, b);
-            const slot = &cache[(@as(usize, 1) << b) + k];
-            if (slot.* == v) {
-                cs.green[b][256 + k] += 1;
-                cs.green[b][g] += 1;
-                cs.rest[b][0][r] += 1;
-                cs.rest[b][1][bl] += 1;
-                cs.rest[b][2][a] += 1;
-            } else slot.* = v;
+        // Which caches hold it, without branches: which is the smallest
+        // varies from literal to literal.
+        var held: u16 = 1 << (max + 1);
+        inline for (1..max + 1) |b| {
+            const slot = &cache[(1 << b) + lz77.cacheIndex(v, b)];
+            held |= @as(u16, @intFromBool(slot.* == v)) << b;
+            slot.* = v;
+        }
+        const f = &cs.first[@ctz(held)];
+        f[0][(v >> 8) & 0xff] += 1;
+        f[1][(v >> 16) & 0xff] += 1;
+        f[2][v & 0xff] += 1;
+        f[3][v >> 24] += 1;
+        inline for (1..max + 1) |b| {
+            cs.symbols[(1 << b) + lz77.cacheIndex(v, b)] += held >> b & 1;
         }
         p += 1;
         t += 1;
     }
-    for (candidates) |b| {
-        for (cs.green[b][0..256], cs.all[0]) |*c, n| c.* = n - c.*;
-        for (&cs.rest[b], cs.all[1..]) |*h, *all| {
-            for (h, all) |*c, n| c.* = n - c.*;
+    // From the largest size down, the literals no cache up to that size
+    // holds.
+    var bits: [max + 1]f64 = undefined;
+    var left = cs.first[max + 1];
+    var b: usize = max + 1;
+    while (b > 0) {
+        b -= 1;
+        var green: [256 + (1 << max)]u32 = undefined;
+        const k = @as(usize, 1) << @intCast(b);
+        @memcpy(green[0..256], &left[0]);
+        @memcpy(green[256..][0..k], cs.symbols[k..][0..k]);
+        // Each used cache symbol needs a code length written.
+        bits[b] = shannon(green[0 .. 256 + if (b == 0) 0 else k]) + shannon(&left[1]) +
+            shannon(&left[2]) + shannon(&left[3]) + @as(f64, @floatFromInt(k));
+        for (&left, &cs.first[b]) |*h, *c| {
+            for (h, c) |*x, y| x.* += y;
         }
     }
     var best: u5 = 0;
-    var best_cost: f64 = std.math.inf(f64);
-    for (candidates) |b| {
-        var bits = shannon(cs.green[b][0 .. 256 + (@as(usize, 1) << b)]);
-        for (&cs.rest[b]) |*r| bits += shannon(r);
-        // Each used cache symbol needs a code length written.
-        bits += @floatFromInt(@as(u32, 1) << b);
-        if (bits < best_cost) {
-            best_cost = bits;
-            best = b;
-        }
+    for (bits, 0..) |x, size| {
+        if (x < bits[best]) best = @intCast(size);
     }
     return best;
 }
