@@ -1,0 +1,4 @@
+before      55 rows, 0 differ from image
+wuffs       55 rows, 0 differ from image
+spng        55 rows, 0 differ from image
+libpng      55 rows, 0 differ from image

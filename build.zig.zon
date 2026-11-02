@@ -43,8 +43,8 @@
         // PNG decode needs, and its lazy deflate levels, which PNG encode
         // uses; move to the next release when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#631982325f3d1c968ab2004e54da6f73d90e4925",
-            .hash = "compress-0.2.0-VxR1WhDlOwCFN2gb5dNKLZGgdE3ZwUyPxtoStui6e0iF",
+            .url = "git+https://github.com/baskingspot/compress#364ef40f61d088c1dec8152ed0da7bc04c0bf2cf",
+            .hash = "compress-0.2.0-VxR1WqgCPAC7_ODgIwOqxZ9Q8NC5WYlrQGZHojLEsAlI",
         },
     },
     // Specifies the set of files and directories that are included in this package.
