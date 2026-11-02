@@ -79,16 +79,26 @@ The fuzz target (`test/fuzz/ico.zig`, `checkSeeking`) decodes every input
 with and without a seeker and requires the same frames up to the first
 `EntryBehind`, so hostile offsets reach the seek path.
 
-## PNG entries in the all-entries mode
+## PNG entries in the all-entries mode (decision 37)
 
 `decodeConfig` must report `work_len` before any entry is read, and a PNG
 entry's work memory depends on its IHDR, which a forward-only reader cannot
-see until it reaches the entry. So the all-entries mode rejects PNG entries
-with `error.Unsupported`, and `Options.entry` decodes them. The fix, once
-`image.png` lands, is a bound: a PNG `workLen(width, height)` upper bound
-for any PNG of that size, so the all-entries mode can report the bound for
-the canvas (at most 256 by 256) and reject a PNG entry whose IHDR is larger
-than its directory size.
+see until it reaches the entry. So a file with several entries reports a
+bound: `png.Decoder.maxWorkLen(canvas width)`, the work memory of a 16-bit
+RGBA PNG that wide, which covers any PNG no wider than the canvas (at most
+256, so about 76 KiB). It is reported whether or not the file has a PNG
+entry, since the directory cannot say; a file with one entry reports its
+own entry's needs (0 for a DIB, the PNG's own for a PNG).
+
+`decodeFrameConfig` peeks the IHDR for a PNG entry's size, and an entry
+larger than the canvas is `error.EntryTooLarge`, as for a DIB. `decodeFrame`
+draws the PNG on the `bgra8` canvas through `image.png`, reading it through
+a `std.Io.Reader.Limited` capped at the entry's directory length with a
+4 KiB buffer on the stack. The bytes it took from the reader, which is
+what the cap has used, advance the decoder's position, so the next entry
+is skipped to or sought as before. A PNG longer than its directory length
+is `error.Truncated`; an animated PNG gives its first frame, as when
+picked.
 
 ## Encode
 
@@ -116,8 +126,8 @@ time only, on an icon's largest entry.
 
 Decoding: a file whose only entry is a PNG decodes as if `Options.entry` were
 0, so its config (size, native format, work memory) is the PNG's and
-`ico.encode`'s 256 by 256 output reads back without options. PNG entries of
-files with several entries still need `Options.entry` (above).
+`ico.encode`'s 256 by 256 output reads back without options. A file with
+several entries decodes every entry in order, PNG ones too (above).
 
 ## Oracle
 

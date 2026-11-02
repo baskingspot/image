@@ -20,9 +20,12 @@
 //! too), or a PNG's IHDR. A DIB entry of 32 bits takes its alpha from its
 //! pixels and ignores the mask; one of fewer bits is opaque except where
 //! the mask is set. PNG entries are decoded by `image.png` when the build
-//! has it, picked with `Options.entry` or as a file's only entry; other
-//! PNG entries, and every PNG entry without `image.png`, fail with
-//! `error.Unsupported`.
+//! has it, and fail with `error.Unsupported` without it. A file's only
+//! entry, or one picked with `Options.entry`, has the PNG's own config;
+//! among several entries a PNG is drawn on the `bgra8` canvas, read through
+//! a reader limited to the entry's directory length, and the config's
+//! `work_len` is the most any PNG as wide as the canvas needs
+//! (`png.Decoder.maxWorkLen`, plan.md decision 37).
 
 const std = @import("std");
 const testing = std.testing;
@@ -91,7 +94,7 @@ pub fn Generic(comptime Png: type) type {
         /// The next entry `decodeFrame` decodes, and its header once
         /// `decodeFrameConfig` has read it.
         next: u16 = 0,
-        pending: ?dib.Header = null,
+        pending: ?Pending = null,
         /// The entry decoded as the only frame: `Options.entry`, or a
         /// one-entry file's PNG.
         pick: ?u16 = null,
@@ -101,6 +104,23 @@ pub fn Generic(comptime Png: type) type {
         directory: [max_entries][16]u8 = undefined,
 
         const State = enum { start, config, done };
+
+        /// An entry's header, read ahead: a DIB's, or a PNG's size from its
+        /// IHDR.
+        const Pending = union(enum) { bmp: dib.Header, png: [2]u32 };
+
+        /// The reader buffer a PNG entry is decoded through, which counts
+        /// what it takes.
+        const png_buffer_len = 4096;
+
+        /// The work memory for every entry of a file with several: a PNG
+        /// entry no wider than the canvas may come, unseen until it is
+        /// reached.
+        fn workLen(d: *const Self) usize {
+            if (!has_png or d.pick != null or d.count < 2) return 0;
+            // The canvas is at most 256 wide.
+            return Png.maxWorkLen(d.canvas[0]).?;
+        }
 
         /// Starts a decoder on `reader`, whose buffer must hold at least
         /// `image.min_buffer_len` bytes. The decoder reads nothing until
@@ -128,6 +148,7 @@ pub fn Generic(comptime Png: type) type {
                 .height = d.canvas[1],
                 .native = .bgra8,
                 .frame_count = if (d.pick == null) d.count else 1,
+                .work_len = d.workLen(),
             };
         }
 
@@ -139,8 +160,8 @@ pub fn Generic(comptime Png: type) type {
             if (d.state == .done) return null;
             _ = try d.decodeConfig();
             if (d.pick) |i| return .{ .index = i, .width = d.canvas[0], .height = d.canvas[1] };
-            const h = d.nextHeader() catch |e| return d.fail(e);
-            return .{ .index = d.next, .width = h.width, .height = h.height };
+            const size = d.nextSize() catch |e| return d.fail(e);
+            return .{ .index = d.next, .width = size[0], .height = size[1] };
         }
 
         /// Decodes the next entry into the top-left corner of `dst`, which
@@ -212,6 +233,7 @@ pub fn Generic(comptime Png: type) type {
                 }
                 try d.options.limits.checkSize(canvas[0], canvas[1]);
                 d.canvas = canvas;
+                try d.options.limits.checkWork(d.workLen());
                 return;
             };
             if (i >= count) return error.NoEntry;
@@ -264,24 +286,61 @@ pub fn Generic(comptime Png: type) type {
                 return .{ .index = i, .width = dst.width, .height = dst.height };
             }
             const i = d.next;
-            const h = try d.nextHeader();
+            const size = try d.nextSize();
+            const region = dst.sub(0, 0, size[0], size[1]);
+            switch (d.pending.?) {
+                .bmp => |h| try decodeBmp(&d.in, h, region),
+                .png => if (has_png) try d.decodePng(region, work) else unreachable,
+            }
             d.pending = null;
-            try decodeBmp(&d.in, h, dst.sub(0, 0, h.width, h.height));
             d.next += 1;
-            return .{ .index = i, .width = h.width, .height = h.height };
+            return .{ .index = i, .width = size[0], .height = size[1] };
         }
 
-        /// The header of entry `next`, read once.
-        fn nextHeader(d: *Self) Error!dib.Header {
-            if (d.pending) |h| return h;
-            try d.goTo(d.entry(d.next).offset);
-            // PNG entries of files with several need `Options.entry`,
-            // which sizes their work memory from their own header.
-            if (try d.isPng()) return error.Unsupported;
-            const h = try dib.readHeader(&d.in, .ico, 0);
-            if (h.width > d.canvas[0] or h.height > d.canvas[1]) return error.EntryTooLarge;
-            d.pending = h;
-            return h;
+        /// Entry `next`'s size from its header, read once.
+        fn nextSize(d: *Self) Error![2]u32 {
+            if (d.pending == null) {
+                try d.goTo(d.entry(d.next).offset);
+                if (try d.isPng()) {
+                    if (!has_png) return error.Unsupported;
+                    // The signature, IHDR's length and type, its width and
+                    // height.
+                    const b = d.in.r.peekArray(24) catch |e| return dib.mapRead(e);
+                    if (!std.mem.eql(u8, b[12..16], "IHDR")) return error.BadHeader;
+                    d.pending = .{ .png = .{
+                        std.mem.readInt(u32, b[16..20], .big),
+                        std.mem.readInt(u32, b[20..24], .big),
+                    } };
+                } else {
+                    d.pending = .{ .bmp = try dib.readHeader(&d.in, .ico, 0) };
+                }
+            }
+            const size: [2]u32 = switch (d.pending.?) {
+                .bmp => |h| .{ h.width, h.height },
+                .png => |s| s,
+            };
+            if (size[0] == 0 or size[1] == 0) return error.BadHeader;
+            if (size[0] > d.canvas[0] or size[1] > d.canvas[1]) return error.EntryTooLarge;
+            return size;
+        }
+
+        /// Decodes entry `next`, a PNG, through a reader limited to the
+        /// entry's length, which counts the bytes the PNG decoder takes.
+        /// Its work memory is within `workLen`, as the PNG is no wider than
+        /// the canvas.
+        fn decodePng(d: *Self, dst: PixelBuffer, work: []u8) Error!void {
+            const size = d.entry(d.next).size;
+            var buf: [png_buffer_len]u8 = undefined;
+            var limited = d.in.r.limited(.limited(size), &buf);
+            var o: Png.Options = .{};
+            o.limits = d.options.limits;
+            var p: Png = .init(&limited.interface, o);
+            const c = try p.decodeConfig();
+            if (c.width != dst.width or c.height != dst.height) return error.BadHeader;
+            _ = (try p.decodeFrame(dst, work)) orelse return error.Truncated;
+            // IEND, as for a picked entry.
+            if (c.frame_count == 1) _ = try p.decodeFrame(dst, work);
+            d.in.pos += size - limited.remaining.toInt().?;
         }
     };
 }
@@ -482,13 +541,39 @@ test "a picked or only PNG entry decodes through image.png, IEND included" {
     const only = try testDecodePng(PngTestDecoder, testPngFile(png_2x1), .{}, &out);
     try testing.expectEqual(.{ 2, 1, 1 }, .{ only.width, only.height, only.frame_count.? });
     try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, &out);
-    // Without image.png, or among several entries without `Options.entry`,
-    // a PNG entry is unsupported.
+    // Without image.png a PNG entry is unsupported.
     try testing.expectError(error.Unsupported, testDecodePng(TestDecoder, testPngFile(png_2x1), .{ .entry = 0 }, &out));
     const two = le(u16, 0) ++ le(u16, 1) ++ le(u16, 2) ++
         "\x10\x10\x00\x00" ++ le(u16, 1) ++ le(u16, 32) ++ le(u32, png_2x1.len) ++ le(u32, 38) ++
         "\x10\x10\x00\x00" ++ le(u16, 1) ++ le(u16, 32) ++ le(u32, png_2x1.len) ++ le(u32, 38) ++ png_2x1;
     var big: [16 * 16 * 4]u8 = undefined;
-    try testing.expectError(error.Unsupported, testDecodePng(PngTestDecoder, two, .{}, &big));
     try testing.expectError(error.Unsupported, testDecodePng(TestDecoder, testPngFile(png_2x1), .{}, &big));
+
+    // Among several entries, PNGs are frames on the canvas, with the work
+    // memory any PNG as wide needs. Both entries here are the same PNG, so
+    // the second is behind the reader once the first is read, by exactly
+    // the bytes the PNG decoder took.
+    for ([_]bool{ false, true }) |seek| {
+        var r: Io.Reader = .fixed(two);
+        var d: PngTestDecoder = .init(&r, .{ .seeker = if (seek) .fixed(&r) else null });
+        const c = try d.decodeConfig();
+        try testing.expectEqual(.{ 16, 16, PixelFormat.bgra8, 2 }, .{ c.width, c.height, c.native, c.frame_count.? });
+        try testing.expectEqual(PngDecoder.maxWorkLen(16).?, c.work_len);
+        const work = try testing.allocator.alloc(u8, c.work_len);
+        defer testing.allocator.free(work);
+        const dst = try PixelBuffer.init(&big, .rgba8, 16, 16);
+        try testing.expectEqual(decode.Frame{ .index = 0, .width = 2, .height = 1 }, (try d.decodeFrameConfig()).?);
+        @memset(&big, 0);
+        try testing.expectEqual(decode.Frame{ .index = 0, .width = 2, .height = 1 }, (try d.decodeFrame(dst, work)).?);
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, big[0..8]);
+        try testing.expectEqual(png_2x1.len + 38, d.in.pos);
+        if (!seek) {
+            try testing.expectError(error.EntryBehind, d.decodeFrame(dst, work));
+            continue;
+        }
+        @memset(&big, 0);
+        try testing.expectEqual(decode.Frame{ .index = 1, .width = 2, .height = 1 }, (try d.decodeFrame(dst, work)).?);
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, big[0..8]);
+        try testing.expectEqual(null, try d.decodeFrame(dst, work));
+    }
 }

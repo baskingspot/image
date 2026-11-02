@@ -470,6 +470,13 @@ fn readHead(d: *Decoder) Error!void {
     }
 }
 
+/// The work memory any PNG no wider than `width` needs: `Config.work_len`
+/// for 16-bit RGBA, the widest pixel. For a container that must state the
+/// work memory before it reaches a PNG's header (ICO).
+pub fn maxWorkLen(width: u32) ?usize {
+    return workLen(.{ .width = width, .height = 1, .depth = 16, .color = 6, .interlaced = false });
+}
+
 fn workLen(h: Ihdr) ?usize {
     const row = h.rowBytes(h.width) orelse return null;
     const rows = std.math.mul(usize, row, 2) catch return null;

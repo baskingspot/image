@@ -174,7 +174,7 @@ const PngDecoder = @import("../png/Decoder.zig");
 const Decoder = @import("Decoder.zig").Generic(PngDecoder);
 const convertBuffer = @import("../convert.zig").convertBuffer;
 
-test "256 by 256 entries are PNG by default, smaller ones BMP, and each reads back" {
+test "256 by 256 entries are PNG by default, smaller ones BMP, and each reads back, picked or in order" {
     const gpa = testing.allocator;
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const random = prng.random();
@@ -244,5 +244,29 @@ test "256 by 256 entries are PNG by default, smaller ones BMP, and each reads ba
             // The palette PNG is far smaller than the BMP would be.
             try testing.expect(file.len < bmpLen(big) / 8);
         }
+
+        // Every entry, PNG and BMP, straight through without a seeker.
+        var r: Io.Reader = .fixed(file);
+        var d: Decoder = .init(&r, .{});
+        const config = try d.decodeConfig();
+        try testing.expectEqual(.{ 256, 256, 2 }, .{ config.width, config.height, config.frame_count.? });
+        const canvas_px = try gpa.alloc(u8, 256 * 256 * 4);
+        defer gpa.free(canvas_px);
+        const want_px = try gpa.alloc(u8, 256 * 256 * 4);
+        defer gpa.free(want_px);
+        const canvas: PixelBuffer = try .init(canvas_px, .bgra8, 256, 256);
+        const dwork = try gpa.alloc(u8, config.work_len);
+        defer gpa.free(dwork);
+        for (images) |img| {
+            const p = img.pixels;
+            const f = (try d.decodeFrame(canvas, dwork)).?;
+            try testing.expectEqual(.{ p.width, p.height }, .{ f.width, f.height });
+            const want: PixelBuffer = try .init(want_px[0 .. p.width * p.height * 4], .bgra8, p.width, p.height);
+            try convertBuffer(want, p);
+            for (0..p.height) |y| {
+                try testing.expectEqualSlices(u8, want.row(@intCast(y)), canvas.row(@intCast(y))[0 .. p.width * 4]);
+            }
+        }
+        try testing.expectEqual(null, try d.decodeFrame(canvas, dwork));
     }
 }

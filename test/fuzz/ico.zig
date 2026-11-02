@@ -20,6 +20,9 @@ pub fn check(input: []const u8, choice: u64) !void {
 
 /// Two canvases, each the largest a directory can give.
 var canvases: [2][256 * 256 * 4]u8 = undefined;
+/// The work memory for both decoders, which decode one after the other:
+/// at most a PNG entry's bound for a 256-wide canvas.
+var work_buffer: [image.png.Decoder.maxWorkLen(256).?]u8 = undefined;
 
 /// Decoding every entry with a seeker gives what decoding without one does
 /// until that fails with `EntryBehind`, and never fails that way itself;
@@ -41,20 +44,21 @@ fn checkSeeking(input: []const u8) !void {
     @memset(canvases[1][0..len], 0);
     const fd = try image.PixelBuffer.init(&canvases[0], .bgra8, config.width, config.height);
     const sd = try image.PixelBuffer.init(&canvases[1], .bgra8, config.width, config.height);
+    const work = work_buffer[0..config.work_len];
     while (true) {
-        const want = f.decodeFrame(fd, &.{}) catch |e| {
+        const want = f.decodeFrame(fd, work) catch |e| {
             if (e == error.EntryBehind) {
-                while (try harness.announced(image.ico.Decoder, &s, sd, &.{}) catch |e2| {
+                while (try harness.announced(image.ico.Decoder, &s, sd, work) catch |e2| {
                     if (e2 == error.EntryBehind) return error.SeekDiffers;
                     return;
                 }) |_| {}
                 return;
             }
-            const after = try harness.announced(image.ico.Decoder, &s, sd, &.{});
+            const after = try harness.announced(image.ico.Decoder, &s, sd, work);
             if (after) |_| return error.SeekDiffers else |e2| if (e2 != e) return error.SeekDiffers;
             return;
         };
-        const got = try harness.announced(image.ico.Decoder, &s, sd, &.{}) catch return error.SeekDiffers;
+        const got = try harness.announced(image.ico.Decoder, &s, sd, work) catch return error.SeekDiffers;
         if (!std.meta.eql(want, got)) return error.SeekDiffers;
         if (!std.mem.eql(u8, canvases[0][0..len], canvases[1][0..len])) return error.SeekDiffers;
         if (want == null) return;

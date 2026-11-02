@@ -200,15 +200,19 @@ test "a seeker reaches the format's decoder" {
         var r: Io.Reader = .fixed(file);
         var d: Decoder = try .initDetect(&r, .{ .seeker = if (seek) .fixed(&r) else null });
         try testing.expectEqual(Format.ico, d.format());
-        try testing.expectEqual(2, (try d.decodeConfig()).frame_count);
-        _ = (try d.decodeFrame(dst, &.{})).?;
+        const config = try d.decodeConfig();
+        try testing.expectEqual(2, config.frame_count);
+        // Room for a PNG entry, which the directory cannot rule out.
+        const work = try testing.allocator.alloc(u8, config.work_len);
+        defer testing.allocator.free(work);
+        _ = (try d.decodeFrame(dst, work)).?;
         try testing.expectEqualSlices(u8, &.{ 3, 2, 1, 255 }, &out);
         if (seek) {
-            try testing.expectEqual(1, (try d.decodeFrame(dst, &.{})).?.index);
+            try testing.expectEqual(1, (try d.decodeFrame(dst, work)).?.index);
             try testing.expectEqualSlices(u8, &.{ 6, 5, 4, 128 }, &out);
-            try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+            try testing.expectEqual(null, try d.decodeFrame(dst, work));
         } else {
-            try testing.expectError(error.EntryBehind, d.decodeFrame(dst, &.{}));
+            try testing.expectError(error.EntryBehind, d.decodeFrame(dst, work));
         }
     }
 }
