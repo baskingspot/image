@@ -1,0 +1,32 @@
+image/arm, geomean              rows image MP/s  libwebp image-rs     ±   <1    ~   slowest vs libwebp
+WebpEncodeZ0/icon                  6       10.9     1.51     0.41    6%    0    0   1.19 [1.18, 1.34] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ0/1mp                  12       52.5     1.19     0.35    6%    2    3   0.73 [0.66, 0.76] textures_plants-plant_01-166x1022.raw
+WebpEncodeZ0/large                 3       35.7     1.55     0.31   10%    0    0   1.48 [1.39, 2.42] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ1/icon                  6        3.5     1.08        -    1%    4    0   0.86 [0.85, 0.91] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ1/1mp                  12       11.9     0.90        -    2%    6    0   0.31 [0.30, 0.34] test-qoi_logo-448x220.raw
+WebpEncodeZ1/large                 3        7.9     1.33        -    4%    0    1   0.98 [0.95, 1.09] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ2/icon                  6        2.7     1.13        -    2%    1    1   0.92 [0.89, 1.20] icon_32-actions_appointment_new-32x32.raw
+WebpEncodeZ2/1mp                  12        7.7     0.93        -    1%    4    1   0.22 [0.22, 0.23] test-qoi_logo-448x220.raw
+WebpEncodeZ2/large                 3        5.4     1.31        -    4%    0    1   1.10 [0.92, 1.24] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ3/icon                  6        2.4     1.64        -    2%    0    0   1.41 [1.39, 1.43] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ3/1mp                  12        5.6     1.11        -    1%    4    0   0.25 [0.25, 0.25] test-qoi_logo-448x220.raw
+WebpEncodeZ3/large                 3        4.4     1.31        -    2%    0    0   1.15 [1.10, 1.17] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ4/icon                  6        2.4     1.67        -    7%    0    1   1.35 [0.83, 1.40] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ4/1mp                  12        5.0     1.03        -    1%    4    0   0.21 [0.21, 0.21] test-qoi_logo-448x220.raw
+WebpEncodeZ4/large                 3        4.2     1.34        -    5%    0    0   1.19 [1.01, 1.27] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ5/icon                  6        2.3     2.69        -    1%    0    0   1.32 [1.26, 1.36] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ5/1mp                  12        4.4     1.01        -    2%    4    1   0.28 [0.27, 0.28] test-qoi_logo-448x220.raw
+WebpEncodeZ5/large                 3        3.8     1.27        -    2%    0    0   1.09 [1.08, 1.17] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ6/icon                  6        2.2     3.04        -    1%    0    0   1.30 [1.27, 1.34] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ6/1mp                  12        3.7     0.98        -    1%    4    1   0.28 [0.28, 0.29] test-qoi_logo-448x220.raw
+WebpEncodeZ6/large                 3        3.0     1.27        -    3%    0    1   1.08 [0.94, 1.10] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ7/icon                  6        2.0     2.99        -    1%    0    0   1.17 [1.14, 1.18] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ7/1mp                  12        3.5     1.02        -    1%    4    0   0.51 [0.48, 0.51] test-qoi_logo-448x220.raw
+WebpEncodeZ7/large                 3        2.5     1.59        -    3%    0    0   1.43 [1.42, 1.48] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ8/icon                  6        1.9    10.55        -    1%    0    0   4.21 [4.15, 4.57] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ8/1mp                  12        1.7     1.84        -    3%    2    0   0.20 [0.16, 0.21] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+WebpEncodeZ8/large                 3        1.7     1.31        -    1%    0    0   1.25 [1.21, 1.28] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ9/icon                  6        0.6    20.83        -    2%    0    0   7.17 [7.00, 8.00] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ9/1mp                  12        0.3     2.54        -    3%    1    1   0.67 [0.64, 0.70] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+WebpEncodeZ9/large                 3        0.4     2.15        -    4%    1    0   0.88 [0.85, 0.90] screenshot_web-apple_com-1313x4755.raw
+all                              210        3.7     1.55     0.36         41   12

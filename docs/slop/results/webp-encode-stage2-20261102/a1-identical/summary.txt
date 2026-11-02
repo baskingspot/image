@@ -1,0 +1,32 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+WebpEncodeZ0/icon                  6       10.9     1.19    4%    0    0   1.15 [1.13, 1.19] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ0/1mp                  12       51.8     1.08    3%    0    8   0.99 [0.94, 1.02] pngimg-academy_awards_PNG9-447x1192.raw
+WebpEncodeZ0/large                 3       35.1     0.99    5%    0    3   0.98 [0.97, 1.08] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ1/icon                  6        3.5     1.13    5%    0    3   1.08 [0.94, 1.11] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ1/1mp                  12        9.3     1.15    5%    0    6   1.02 [0.82, 1.50] textures_pk-_pkf_water1-128x128.raw
+WebpEncodeZ1/large                 3        7.4     1.05    5%    0    1   1.00 [0.89, 1.12] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ2/icon                  6        2.7     1.12    3%    0    3   1.06 [1.05, 1.08] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ2/1mp                  12        6.2     1.10    3%    0    7   1.02 [1.00, 1.08] textures_pk-_pkf_water1-128x128.raw
+WebpEncodeZ2/large                 3        5.0     1.02    3%    0    2   0.99 [0.99, 1.01] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ3/icon                  6        2.4     1.12    1%    0    2   1.07 [1.06, 1.41] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ3/1mp                  12        5.6     1.11    3%    0    4   1.02 [1.00, 1.17] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ3/large                 3        4.3     1.02    6%    0    2   1.00 [0.96, 1.04] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ4/icon                  6        2.4     1.11    3%    0    1   1.05 [0.96, 1.20] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ4/1mp                  12        5.0     1.09    5%    0    6   1.02 [0.89, 1.04] test-dice-800x600.raw
+WebpEncodeZ4/large                 3        4.1     1.02    4%    0    2   1.01 [1.00, 1.07] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ5/icon                  6        2.2     1.06    6%    0    2   0.86 [0.68, 1.07] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ5/1mp                  12        4.4     1.08    3%    0    4   1.00 [0.95, 1.03] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ5/large                 3        3.8     1.02    1%    0    1   1.00 [0.96, 1.01] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ6/icon                  6        2.1     1.11    1%    0    2   1.09 [0.98, 1.33] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ6/1mp                  12        3.7     1.07    4%    0    6   1.03 [0.95, 1.13] test-dice-800x600.raw
+WebpEncodeZ6/large                 3        3.0     1.01    9%    0    2   0.99 [0.95, 1.12] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ7/icon                  6        2.0     1.10    6%    0    1   1.07 [0.72, 1.08] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ7/1mp                  12        3.0     1.06    2%    0    4   1.02 [1.01, 1.03] test-dice-800x600.raw
+WebpEncodeZ7/large                 3        2.4     0.99    4%    0    3   0.98 [0.92, 1.03] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ8/icon                  6        1.9     1.11    1%    0    0   1.07 [1.04, 1.09] icon_32-actions_appointment_new-32x32.raw
+WebpEncodeZ8/1mp                  12        1.7     1.03    2%    0    6   1.00 [0.98, 1.18] icon_512-actions_address_book_new-512x512.raw
+WebpEncodeZ8/large                 3        1.7     1.00    2%    0    2   0.99 [0.93, 1.04] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ9/icon                  6        0.6     1.11    0%    0    0   1.08 [1.08, 1.13] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ9/1mp                  12        0.3     1.01    3%    0   10   0.94 [0.94, 1.00] test-dice-800x600.raw
+WebpEncodeZ9/large                 3        0.4     1.00    4%    0    3   1.00 [0.96, 1.00] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+all                              210        3.5     1.08          0   96

@@ -1,0 +1,5 @@
+peak RSS (MiB)                image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp  libtiff   libjxl image-rs     zunejxl-oxide       go
+webp-encode-z7                153.2        -        -        -        -        -        -        -        -    212.8        -        -        -        -        -        -
+  icon                          3.0        -        -        -        -        -        -        -        -      4.6        -        -        -        -        -        -
+  1mp                          22.9        -        -        -        -        -        -        -        -     52.9        -        -        -        -        -        -
+  large                       153.4        -        -        -        -        -        -        -        -    204.9        -        -        -        -        -        -

@@ -1,0 +1,6 @@
+peak RSS (MiB)         noavx512     base
+webp-encode-z0            108.9    109.0
+webp-encode-z1            152.3    152.4
+webp-encode-z3            152.6    152.7
+webp-encode-z5            153.1    153.2
+webp-encode-z7            153.1    153.2

@@ -1,0 +1,6 @@
+ours z5 vs libwebp z6: icon speed 3.19 size 1.028; 1mp speed 1.17 size 0.992; large speed 1.62 size 0.986; all speed 1.63 size 0.988
+ours z5 vs libwebp z5: icon speed 2.69 size 1.028; 1mp speed 1.01 size 0.992; large speed 1.28 size 0.986; all speed 1.38 size 0.988
+ours z6 vs libwebp z6: icon speed 3.05 size 1.025; 1mp speed 0.98 size 0.992; large speed 1.25 size 0.984; all speed 1.40 size 0.987
+ours z5 vs libwebp z7: icon speed 3.45 size 1.024; 1mp speed 1.30 size 0.996; large speed 2.49 size 0.989; all speed 1.89 size 0.991
+ours z4 vs libwebp z6: icon speed 3.29 size 1.068; 1mp speed 1.34 size 1.000; large speed 1.78 size 0.997; all speed 1.81 size 0.998
+ours z3 vs libwebp z6: icon speed 3.36 size 1.068; 1mp speed 1.50 size 1.001; large speed 1.84 size 1.001; all speed 1.94 size 1.001

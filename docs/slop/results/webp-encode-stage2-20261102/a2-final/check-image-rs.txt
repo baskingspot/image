@@ -1,0 +1,30 @@
+WebpEncodeZ0/icon_16-actions_address_book_new-16x16.raw	len=880 fnv=82252a0cb001c64e
+WebpEncodeZ0/icon_16-actions_appointment_new-16x16.raw	len=830 fnv=6faa5f76e7646393
+WebpEncodeZ0/icon_32-actions_address_book_new-32x32.raw	len=2204 fnv=3b35d2c782afe93a
+WebpEncodeZ0/icon_32-actions_appointment_new-32x32.raw	len=2218 fnv=c75437386152f582
+WebpEncodeZ0/icon_64-actions_address_book_new-64x64.raw	len=5436 fnv=1da4eaccc44482a3
+WebpEncodeZ0/icon_64-actions_appointment_new-64x64.raw	len=5970 fnv=0f6f9ed08ebbe24d
+WebpEncodeZ0/icon_512-actions_address_book_new-512x512.raw	len=80692 fnv=a33a542f95f79dbb
+WebpEncodeZ0/photo_kodak-kodim01-768x512.raw	len=603274 fnv=f4535649c85cc320
+WebpEncodeZ0/photo_kodak-kodim02-768x512.raw	len=532432 fnv=c4f170e4fbd4c110
+WebpEncodeZ0/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw	len=1594328 fnv=5cf82a7a4dc9ba53
+WebpEncodeZ0/photo_wikipedia-001-1276x850.raw	len=1356914 fnv=9bd3b70ca6f7dc88
+WebpEncodeZ0/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw	len=25428 fnv=29442b7c31f46a25
+WebpEncodeZ0/pngimg-academy_awards_PNG9-447x1192.raw	len=320280 fnv=28c0779f790b5cd3
+WebpEncodeZ0/screenshot_game-3dbrick2-320x240.raw	len=9638 fnv=0122f407f2ab1361
+WebpEncodeZ0/screenshot_game-20XX_Menu_picture-634x406.raw	len=138554 fnv=20c7fadd837f9e54
+WebpEncodeZ0/screenshot_web-apple_com-1313x4755.raw	len=1553904 fnv=4f637f3bc923e01c
+WebpEncodeZ0/test-dice-800x600.raw	len=258510 fnv=1594608477744419
+WebpEncodeZ0/test-qoi_logo-448x220.raw	len=15258 fnv=5dd48a948c9ea2dd
+WebpEncodeZ0/test-testcard_rgba-256x256.raw	len=12800 fnv=a12c256876e4d12e
+WebpEncodeZ0/textures_pk-_pkf_water1-128x128.raw	len=16946 fnv=e115be425ed42be7
+WebpEncodeZ0/textures_plants-plant_01-166x1022.raw	len=41204 fnv=839ec464fc2e73c1
+# SKIP BenchmarkWebpEncodeZ1: no function in this arm
+# SKIP BenchmarkWebpEncodeZ2: no function in this arm
+# SKIP BenchmarkWebpEncodeZ3: no function in this arm
+# SKIP BenchmarkWebpEncodeZ4: no function in this arm
+# SKIP BenchmarkWebpEncodeZ5: no function in this arm
+# SKIP BenchmarkWebpEncodeZ6: no function in this arm
+# SKIP BenchmarkWebpEncodeZ7: no function in this arm
+# SKIP BenchmarkWebpEncodeZ8: no function in this arm
+# SKIP BenchmarkWebpEncodeZ9: no function in this arm
