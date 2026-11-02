@@ -3,6 +3,7 @@
 // comment: pkg-config packages (libpng, spng, libjpeg, libwebp, libtiff-4,
 // libjxl, MagickWand) or -l flags (-lgif), and `-` for none.
 FORMAT(png) // link: libpng spng
+FORMAT(jpeg) // link: libjpeg
 FORMAT(qoi) // link: -
 FORMAT(bmp) // link: MagickWand
 FORMAT(ico) // link: -
