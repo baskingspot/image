@@ -68,6 +68,8 @@ const Plan = struct {
     scratch: Span = .{},
     /// The coefficients, and before them the compressed `brob` contents.
     coefs: Span = .{},
+    /// The codestream decoder's work memory for the coefficient pass.
+    decoder: Span = .{},
     total: usize = 0,
 };
 
@@ -134,13 +136,14 @@ fn makePlan(r: *JpegReconstructor) Error!Plan {
     p.refines = j.refines;
     if ((p.exif_len != null and p.exif == null) or (p.xmp_len != null and p.xmp == null)) return error.BadJbrd;
 
-    // The codestream's size.
+    // The codestream's size and the coefficient pass's work memory.
     try seeker.seek(seeker.context, 0);
     var d = Decoder.init(r.reader, .{ .limits = r.options.limits });
     const config = try d.decodeConfig();
     p.width = config.width;
     p.height = config.height;
     if (p.width > 0xffff or p.height > 0xffff) return error.BadJbrd;
+    const decoder_len = try d.jpegWorkLen();
 
     // The parts, each aligned to 16 bytes.
     var total: usize = 0;
@@ -159,15 +162,15 @@ fn makePlan(r: *JpegReconstructor) Error!Plan {
     if (p.xmp_len) |n| p.xmp_buf = try take(&total, n);
     p.icc = try take(&total, p.icc_len);
     if (p.refines) p.scratch = try take(&total, jbrd.max_correction_bytes);
-    // Coefficients for three components at up to twice the subsampling
-    // of the others, in whole 16-pixel MCUs; the compressed metadata
-    // boxes are read into the same bytes before the coefficients.
-    const mcus = @as(u64, (p.width + 15) / 16) * ((p.height + 15) / 16);
-    var coef_bytes = mcus * 3 * 4 * 64 * 2;
+    // The coefficients, i16 at any base address, so one byte more than
+    // `maxCoefs` takes; the compressed metadata boxes are read into the
+    // same bytes before the coefficients.
+    var coef_bytes = @as(u64, Decoder.Jpeg.maxCoefs(p.width, p.height)) * 2 + 1;
     for ([_]?Box{ p.exif, p.xmp }) |b| if (b) |box| if (box.brotli) {
         coef_bytes = @max(coef_bytes, box.len);
     };
     p.coefs = try take(&total, coef_bytes);
+    p.decoder = try take(&total, decoder_len);
     p.total = total;
     try r.options.limits.checkWork(total);
     return p;
@@ -200,11 +203,10 @@ fn findBoxes(r: *JpegReconstructor) Error!Boxes {
     var boxes: Boxes = .{};
     var first = true;
     while (true) {
+        // The input may end inside a box's header or payload: that ends
+        // the walk (see the payload's skip below).
         const head = in.peek(8) catch |e| switch (e) {
-            error.EndOfStream => {
-                if (in.bufferedLen() == 0) break;
-                return error.Truncated;
-            },
+            error.EndOfStream => break,
             error.ReadFailed => return error.ReadFailed,
         };
         const size32 = std.mem.readInt(u32, head[0..4], .big);
@@ -213,7 +215,10 @@ fn findBoxes(r: *JpegReconstructor) Error!Boxes {
         pos += 8;
         var len: ?u64 = null;
         if (size32 == 1) {
-            const big = in.takeArray(8) catch |e| return mapRead(e);
+            const big = in.takeArray(8) catch |e| switch (e) {
+                error.EndOfStream => break,
+                error.ReadFailed => return error.ReadFailed,
+            };
             pos += 8;
             const n = std.mem.readInt(u64, big, .big);
             if (n < 16) return error.BadBox;
@@ -223,7 +228,11 @@ fn findBoxes(r: *JpegReconstructor) Error!Boxes {
             len = size32 - 8;
         }
         if (first) {
-            if (!std.mem.eql(u8, &kind, "ftyp")) return error.BadBox;
+            // ftyp: the major brand and a file format version libjxl
+            // knows (0, or 1 for out-of-order jxlp boxes).
+            if (!std.mem.eql(u8, &kind, "ftyp") or (len orelse 0) < 12) return error.BadBox;
+            const ftyp = in.peek(8) catch |e| return mapRead(e);
+            if (!std.mem.eql(u8, ftyp[0..4], "jxl ") or std.mem.readInt(u32, ftyp[4..8], .big) > 1) return error.BadBox;
             first = false;
         }
         var box: Box = .{ .at = pos, .len = len orelse 0 };
@@ -236,7 +245,10 @@ fn findBoxes(r: *JpegReconstructor) Error!Boxes {
         } else if (std.mem.eql(u8, &kind, "xml ")) {
             if (boxes.xmp == null) note = &boxes.xmp;
         } else if (std.mem.eql(u8, &kind, "brob") and (len orelse 4) >= 4) {
-            const inner = in.takeArray(4) catch |e| return mapRead(e);
+            const inner = in.takeArray(4) catch |e| switch (e) {
+                error.EndOfStream => break,
+                error.ReadFailed => return error.ReadFailed,
+            };
             pos += 4;
             if (len) |*n| n.* -= 4;
             box = .{ .at = pos, .len = len orelse 0, .brotli = true };
@@ -245,7 +257,14 @@ fn findBoxes(r: *JpegReconstructor) Error!Boxes {
         }
         if (len) |n| {
             if (note) |slot| slot.* = box;
-            in.discardAll64(n) catch |e| return mapRead(e);
+            // A box that runs past the input's end ends the walk: what it
+            // holds is only read if it is one of the boxes noted, and then
+            // the read is `Truncated`. libjxl reads no further than the
+            // image needs either.
+            in.discardAll64(n) catch |e| switch (e) {
+                error.EndOfStream => break,
+                error.ReadFailed => return error.ReadFailed,
+            };
             pos += n;
         } else {
             // A box to the end of the file: its length is what is left.
@@ -290,26 +309,78 @@ fn runPlan(r: *JpegReconstructor, writer: *Io.Writer, work: []u8) Error!void {
     const rest: usize = @intCast(bits.remaining());
     try jbrd.split(&j, raw[raw.len - rest ..], p.payload.of(work));
 
-    // The metadata boxes the APP markers copy.
+    // The metadata boxes the APP markers copy. A `brob` box's compressed
+    // bytes pass through the coefficients' memory, so these come first.
+    var exif: ?[]const u8 = null;
+    var xmp: ?[]const u8 = null;
+    if (p.exif_len != null) exif = try r.readBox(p.exif.?, p.exif_buf.of(work), p.coefs.of(work));
+    if (p.xmp_len != null) xmp = try r.readBox(p.xmp.?, p.xmp_buf.of(work), p.coefs.of(work));
+
+    // The coefficients and quantization tables, and the ICC profile.
+    try seeker.seek(seeker.context, 0);
+    var icc: IccSink = .{ .buf = p.icc.of(work) };
+    var d = Decoder.init(r.reader, .{ .limits = r.options.limits, .blob_sink = icc.sink() });
+    _ = try d.decodeConfig();
+    const coef_mem = p.coefs.of(work);
+    const skip = std.mem.alignPointerOffset(coef_mem.ptr, @alignOf(i16)).?;
+    const coefs = std.mem.bytesAsSlice(i16, coef_mem[skip..][0 .. (coef_mem.len - skip) & ~@as(usize, 1)]);
+    var jpeg = try d.decodeJpeg(@alignCast(coefs), p.decoder.of(work));
+    if (p.icc_len != 0 and (icc.overflow or icc.len != p.icc_len)) return error.BadJbrd;
+    try conform(&jpeg, j.num_components);
+
     var img: jbrd.Image = .{
         .width = p.width,
         .height = p.height,
-        .h = @splat(1),
-        .v = @splat(1),
-        .quant = undefined,
-        .coefs = @splat(&.{}),
+        .h = jpeg.h,
+        .v = jpeg.v,
+        .quant = jpeg.quant,
+        .coefs = .{ jpeg.coefs[0], jpeg.coefs[1], jpeg.coefs[2] },
+        .icc = icc.buf[0..p.icc_len],
+        .exif = exif,
+        .xmp = xmp,
     };
-    if (p.exif_len != null) img.exif = try r.readBox(p.exif.?, p.exif_buf.of(work), p.coefs.of(work));
-    if (p.xmp_len != null) img.xmp = try r.readBox(p.xmp.?, p.xmp_buf.of(work), p.coefs.of(work));
-    return writeWithCoefficients(writer, &j, &img, p.scratch.of(work));
+    // The box's components must lie on the codestream's blocks.
+    for (0..j.num_components) |c| {
+        if (img.blocksX(j.num_components, c) != jpeg.blocks_x[c] or
+            img.blocksY(j.num_components, c) != jpeg.blocks_y[c]) return error.BadJbrd;
+    }
+    return jbrd.write(writer, &j, &img, p.scratch.of(work));
 }
 
-/// The coefficients wait for the codestream's coefficient pass
-/// (docs/slop/jxl-jbrd.md); until then reconstruction is unsupported.
-fn writeWithCoefficients(writer: *Io.Writer, j: *jbrd.Jbrd, img: *jbrd.Image, scratch: []u8) Error!void {
-    if (img.coefs[0].len == 0) return error.Unsupported;
-    return jbrd.write(writer, j, img, scratch);
+/// Holds the coefficients to libjxl's JPEG bounds, every block of the
+/// components the JPEG has, padding included: DC clamped to ±2047, and any
+/// coefficient past ±4095 refused. A file cjxl writes is within them.
+fn conform(jpeg: *Decoder.Jpeg, num_components: u2) Error!void {
+    const n: usize = if (num_components == 1) 1 else 3;
+    for (jpeg.coefs[0..n]) |coefs| {
+        var i: usize = 0;
+        while (i < coefs.len) : (i += 64) coefs[i] = std.math.clamp(coefs[i], -2047, 2047);
+        for (coefs) |v| if (v < -4095 or v > 4095) return error.BadJbrd;
+    }
 }
+
+/// Takes the ICC profile from the codestream decoder's blob sink into
+/// `buf`, noting its length; other blobs are the boxes' and ignored.
+const IccSink = struct {
+    buf: []u8,
+    len: u64 = 0,
+    overflow: bool = false,
+
+    fn sink(s: *IccSink) decode.BlobSink {
+        return .{ .context = s, .write = write };
+    }
+
+    fn write(context: *anyopaque, blob: decode.Blob, at: u64, bytes: []const u8) void {
+        const s: *IccSink = @ptrCast(@alignCast(context));
+        if (blob.kind != .icc) return;
+        s.len = @max(s.len, at + bytes.len);
+        if (at > s.buf.len or bytes.len > s.buf.len - at) {
+            s.overflow = true;
+            return;
+        }
+        @memcpy(s.buf[@intCast(at)..][0..bytes.len], bytes);
+    }
+};
 
 /// Reads a metadata box's contents into `out`, which must be exactly as
 /// long, through Brotli for a `brob` box, whose compressed bytes go to
@@ -341,4 +412,41 @@ test "a file without a seeker, a jbrd box, or a container" {
     x = init(&r, .{ .seeker = .fixed(&r) });
     try testing.expectError(error.NoJbrd, x.workLen());
     try testing.expectError(error.NoJbrd, x.run(undefined, &.{}));
+}
+
+test "a transcode rebuilds its JPEG" {
+    // `cjxl --lossless_jpeg=1` of an 8 by 8 gray baseline JPEG.
+    const file = "\x00\x00\x00\x0c\x4a\x58\x4c\x20\x0d\x0a\x87\x0a\x00\x00\x00\x14\x66\x74\x79\x70\x6a\x78\x6c\x20" ++
+        "\x00\x00\x00\x00\x6a\x78\x6c\x20\x00\x00\x00\x13\x6a\x78\x6c\x70\x00\x00\x00\x00\xff\x0a\x41\x40" ++
+        "\x50\xdc\x08\x00\x00\x00\x3d\x6a\x62\x72\x64\xc1\x0d\x20\x08\x2d\x03\x02\x00\x84\x80\x08\x00\x00" ++
+        "\x00\x80\xfe\x4f\x30\x02\x00\x00\x00\x18\x63\xb2\x45\xff\x07\xf8\x01\x00\x00\x0b\x08\x80\xe0\x00" ++
+        "\x10\x4a\x46\x49\x46\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\x03\x00\x00\x00\xb3\x6a\x78\x6c\x70" ++
+        "\x80\x00\x00\x01\xe0\x5b\x00\x10\x00\x80\x02\x0c\x64\x0c\x64\x0c\x64\xfe\xff\x0e\x80\x60\x00\x50" ++
+        "\x68\x48\x52\x00\x00\x00\x0f\x00\x00\xf0\x00\x00\x00\x00\x00\x00\x00\x00\x04\x2c\x49\x14\x19\xc7" ++
+        "\x4e\x48\x73\x87\x01\x08\x29\x70\x0a\x11\x28\x22\xe4\xd8\x28\x06\x04\x00\x30\x61\x00\x00\x00\x98" ++
+        "\x9c\x00\x62\xc8\x7a\x5d\x00\x80\x00\xa2\x4b\xd8\xfa\x51\xdd\x3d\xee\x7e\x64\x26\xfe\x0c\xe3\xeb" ++
+        "\xa1\x01\x4b\x76\x55\x63\x54\x52\xf4\x8d\x08\x78\xc6\xa7\x9a\x7f\x97\xc6\x16\x18\xfb\x8e\x9f\x05" ++
+        "\x21\xf5\x56\x2d\xab\x50\x19\xff\xdd\xfe\x49\xd3\xa9\xf1\xb1\x8f\xd4\xe0\xbb\x29\xde\xc4\xcc\x26" ++
+        "\xe5\xcb\x2e\x00\x75\x00\x00\x00\x00\x00\x00\x94\x24\x56\x61\x8c\x8b\x31\x00\x18\x00\x70\xde\x81" ++
+        "\x15\xa0\x00";
+    const jpeg = "\xff\xd8\xff\xe0\x00\x10\x4a\x46\x49\x46\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xdb\x00\x43" ++
+        "\x00\x03\x02\x02\x03\x02\x02\x03\x03\x03\x03\x04\x03\x03\x04\x05\x08\x05\x05\x04\x04\x05\x0a\x07" ++
+        "\x07\x06\x08\x0c\x0a\x0c\x0c\x0b\x0a\x0b\x0b\x0d\x0e\x12\x10\x0d\x0e\x11\x0e\x0b\x0b\x10\x16\x10" ++
+        "\x11\x13\x14\x15\x15\x15\x0c\x0f\x17\x18\x16\x14\x18\x12\x14\x15\x14\xff\xc0\x00\x0b\x08\x00\x08" ++
+        "\x00\x08\x01\x01\x11\x00\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" ++
+        "\x00\x00\x00\x01\xff\xc4\x00\x17\x10\x00\x03\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" ++
+        "\x00\x00\x19\x65\xa3\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00\x15\x84\x8c\xcf\xff\xd9";
+    var r: Io.Reader = .fixed(file);
+    var x = init(&r, .{ .seeker = .fixed(&r) });
+    const len = try x.workLen();
+    const work = try testing.allocator.alloc(u8, len);
+    defer testing.allocator.free(work);
+    var out: [256]u8 = undefined;
+    var w: Io.Writer = .fixed(&out);
+    // One byte short of the work memory is refused before anything.
+    try testing.expectError(error.WorkTooSmall, x.run(&w, work[0 .. len - 1]));
+    r = .fixed(file);
+    x = init(&r, .{ .seeker = .fixed(&r) });
+    try x.run(&w, work[0..len]);
+    try testing.expectEqualSlices(u8, jpeg, w.buffered());
 }

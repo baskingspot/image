@@ -631,14 +631,20 @@ pub const WriteError = Error || Io.Writer.Error;
 /// `max_correction_bytes` when a scan refines AC coefficients.
 pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteError!void {
     try fillKnownApps(j, img);
+    // Each table holds the last component's that uses it (components that
+    // share a table hold the same one in any file cjxl writes; libjxl
+    // takes the last), and a table no component uses repeats the one
+    // before it.
     var q_values: [4][64]u16 = undefined;
     for (0..j.num_quant) |i| {
+        var found = false;
         for (j.components[0..j.num_components], 0..) |c, ci| {
             if (c.quant == i) {
                 q_values[i] = img.quant[ci];
-                break;
+                found = true;
             }
-        } else {
+        }
+        if (!found) {
             if (i == 0) return error.BadJbrd;
             q_values[i] = q_values[i - 1];
         }
@@ -653,8 +659,11 @@ pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteErr
     var dht: usize = 0;
     var scan: usize = 0;
     for (j.markers) |m| switch (m) {
-        0xc0, 0xc1, 0xc2 => {
-            st.progressive = m == 0xc2;
+        // 0xc9 and 0xca name arithmetic coding, yet the scans are written
+        // with the Huffman codes all the same, as libjxl does; those
+        // leave the scans' mode as it was.
+        0xc0, 0xc1, 0xc2, 0xc9, 0xca => {
+            if (m <= 0xc2) st.progressive = m == 0xc2;
             const n = j.num_components;
             try w.writeAll(&.{ 0xff, m });
             try writeU16(w, 8 + 3 * @as(u16, n));
@@ -666,7 +675,6 @@ pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteErr
             for (j.components[0..n], 0..) |c, ci| {
                 try w.writeAll(&.{ c.id, @as(u8, img.h[ci]) << 4 | img.v[ci], j.quant[c.quant].index });
             }
-            st.sof = true;
         },
         0xc4 => {
             var len: usize = 2;
@@ -700,13 +708,11 @@ pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteErr
             }
         },
         0xd0...0xd7 => try w.writeAll(&.{ 0xff, m }),
-        0xd8 => try w.writeAll("\xff\xd8"),
         0xd9 => {
             try w.writeAll("\xff\xd9");
             try w.writeAll(j.tail.data);
         },
         0xda => {
-            if (!st.sof) return error.BadJbrd;
             const s = &j.scans[scan];
             const n = s.num_components;
             try w.writeAll("\xff\xda");
@@ -742,13 +748,15 @@ pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteErr
             }
         },
         0xdd => {
+            st.dri = true;
             try w.writeAll("\xff\xdd\x00\x04");
             try writeU16(w, j.restart_interval);
         },
         0xe0...0xef => {
             const a = &j.apps[app];
             app += 1;
-            if (a.data[0] != m) return error.BadJbrd;
+            // The marker's type is its stored first byte, whatever the
+            // marker list says: libjxl writes it so.
             try w.writeByte(0xff);
             try w.writeAll(a.data);
         },
@@ -764,6 +772,8 @@ pub fn write(w: *Io.Writer, j: *Jbrd, img: *const Image, scratch: []u8) WriteErr
         },
         else => return error.BadJbrd,
     };
+    // A padding list holds exactly the bits the segments end with.
+    if (j.padding != null and st.pad_at != j.padding_bits) return error.BadJbrd;
 }
 
 fn nonEmpty(h: *const Huffman) bool {
@@ -876,13 +886,14 @@ const State = struct {
     j: *Jbrd,
     img: *const Image,
     scratch: []u8,
-    sof: bool = false,
     progressive: bool = false,
+    /// Whether a DRI marker came before: only then do scans restart.
+    dri: bool = false,
     dc: [4]?Code = @splat(null),
     ac: [4]?Code = @splat(null),
     /// The next padding bit of `j.padding`.
     pad_at: u32 = 0,
-    /// The AC code of the progressive scan, for its EOB runs.
+    /// The AC code of the block that began the EOB run.
     ac_code: *const Code = undefined,
 
     out: BitOut = undefined,
@@ -931,16 +942,23 @@ const State = struct {
         st.reset_at = 0;
         st.run_at = 0;
         const n = s.num_components;
-        if (s.ss > s.se or s.se > 63) return error.BadJbrd;
-        if (st.progressive) {
-            if (s.ss == 0 and s.se != 0) return error.BadJbrd;
-            if (s.ss != 0 and n != 1) return error.BadJbrd;
-        } else if (s.ss != 0 or s.se != 63 or s.ah != 0 or s.al != 0) return error.BadJbrd;
+        // A sequential frame's scans code the whole block whatever band
+        // and approximation they store, and a progressive scan of the
+        // whole block at full precision is coded as a sequential one.
+        // Past T.81, a first or refining scan whose band starts at 0 and
+        // runs on codes the DC, then the rest of the band without EOB
+        // runs, and a band that ends before it starts codes nothing.
+        // libjxl reconstructs them all so.
+        const ss: u6 = if (st.progressive) s.ss else 0;
+        const se: u6 = if (st.progressive) s.se else 63;
+        const ah: u4 = if (st.progressive) s.ah else 0;
+        const al: u4 = if (st.progressive) s.al else 0;
+        const mode: enum { sequential, first, refine } =
+            if (ah == 0 and al == 0 and ss == 0 and se == 63) .sequential else if (ah == 0) .first else .refine;
         for (s.components[0..n]) |c| {
-            if (s.ss == 0 and s.ah == 0 and st.dc[c.dc] == null) return error.BadJbrd;
-            if (s.se != 0 and st.ac[c.ac] == null) return error.BadJbrd;
+            if (ss == 0 and st.dc[c.dc] == null) return error.BadJbrd;
+            if ((ss != 0 or se != 0) and st.ac[c.ac] == null) return error.BadJbrd;
         }
-        if (s.se != 0) st.ac_code = &st.ac[s.components[0].ac].?;
 
         var mcus_x: u32 = undefined;
         var mcus_y: u32 = undefined;
@@ -957,7 +975,7 @@ const State = struct {
             mcus_x = img.mcusX(nc);
             mcus_y = img.mcusY(nc);
         }
-        const ri = j.restart_interval;
+        const ri: u32 = if (st.dri) j.restart_interval else 0;
         var togo: u32 = ri;
         var rst: u8 = 0;
         var mcu: u64 = 0;
@@ -997,18 +1015,23 @@ const State = struct {
                         zeros = s.zero_runs[st.run_at].count;
                         st.run_at += 1;
                     }
-                    if (!st.progressive) {
-                        try st.sequential(blk, ci, &st.dc[c.dc].?, &st.ac[c.ac].?, zeros);
-                    } else if (s.ss == 0) {
-                        if (s.ah == 0) {
-                            try st.dcFirst(blk, ci, &st.dc[c.dc].?, s.al);
-                        } else {
-                            try st.out.put(@intCast(@as(i32, blk[0]) >> s.al & 1), 1);
-                        }
-                    } else if (s.ah == 0) {
-                        try st.acFirst(blk, s, &st.ac[c.ac].?, zeros);
-                    } else {
-                        try st.acRefine(blk, s, &st.ac[c.ac].?);
+                    var lo = ss;
+                    switch (mode) {
+                        .sequential => try st.sequential(blk, ci, &st.dc[c.dc].?, &st.ac[c.ac].?, zeros),
+                        .first => {
+                            if (ss == 0) {
+                                const x: i32 = @as(i32, blk[0]) >> al;
+                                try st.dcDiff(&st.dc[c.dc].?, x - st.pred[ci]);
+                                st.pred[ci] = x;
+                            }
+                            if (ss == 0) lo = 1;
+                            if (lo <= se) try st.acFirst(blk, lo, se, al, &st.ac[c.ac].?, zeros, ss != 0);
+                        },
+                        .refine => {
+                            if (ss == 0) try st.out.put(@intCast(@as(i32, blk[0]) >> al & 1), 1);
+                            if (ss == 0) lo = 1;
+                            if (lo <= se) try st.acRefine(blk, lo, se, al, &st.ac[c.ac].?, ss != 0);
+                        },
                     }
                     st.block +%= 1;
                 };
@@ -1024,6 +1047,8 @@ const State = struct {
 
     fn dcDiff(st: *State, code: *const Code, diff: i32) WriteError!void {
         const s = magnitude(diff);
+        // A DC code has no symbol above 11 (`read`), so a larger
+        // difference cannot be written.
         if (s > 11) return error.BadJbrd;
         try st.symbol(code, s);
         try st.out.put(@bitCast(if (diff < 0) diff - 1 else diff), s);
@@ -1049,7 +1074,10 @@ const State = struct {
             }
             while (r > 15) : (r -= 16) try st.symbol(ac, 0xf0);
             const s = magnitude(z);
-            if (s > 10) return error.BadJbrd;
+            // 8-bit JPEG's AC magnitudes stop at 10 bits, but libjxl writes
+            // any its code has a symbol for; the symbol's low nibble
+            // bounds it.
+            if (s > 15) return error.BadJbrd;
             try st.symbol(ac, @intCast(r << 4 | s));
             try st.out.put(@bitCast(if (z < 0) z - 1 else z), s);
             r = 0;
@@ -1069,21 +1097,26 @@ const State = struct {
         }
         if (r == 0) return;
         if (!run) return st.symbol(ac, 0x00);
+        if (st.eobrun == 0) st.ac_code = ac;
         st.eobrun += 1;
         if (st.eobrun == 0x7fff) try st.flushEobrun();
     }
 
-    fn dcFirst(st: *State, blk: *const [64]i16, ci: usize, dc: *const Code, al: u4) WriteError!void {
-        const x: i32 = @as(i32, blk[0]) >> al;
-        try st.dcDiff(dc, x - st.pred[ci]);
-        st.pred[ci] = x;
-    }
-
-    fn acFirst(st: *State, blk: *const [64]i16, s: *const Scan, ac: *const Code, zeros: u32) WriteError!void {
+    /// The first scan of band `lo`..`hi`; `run` allows EOB runs.
+    fn acFirst(
+        st: *State,
+        blk: *const [64]i16,
+        lo: u6,
+        hi: u6,
+        al: u4,
+        ac: *const Code,
+        zeros: u32,
+        run: bool,
+    ) WriteError!void {
         var r: u32 = 0;
-        for (@as(usize, s.ss)..@as(usize, s.se) + 1) |k| {
+        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
             const z: i32 = blk[zigzag[k]];
-            const t: i32 = @intCast(@abs(z) >> s.al);
+            const t: i32 = @intCast(@abs(z) >> al);
             if (t == 0) {
                 r += 1;
                 continue;
@@ -1091,20 +1124,29 @@ const State = struct {
             try st.flushEobrun();
             while (r > 15) : (r -= 16) try st.symbol(ac, 0xf0);
             const m = magnitude(t);
-            if (m > 10) return error.BadJbrd;
+            if (m > 15) return error.BadJbrd;
             try st.symbol(ac, @intCast(r << 4 | m));
             try st.out.put(@bitCast(if (z < 0) -t - 1 else t), m);
             r = 0;
         }
-        try st.endBlock(ac, r, zeros, true);
+        try st.endBlock(ac, r, zeros, run);
     }
 
-    fn acRefine(st: *State, blk: *const [64]i16, s: *const Scan, ac: *const Code) WriteError!void {
+    /// A refining scan of band `lo`..`hi`; `run` allows EOB runs.
+    fn acRefine(
+        st: *State,
+        blk: *const [64]i16,
+        lo: u6,
+        hi: u6,
+        al: u4,
+        ac: *const Code,
+        run: bool,
+    ) WriteError!void {
         // The last coefficient that becomes nonzero in this scan.
         var eob: usize = 0;
         var abs: [64]u16 = undefined;
-        for (@as(usize, s.ss)..@as(usize, s.se) + 1) |k| {
-            abs[k] = @intCast(@abs(@as(i32, blk[zigzag[k]])) >> s.al);
+        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
+            abs[k] = @intCast(@abs(@as(i32, blk[zigzag[k]])) >> al);
             if (abs[k] == 1) eob = k;
         }
         var r: u32 = 0;
@@ -1112,7 +1154,7 @@ const State = struct {
         // `base`, after the EOB run's.
         var base = st.nbe;
         var br: usize = 0;
-        for (@as(usize, s.ss)..@as(usize, s.se) + 1) |k| {
+        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
             const t = abs[k];
             if (t == 0) {
                 r += 1;
@@ -1139,8 +1181,9 @@ const State = struct {
         }
         if (r > 0 or br > 0) {
             st.nbe = base + br;
+            if (st.eobrun == 0) st.ac_code = ac;
             st.eobrun += 1;
-            if (st.eobrun == 0x7fff) try st.flushEobrun();
+            if (st.eobrun == 0x7fff or !run) try st.flushEobrun();
         }
     }
 
@@ -1201,10 +1244,10 @@ test "bits and fields" {
     try testing.expectError(error.Truncated, b.bits(1));
 }
 
-test "counting matches parsing" {
-    // A gray baseline JPEG's bundle: SOI-less markers DQT, SOF0, DHT, SOS,
-    // EOI; one quant table; two Huffman codes of one symbol each.
-    var w: BitWriter = .{};
+/// A gray baseline JPEG's bundle: SOI-less markers DQT, SOF0, DHT, SOS,
+/// EOI; one quant table; two Huffman codes of one symbol each; the scan's
+/// band `ss` to `se` and approximation `al`.
+fn grayBundle(w: *BitWriter, ss: u6, se: u6, al: u4) void {
     w.put(1, 1); // is_gray
     for ([_]u8{ 0xdb, 0xc0, 0xc4, 0xda, 0xd9 }) |m| w.put(6, m - 0xc0);
     w.put(2, 0); // one quant table
@@ -1231,9 +1274,9 @@ test "counting matches parsing" {
         w.put(8, 255);
     }
     w.put(2, 0); // scan: one component
-    w.put(6, 0);
-    w.put(6, 63);
-    w.put(4, 0);
+    w.put(6, ss);
+    w.put(6, se);
+    w.put(4, al);
     w.put(4, 0);
     w.put(2, 0);
     w.put(2, 0);
@@ -1243,6 +1286,11 @@ test "counting matches parsing" {
     w.put(2, 0); // no zero runs
     w.put(2, 0); // no tail
     w.put(1, 0); // standard padding
+}
+
+test "counting matches parsing" {
+    var w: BitWriter = .{};
+    grayBundle(&w, 0, 63, 0);
     const bytes = w.bytes();
 
     var r: Io.Reader = .fixed(bytes);
@@ -1266,6 +1314,39 @@ test "counting matches parsing" {
     try testing.expectEqual(@as(u16, 2), j.huffman[0].counts[1]);
     try testing.expectEqual(@as(u6, 63), j.scans[0].se);
     try testing.expectEqual(@as(?[]const u8, null), j.padding);
+}
+
+test "a sequential scan codes the whole block whatever band it stores" {
+    var outs: [2][256]u8 = undefined;
+    var lens: [2]usize = undefined;
+    for ([_][3]u8{ .{ 0, 63, 0 }, .{ 20, 50, 1 } }, 0..) |p, i| {
+        var bw: BitWriter = .{};
+        grayBundle(&bw, @intCast(p[0]), @intCast(p[1]), @intCast(p[2]));
+        var r: Io.Reader = .fixed(bw.bytes());
+        var b: Bits = .init(&r, bw.bytes().len);
+        var mem_buf: [4096]u8 = undefined;
+        var mem: Mem = .{ .buf = &mem_buf };
+        var j = try read(&b, &mem);
+        const coefs: [64]i16 = @splat(0);
+        const img: Image = .{
+            .width = 8,
+            .height = 8,
+            .h = .{ 1, 1, 1 },
+            .v = .{ 1, 1, 1 },
+            .quant = @splat(@splat(1)),
+            .coefs = .{ &coefs, &.{}, &.{} },
+        };
+        var w: Io.Writer = .fixed(&outs[i]);
+        try write(&w, &j, &img, &.{});
+        lens[i] = w.end;
+    }
+    // The same bytes but the scan header's stored band and approximation.
+    try testing.expectEqual(lens[0], lens[1]);
+    const sos = std.mem.find(u8, outs[0][0..lens[0]], "\xff\xda").? + 7;
+    try testing.expectEqualSlices(u8, &.{ 0, 63, 0x00 }, outs[0][sos..][0..3]);
+    try testing.expectEqualSlices(u8, &.{ 20, 50, 0x01 }, outs[1][sos..][0..3]);
+    try testing.expectEqualSlices(u8, outs[0][0..sos], outs[1][0..sos]);
+    try testing.expectEqualSlices(u8, outs[0][sos + 3 .. lens[0]], outs[1][sos + 3 .. lens[1]]);
 }
 
 /// LSB-first bits, for building test bundles.

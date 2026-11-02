@@ -8,14 +8,14 @@ needs a seeker, what is verified, and what is still open.
 
 ## Status
 
-- Done: the box (every field, with libjxl's constraints), the Brotli
-  payload, the JPEG writer (markers, DQT, DHT, SOF, DRI, APP, COM,
-  inter-marker bytes, tail, and every scan type: sequential, progressive DC
-  first and refinement, AC first with EOB runs, AC refinement), the box
-  walk and work plan, the fuzz target, and the corpus.
-- Waiting: the coefficients. `run` returns `error.Unsupported` until the
-  JPEG XL orb's coefficient pass in vardct.zig lands (`wave4-jxl-coeffs`).
-  Then: the oracle against `djxl`, the bench, and a CHANGELOG bullet.
+Complete for what cjxl transcodes: the box (every field, with libjxl's
+constraints), the Brotli payload, the JPEG writer (markers, DQT, DHT, SOF,
+DRI, APP, COM, inter-marker bytes, tail, and every scan type: sequential,
+progressive DC first and refinement, AC first with EOB runs, AC
+refinement), and the coefficients and tables from
+`Decoder.decodeJpeg` (the JPEG XL orb's coefficient pass). A codestream
+that cannot hold a JPEG is `error.NotJpeg`, which includes RGB-stored
+JPEGs for now. Measurements: `results/jxl-jbrd-20261102.md`.
 
 ## Where the syntax comes from
 
@@ -34,8 +34,10 @@ records (the encoder side, which defines the fields' meaning) and confirmed
 on the corpus:
 
 - `extra_zero_runs` counts the ZRL symbols written after a block's last
-  nonzero coefficient before its EOB; a ZRL left at the end of a band with
-  fewer than 16 zeros is invalid.
+  nonzero coefficient before its EOB. A ZRL left at the end of a band with
+  fewer than 16 zeros is `BadJbrd` here. libjxl writes it anyway, and so
+  any count of them: one field would expand to 2³² symbols, so we refuse
+  rather than match it. No oracle input has reached this split.
 - `reset_points` are blocks where the original ended one EOB run and began
   another straight away, instead of extending it.
 - Refinement scans have no zero runs.
@@ -44,10 +46,30 @@ on the corpus:
   list, every padding bit is 1.
 - In SOF, a component's Tq is its table's `index` field (every corpus file
   agrees, though none puts tables out of slot order).
-- A DQT table that no component uses repeats the previous table's values:
-  the codestream keeps one table per component, so an unused table cannot
-  be recovered. No corpus file has one; the oracle will show whether djxl
-  agrees.
+- A DQT table holds the last component's values that uses it (libjxl
+  does the same), and a table no component uses repeats the previous
+  table's values: the codestream keeps one table per component, so an
+  unused table cannot be recovered.
+
+What a box may say beyond any JPEG cjxl writes, matched to libjxl's
+reconstruction, which the oracle found by mutating transcodes:
+
+- The scans of a sequential frame code the whole block whatever band and
+  approximation they store, and the stored bytes are written as they are.
+  A progressive scan of band 0 to 63 at full precision is coded as a
+  sequential one. A first or refining scan whose band starts at 0 and runs
+  on codes the DC and then the rest of the band, without EOB runs; a band
+  that ends before it starts codes nothing. A scan needs its DC table when
+  its band starts at 0 and its AC table when the band is more than the DC,
+  whatever its approximation. An EOB run is written with the AC table of
+  the block that began it.
+- SOF markers 0xc9 and 0xca (arithmetic coding) are written as stored, with
+  Huffman-coded scans, and do not change whether the scans are
+  progressive. An SOI marker in the list is `BadJbrd`. A scan before any
+  SOF is written. Scans restart only after the DRI marker has been
+  written.
+- APP markers are written as stored, whatever type the marker list gives,
+  and an AC symbol may have a magnitude up to 15 if the code has it.
 
 ## Design
 
@@ -63,11 +85,15 @@ on the corpus:
   bundle (counted with each allocation's worst-case alignment, so the
   count holds at any base address), the Brotli payload, the Exif and XMP
   contents, the ICC profile, the AC refinement scratch (258 KiB, only when
-  a scan refines AC coefficients), and the coefficients, whose bytes take
-  the compressed `brob` contents first.
+  a scan refines AC coefficients), the coefficients (`Jpeg.maxCoefs` i16
+  plus a byte, so they align at any base address), whose bytes take the
+  compressed `brob` contents first, and the codestream decoder's
+  `jpegWorkLen`. The box's components must lie on the codestream's blocks
+  (`BadJbrd` otherwise), and an ICC profile the box's markers carry must be
+  exactly the codestream's.
 - **Brotli in one shot.** `compress`'s streaming Reader needs a 4 to 16 MiB
   window; the one-shot decode into the exactly sized payload needs none.
-  `decompressCounted` (compress 9d32dee) reports the stream's length, so
+  `decompressCounted` (compress 2e5eb6b) reports the stream's length, so
   bytes after the stream, which libjxl rejects, are refused in the same
   pass. compress has a 64-tree cap per meta-block category (the format
   allows 256), which brotli 1.2.0 at q5 exceeds on 1 MiB inputs; a `brob`
@@ -106,14 +132,3 @@ dripping writer with coefficients made from the choice. Its generator
 builds plausible boxes (complete Huffman tables, scan scripts, restarts,
 padding bits, zero runs, metadata markers, an uncompressed Brotli stream)
 in a container, usually with a generated codestream.
-
-## Requests for files this work does not own
-
-- `src/decode.zig`: a `Metadata` flag for a `jbrd` box, which the JPEG XL
-  decoder's container walk already notices (`saw_jbrd`).
-- `src/jxl/vardct.zig` (the JPEG XL orb): per JPEG component, the
-  quantized coefficients as i16 in natural order, with chroma-from-luma
-  undone and blocks padded to whole MCUs; the raw quantization tables; the
-  `jpeg_upsampling` factors as JPEG h and v; and a work bound for the
-  coefficient pass.
-- `test/fuzz/harness.zig`: export `Trickle`, which jxl_jbrd.zig copies.
