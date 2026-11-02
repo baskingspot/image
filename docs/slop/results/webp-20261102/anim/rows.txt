@@ -1,0 +1,12 @@
+WebpDecodeAnim/lossless_cutout-640x480.webp                      libwebp       18.5      18.3  0.995  0.971  1.105 ~
+WebpDecodeAnim/lossless_cutout-640x480.webp                      image-rs      18.5      12.7  1.450  1.377  1.650 >
+WebpDecodeAnim/lossless_sprite-768x512.webp                      libwebp       38.0      27.3  1.378  1.322  1.439 >
+WebpDecodeAnim/lossless_sprite-768x512.webp                      image-rs      38.0      23.0  1.654  1.532  1.693 >
+WebpDecodeAnim/lossy_cutout-640x480.webp                         libwebp       23.6      22.8  1.047  0.988  1.108 ~
+WebpDecodeAnim/lossy_cutout-640x480.webp                         image-rs      23.6       8.0  3.013  2.776  3.302 >
+WebpDecodeAnim/lossy_sprite-768x512.webp                         libwebp       41.9      39.2  1.062  1.014  1.143 >
+WebpDecodeAnim/lossy_sprite-768x512.webp                         image-rs      41.9      19.2  2.209  2.123  2.286 >
+WebpDecodeAnim/lossless_turn-64x64.webp                          libwebp        5.3       4.2  1.273  1.156  1.359 >
+WebpDecodeAnim/lossless_turn-64x64.webp                          image-rs       5.3       4.4  1.179  1.125  1.220 >
+WebpDecodeAnim/lossy_turn-64x64.webp                             libwebp        4.6       3.7  1.233  1.184  1.285 >
+WebpDecodeAnim/lossy_turn-64x64.webp                             image-rs       4.6       2.5  1.834  1.800  1.880 >

@@ -1,0 +1,9 @@
+                                            │    image     │               libwebp                │              image-rs               │
+                                            │     MP/s     │     MP/s      vs base                │    MP/s      vs base                │
+WebpDecodeAnim/lossless_cutout-640x480.webp    18.46 ±  3%    18.27 ±  7%        ~ (p=0.971 n=10)   12.71 ± 14%  -31.18% (p=0.000 n=10)
+WebpDecodeAnim/lossless_sprite-768x512.webp    37.95 ±  6%    27.28 ±  4%  -28.13% (p=0.000 n=10)   22.98 ±  7%  -39.45% (p=0.000 n=10)
+WebpDecodeAnim/lossless_turn-64x64.webp        5.310 ± 12%    4.180 ±  5%  -21.28% (p=0.000 n=10)   4.450 ±  7%  -16.20% (p=0.000 n=10)
+WebpDecodeAnim/lossy_cutout-640x480.webp      23.625 ±  7%   22.765 ± 10%   -3.64% (p=0.035 n=10)   8.030 ± 13%  -66.01% (p=0.000 n=10)
+WebpDecodeAnim/lossy_sprite-768x512.webp       41.89 ±  6%    39.16 ± 10%   -6.53% (p=0.005 n=10)   19.16 ±  7%  -54.27% (p=0.000 n=10)
+WebpDecodeAnim/lossy_turn-64x64.webp           4.585 ±  4%    3.650 ± 10%  -20.39% (p=0.000 n=10)   2.515 ±  4%  -45.15% (p=0.000 n=10)
+geomean                                        16.02          13.76        -14.11%                  8.917        -44.33%

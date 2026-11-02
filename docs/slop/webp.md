@@ -281,3 +281,8 @@ Lossy, with the same output as libwebp on every row: icons 1.36× faster,
 peak RSS in every size class. What is left: the loop filter and the token
 reader, which run a pixel or a coefficient at a time where libwebp's SSE2
 filters take 16 pixels.
+
+Animation, with the same last canvas as libwebp on every row: 1.25× on 64²
+icons, 1.11× from 640×480, 1.16× overall, at 2.4 and 6.7 MiB peak RSS
+against libwebp's 3.1 and 9.4, since frames composite into the caller's
+canvas as their rows come out.

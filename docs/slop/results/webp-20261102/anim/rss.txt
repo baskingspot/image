@@ -1,0 +1,2 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick  libwebp image-rs     zune       go
+webp-decode-anim            6.7        -        -        -        -        -        -        -        -      8.5     11.1        -        -

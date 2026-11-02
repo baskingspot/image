@@ -1,0 +1,4 @@
+image/arm, geomean              rows image MP/s  libwebp image-rs     ±   <1    ~   slowest vs libwebp
+WebpDecodeAnim/1mp                 4       28.9     1.11     2.00    3%    0    2   1.00 [0.97, 1.11] lossless_cutout-640x480.webp
+WebpDecodeAnim/icon                2        4.9     1.25     1.47    5%    0    0   1.23 [1.18, 1.29] lossy_turn-64x64.webp
+all                                6       16.0     1.16     1.80          0    2
