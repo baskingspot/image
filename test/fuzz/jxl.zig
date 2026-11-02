@@ -15,7 +15,19 @@ pub const extensions = [_][]const u8{".jxl"};
 pub fn check(input: []const u8, choice: u64) !void {
     try harness.checkDecoder(image.jxl.Decoder, input, choice);
     if (choice % 4 == 0) try checkSink(input);
+    if (choice % 4 == 2) try checkStream(input);
     if (choice % 4 == 3) try checkJpeg(input);
+}
+
+/// A frame streamed a group row at a time has the pixels, frames, and
+/// errors it has decoded whole.
+fn checkStream(input: []const u8) !void {
+    var whole: [harness.limits.max_frames + 1]Outcome = undefined;
+    const n = decodeAll(input, null, false, &whole);
+    var streamed: [harness.limits.max_frames + 1]Outcome = undefined;
+    const m = decodeAll(input, null, true, &streamed);
+    if (n != m) return error.StreamDiffers;
+    for (whole[0..n], streamed[0..m]) |a, b| if (!std.meta.eql(a, b)) return error.StreamDiffers;
 }
 
 const Sink = @typeInfo(@FieldType(image.jxl.Decoder, "coeff_sink")).optional.child;
@@ -40,10 +52,10 @@ const Outcome = union(enum) { frame: struct { f: image.Frame, hash: u64 }, end, 
 /// errors as without one, and what the sink sees lies inside the frame.
 fn checkSink(input: []const u8) !void {
     var plain: [harness.limits.max_frames + 1]Outcome = undefined;
-    const n = decodeAll(input, null, &plain);
+    const n = decodeAll(input, null, true, &plain);
     var seen: Seen = .{};
     var with: [harness.limits.max_frames + 1]Outcome = undefined;
-    const m = decodeAll(input, .{ .ctx = &seen, .lf = Seen.onLf, .block = Seen.onBlock }, &with);
+    const m = decodeAll(input, .{ .ctx = &seen, .lf = Seen.onLf, .block = Seen.onBlock }, true, &with);
     if (seen.bad) return error.SinkOutOfBounds;
     if (n != m) return error.SinkDiffers;
     for (plain[0..n], with[0..m]) |a, b| if (!std.meta.eql(a, b)) return error.SinkDiffers;
@@ -73,16 +85,17 @@ fn checkJpeg(input: []const u8) !void {
     }
     if (total > n) return error.JpegLayout;
     var frames: [harness.limits.max_frames + 1]Outcome = undefined;
-    const m = decodeAll(input, null, &frames);
+    const m = decodeAll(input, null, false, &frames);
     // The frame decodes; the boxes after the codestream, which the call
     // after it reads, are not the coefficients' concern.
     if (m == 0 or frames[0] != .frame) return error.JpegDiffers;
 }
 
-fn decodeAll(input: []const u8, sink: ?Sink, out: []Outcome) usize {
+fn decodeAll(input: []const u8, sink: ?Sink, stream: bool, out: []Outcome) usize {
     var r: std.Io.Reader = .fixed(input);
     var d: image.jxl.Decoder = .init(&r, .{ .limits = harness.limits });
     d.coeff_sink = sink;
+    d.stream = stream;
     const c = d.decodeConfig() catch |e| {
         out[0] = .{ .err = e };
         return 1;

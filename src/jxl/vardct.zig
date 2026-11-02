@@ -324,15 +324,37 @@ pub const Shared = struct {
     sink: ?CoeffSink = null,
 
     /// The frame's pixels before the filters: three planes of `bw * 8`
-    /// by `bh * 8`.
+    /// by `bh * 8`, or with `ring_rows`, a ring of that many rows where
+    /// row y is at `y % ring_rows` (whole group rows, which no varblock
+    /// crosses).
     planes: [3][]f32,
+    ring_rows: usize = 0,
 
+    /// Takes the planes: whole, or with `ring_rows`, the ring.
+    pub fn allocPlanes(s: *Shared, arena: *Arena) Error!void {
+        const rows: usize = if (s.ring_rows == 0) s.bh * 8 else s.ring_rows;
+        if (s.pixels()) for (&s.planes) |*p| {
+            p.* = try arena.alloc(f32, s.bw * 8 * rows);
+            @memset(p.*, 0);
+        };
+    }
+
+    /// Where row `y` of the frame is in the planes.
+    pub fn planeRow(s: *const Shared, y: usize) usize {
+        return if (s.ring_rows == 0) y else y % s.ring_rows;
+    }
+
+    /// `ring_rows`, when not 0, keeps only that many rows of pixels (a
+    /// multiple of the group size): the frame is filtered and written a
+    /// group row at a time. Its planes are left to `allocPlanes`, once the
+    /// caller knows whether the frame streams.
     pub fn init(
         arena: *Arena,
         image: *const headers.ImageHeader,
         fh: *const headers.FrameHeader,
         d: *const headers.Dims,
         sink: ?CoeffSink,
+        ring_rows: usize,
     ) Error!*Shared {
         const s = try arena.create(Shared);
         const bw: usize = d.xsize_blocks;
@@ -362,6 +384,7 @@ pub const Shared = struct {
             .tiles_x = tx,
             .planes = @splat(&.{}),
             .sink = sink,
+            .ring_rows = ring_rows,
             .hs = .{ @intCast(fh.hShift(0)), @intCast(fh.hShift(1)), @intCast(fh.hShift(2)) },
             .vs = .{ @intCast(fh.vShift(0)), @intCast(fh.vShift(1)), @intCast(fh.vShift(2)) },
         };
@@ -370,10 +393,7 @@ pub const Shared = struct {
         @memset(s.acs, unset);
         @memset(s.cfl_x, 0);
         @memset(s.cfl_b, 0);
-        if (s.pixels()) for (&s.planes) |*p| {
-            p.* = try arena.alloc(f32, n * 64);
-            @memset(p.*, 0);
-        };
+        if (ring_rows == 0) try s.allocPlanes(arena);
         if (fh.passes.num > 1) {
             const gd = group_blocks * 8;
             s.coeffs = try arena.alloc(i32, s.num_groups * gd * gd * 3);
@@ -981,7 +1001,7 @@ fn reconstruct(s: *Shared, st: Strategy, bx: usize, by: usize, blocks: [3][]i32,
         } else {
             dct.llfFromLf(st, s.lf[c][lf_at..], s.bw, cc);
         }
-        const out = s.planes[c][sby * 8 * stride + sbx * 8 ..];
+        const out = s.planes[c][s.planeRow(sby * 8) * stride + sbx * 8 ..];
         dct.toPixels(st, cc, out, stride, scratch[3 * size ..]);
     }
 }

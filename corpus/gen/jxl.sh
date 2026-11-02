@@ -25,6 +25,18 @@ im "$rgb" -quality 85 -sampling-factor 4:2:0 "$tmp/420.jpg"
 im "$rgb" -quality 85 -sampling-factor 4:4:4 "$tmp/444.jpg"
 cj --lossless_jpeg=1 "$tmp/420.jpg" "$out/jxl/jpeg-420.jxl"
 cj --lossless_jpeg=1 "$tmp/444.jpg" "$out/jxl/jpeg-444.jxl"
+# Five group rows (over 1024 tall), every EPF pass: streamed a group row at
+# a time, and with its groups stored centre first (a permuted TOC), whole.
+im "$rgb" -resize '8x1100!' "$tmp/tall.png"
+cj -d 2 --epf=3 --gaborish=1 "$tmp/tall.png" "$out/jxl/vardct-tall.jxl"
+cj -d 2 --epf=3 --gaborish=1 --group_order=1 "$tmp/tall.png" "$out/jxl/vardct-tall-centre.jxl"
+# The same, streamed with its alpha.
+im "$rgba" -resize '8x1100!' "$tmp/tall-alpha.png"
+cj -d 2 --epf=3 --gaborish=1 "$tmp/tall-alpha.png" "$out/jxl/vardct-tall-alpha.jxl"
+# Two-level alpha, which cjxl palettes over the whole frame, so the frame
+# is decoded whole after all.
+im "$tmp/tall-alpha.png" -channel A -threshold 50% +channel "$tmp/tall-alpha2.png"
+cj -d 2 "$tmp/tall-alpha2.png" "$out/jxl/vardct-tall-alpha-palette.jxl"
 # Three frames of animation.
 im -delay 10 "$rgb" "$src/basn2c16.png" "$src/basn3p08.png" "$tmp/anim.gif"
 cj -d 1 "$tmp/anim.gif" "$out/jxl/vardct-animation.jxl"

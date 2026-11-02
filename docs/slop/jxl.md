@@ -53,7 +53,8 @@ the oracle leaves them out (`test/oracle/jxl.zig`).
   so hostile residuals cannot trap.
 - `frame.zig`: the TOC, then each section in file order: LfGlobal (the
   global tree and the GlobalModular channels), LF groups, and pass groups,
-  each group copied into the frame's channels.
+  each group copied into the frame's channels. A frame that `streams`
+  (below) is filtered and handed to the Decoder a group row at a time.
 - `icc.zig`: the encoded ICC profile's prediction, written straight into
   work memory and sent to the blob sink as kind `.icc`.
 - `vardct.zig`: the HF global and LF group sections (quantized LF,
@@ -111,15 +112,43 @@ writing past it. Its terms, in `Decoder.workBound`:
   wherever the allocations before them ended cost 2–4% of VarDCT decoding
   when they landed off a line.
 
+**Streaming.** A shown VarDCT frame that replaces the canvas and is never
+referenced, in one pass with its groups in order (the TOC not permuted),
+without upsampling, patches, splines, noise, or chroma subsampling, and at
+least five group rows tall, keeps a ring of three group rows of pixels
+instead of whole planes (`vardct.Shared.ring_rows`). Once a
+group row is in, the one before it is copied with eight rows of each
+neighbor into a window, filtered there (Gaborish reads one row each side,
+EPF's passes three, two, and one; a window starting on a block row keeps
+EPF's sigmas and border rows aligned, and its edges are the frame's only
+at the frame's edges, where mirroring is right), color-transformed, and
+written to the caller's rows. Extra channels (alpha) stay frame-sized
+Modular channels, 4 bytes a pixel each, and each band reads its rows from
+them as it is written: groups decode in order, so a group row's extra
+channels are final once its groups are in. Global Modular transforms on
+them (cjxl palettes a two-level alpha over the whole frame) are undone
+only on the whole frame, so a streaming frame's planes are taken at the
+end of `lfGlobal`, once its transforms are known: the ring, or whole
+planes when there are transforms, and the frame is decoded whole. Pixels are
+the whole frame's bit for bit (the unit test and the fuzz target's
+`checkStream` compare them, and `vardct-tall*.jxl` in the generated corpus
+cover the plain, permuted, alpha, and palette-alpha cases).
+`decodeConfig` peeks the TOC's permutation bit after the frame header, so
+the bound shrinks only when the frame will stream; with extra channels it
+keeps the larger of the ring and whole planes, since the transforms are not
+known until the frame is read. A frame without extra channels has no Modular
+channels of frame size, so the bound leaves out a delta palette's indices
+too.
+
 When `decodeConfig` has peeked a single last frame, the frame term is that
 frame's exactly (`frameBound`); otherwise it covers any frame of up to twice
 the canvas with every feature. On a 50-megapixel photograph the arena's peak
-is 627 MB (12.5 bytes a pixel) of a 929 MB bound for `cjxl -d 1`, and 608 MB
-for `-d 0`. Memory the decoder never touches costs a caller nothing when it
-comes from `mmap`, but a caller that fills it, as Zig's safe allocators do,
-pays for all of it. Further cuts: undoing squeezes row by row (one extra
-channel instead of three), and decoding VarDCT a group row at a time into
-the canvas instead of whole planes.
+is 127 MB of a 243 MB bound for `cjxl -d 1`, streamed (627 MB of 948 MB
+whole), and 608 MB for `-d 0`. Memory the decoder never touches costs a
+caller nothing when it comes from `mmap`, but a caller that fills it, as
+Zig's safe allocators do, pays for all of it. Further cuts: undoing
+squeezes row by row (one extra channel instead of three), and streaming
+Modular.
 
 ## Decisions
 
@@ -256,11 +285,12 @@ the canvas instead of whole planes.
   output precision).
 - Oracle: lossy frames are left out (`test/oracle/jxl.zig`) until the
   comparison takes a tolerance, so the oracle checks VarDCT inputs for
-  crashes and errors only. `corpus/gen/jxl.sh` writes twelve small cjxl
+  crashes and errors only. `corpus/gen/jxl.sh` writes sixteen small cjxl
   files covering VarDCT, the filters, LF frames, progressive passes,
   upsampling (of the colors, and of alpha alone), noise, animation, lossy
-  Modular, and JPEG recompression, which seed the fuzzer and the oracle;
-  all twelve match libjxl in floats.
+  Modular, JPEG recompression, and streaming (`vardct-tall*`), which seed
+  the fuzzer and the oracle; the first twelve match libjxl in floats, and
+  the tall ones are within 3 in 16 bits, alpha exact.
 
 ## Measurements
 
@@ -272,12 +302,18 @@ megapixel, 0.48× above; 1.4–1.8× jxl-oxide past icons. Lossless (Modular):
 (lossy) and 25 MiB (lossless) for libjxl, and more for jxl-oxide; below a
 megapixel we are within 20% of libjxl.
 
+`results/jxl-mem-20261102.md`: arrays on cache lines (+1.57% lossy, +8.4%
+on the mosaic) and streaming bring the mosaic's lossy peak RSS to 507.4
+MiB, about 120 MiB beyond the output, below libjxl's 527.0 in the run
+above; lossless and images under five group rows are unchanged.
+
 ## Next
 
-1. **Render by group row** for single-frame images without a permuted TOC
-   or self-referencing features: two group rows of planes instead of the
-   frame, written straight into the caller's buffer. The memory term above
-   drops from 12 bytes a pixel to about 50 MiB at 8192 wide.
+1. **Memory, further**: stream more frames (chroma subsampling, noise,
+   upsampling, which need a few more rows each); keep two
+   group rows plus the margin instead of three; and Modular, whose
+   frame-sized channels (12 bytes a pixel for RGB) are the lossless peak,
+   once global transforms can be undone a group row at a time.
 2. **Speed**: profile VarDCT and vectorize what is still scalar (the
    IDCT's rows, chroma from luma, Gaborish, upsampling); specialize
    Modular's common trees.

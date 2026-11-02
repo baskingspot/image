@@ -32,6 +32,11 @@ pub const Toc = struct {
     /// The logical section in each file slot.
     ids: []u32,
     total: u64,
+
+    pub fn permuted(t: *const Toc) bool {
+        for (t.ids, 0..) |id, i| if (id != i) return true;
+        return false;
+    }
 };
 
 fn numEntries(d: *const headers.Dims, passes: u32) u64 {
@@ -118,6 +123,8 @@ pub const Decoded = struct {
     /// The frame's size: after upsampling.
     w: u32,
     h: u32,
+    /// Whether the frame's rows went to the `BandSink` instead.
+    streamed: bool = false,
 };
 
 pub const Context = struct {
@@ -141,7 +148,58 @@ pub const Context = struct {
     counts: [2]u32,
     lf_in: ?LfImage,
     sink: ?vardct.CoeffSink = null,
+    /// Where finished group rows go, when the frame streams.
+    band: ?BandSink = null,
+    /// The group rows whose groups are all in, and the bands written.
+    rows_in: usize = 0,
+    bands_out: usize = 0,
+    /// A band's rows with their filter margins, and EPF's sigmas.
+    window: [3][]f32 = undefined,
+    sigmas: []f32 = &.{},
 };
+
+/// Receives a streamed frame's finished rows: `rows` rows from row `y0`,
+/// filtered but before the color transform, in three planes of rows of
+/// `stride` (at least the frame's width), and `extra`, the frame-sized
+/// extra channels, final through those rows. The planes may be changed.
+pub const BandSink = struct {
+    ctx: *anyopaque,
+    write: *const fn (
+        ctx: *anyopaque,
+        planes: [3][]f32,
+        stride: usize,
+        extra: *const modular.Image,
+        y0: usize,
+        rows: usize,
+    ) void,
+};
+
+/// The rows of filter margin a band needs on each side: Gaborish's one and
+/// EPF's three passes' three, two, and one, rounded up to a block, so a
+/// window starts on a block row as EPF's sigmas and border rows need.
+const band_margin = 8;
+
+/// Whether a frame can stream: VarDCT in one pass, its groups in order,
+/// without what needs the whole frame (upsampling, patches, splines,
+/// noise, chroma subsampling), not an LF frame, and taller than the ring
+/// and a window (`ringRows`), below which streaming saves nothing. Extra
+/// channels stay frame-sized Modular channels, read as each band is
+/// written; global transforms on them make `lfGlobal` decode it whole.
+/// The caller decides whether the frame is shown as it is.
+pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
+    const whole = headers.flag_noise | headers.flag_patches | headers.flag_splines;
+    const d: headers.Dims = .init(fh);
+    return !fh.modular and fh.passes.num == 1 and !permuted and fh.kind == .regular and
+        !upsampled(image, fh) and fh.flags & whole == 0 and fh.maxHShift() | fh.maxVShift() == 0 and
+        d.ysize_groups >= 5;
+}
+
+/// The rows a streamed frame's VarDCT planes keep: three group rows, the
+/// one being decoded and the two its finished neighbor's window reads.
+pub fn ringRows(fh: *const headers.FrameHeader) usize {
+    const d: headers.Dims = .init(fh);
+    return 3 * @as(usize, d.group_dim);
+}
 
 /// An LF frame's output, which a frame with `flag_use_lf_frame` takes as
 /// its dequantized LF: three planes of `w` by `h`, rows of `w`.
@@ -171,6 +229,7 @@ pub fn decode(
     refs: *const [4]?PatchSource,
     lf_in: ?LfImage,
     sink: ?vardct.CoeffSink,
+    band: ?BandSink,
 ) Error!Decoded {
     var ctx: Context = .{
         .image = image,
@@ -181,6 +240,7 @@ pub fn decode(
         .lf_in = lf_in,
         .sink = sink,
     };
+    if (band != null and toc.sizes.len > 1 and streams(image, fh, toc.permuted())) ctx.band = band;
     ctx.done = try arena.alloc(bool, toc.sizes.len);
     @memset(ctx.done, false);
     if (toc.sizes.len == 1) {
@@ -206,9 +266,14 @@ pub fn decode(
             } else {
                 const k = id - nlf - 2;
                 try passGroup(br, arena, &ctx, k / ctx.d.num_groups, k % ctx.d.num_groups);
+                if (ctx.band != null) try groupIn(arena, &ctx, k);
             }
             try br.endSection();
         }
+    }
+    if (ctx.band != null) {
+        if (ctx.bands_out != ctx.d.ysize_groups) return error.BadImage;
+        return .{ .img = ctx.full, .num_color = ctx.num_color, .w = ctx.d.width, .h = ctx.d.height, .streamed = true };
     }
     try ctx.full.undoTransforms(arena);
     // The channels must be back to the frame's layout.
@@ -401,7 +466,11 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
 /// Applies the frame's color transform to a decoded frame's planes, once
 /// it has been saved for reference before it, if it is.
 pub fn colorTransform(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, dec: *const Decoded) void {
-    const planes = dec.color orelse return;
+    colorTransformPlanes(image, fh, dec.color orelse return);
+}
+
+/// `colorTransform` of three planes of samples.
+pub fn colorTransformPlanes(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, planes: [3][]f32) void {
     if (image.xyb) {
         // checkSupported has made sure this succeeds.
         const x = color.Xyb.init(image) catch return;
@@ -450,7 +519,8 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
     }
     ctx.lf_quant = lf_quant;
     if (!fh.modular) {
-        const vd = try vardct.Shared.init(arena, image, fh, &ctx.d, ctx.sink);
+        const ring = if (ctx.band != null) ringRows(fh) else 0;
+        const vd = try vardct.Shared.init(arena, image, fh, &ctx.d, ctx.sink, ring);
         try vardct.readLfGlobal(br, arena, vd, lf_quant);
         if (ctx.lf_in) |lf| try vardct.takeLf(vd, lf.planes, lf.w, lf.h);
         ctx.vd = vd;
@@ -486,6 +556,16 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
         .undo = false,
     });
     ctx.full = img;
+    if (ctx.band != null) {
+        // The extra channels' transforms are undone on the whole frame,
+        // so then it is decoded whole.
+        const vd = ctx.vd.?;
+        if (img.transforms.len != 0) {
+            ctx.band = null;
+            vd.ring_rows = 0;
+        }
+        try vd.allocPlanes(arena);
+    }
     ctx.got_global = true;
 }
 
@@ -581,6 +661,63 @@ fn lfGroup(br: *BitReader, arena: *Arena, ctx: *Context, g: u32) Error!void {
     try group(br, arena, ctx, rect, 3, 1000, 1 + d.num_lf_groups + g);
     if (ctx.vd) |vd| try vardct.readHfMeta(br, arena, vd, g, d.num_lf_groups, tree, ctx.full.bitdepth);
     ctx.lf_done += 1;
+}
+
+/// After group `g` of a streamed frame, whose groups come in order: once a
+/// group row is in, the band before it is finished (its window reaches
+/// into this row), and after the last, the last band too.
+fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
+    const d = &ctx.d;
+    if (g != ctx.rows_in * d.xsize_groups + d.xsize_groups - 1 and g + 1 != d.num_groups) return;
+    ctx.rows_in += 1;
+    if (ctx.rows_in == 1) {
+        // The window and sigmas, once the LF groups' fields are in.
+        const vd = ctx.vd.?;
+        const rows: usize = d.group_dim + 2 * band_margin;
+        for (&ctx.window) |*p| p.* = try arena.alloc(f32, rows * vd.bw * 8);
+        const rf = &ctx.fh.filter;
+        if (rf.epf_iters != 0) {
+            ctx.sigmas = try arena.alloc(f32, vd.bw * vd.bh);
+            vardct.epfSigmas(vd, rf, ctx.sigmas);
+        }
+    }
+    if (ctx.rows_in >= 2) try emitBand(arena, ctx, ctx.rows_in - 2);
+    if (ctx.rows_in == d.ysize_groups) try emitBand(arena, ctx, ctx.rows_in - 1);
+}
+
+/// Filters group row `k`'s pixels on a window with `band_margin` rows of
+/// the rows around it, then hands them to the band sink.
+fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
+    const vd = ctx.vd.?;
+    const d = &ctx.d;
+    const h: usize = d.height;
+    const gd: usize = d.group_dim;
+    const stride = vd.bw * 8;
+    const y0 = k * gd;
+    const y1 = @min(h, y0 + gd);
+    const ws = y0 -| band_margin;
+    const we = @min(h, y1 + band_margin);
+    var win: [3][]f32 = undefined;
+    for (&win, ctx.window, vd.planes) |*o, buf, plane| {
+        o.* = buf[0 .. (we - ws) * stride];
+        for (ws..we) |y| @memcpy(o.*[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
+    }
+    // Mirrored at the window's edges, which are wrong only within the
+    // margin, except at the frame's, where mirroring is right.
+    const pl: filters.Planes = .{ .p = win, .stride = stride, .w = d.width, .h = we - ws };
+    const rf = &ctx.fh.filter;
+    if (rf.gab) try filters.gaborish(arena, &pl, rf);
+    if (rf.epf_iters != 0) {
+        const sig = ctx.sigmas[(ws / 8) * vd.bw ..];
+        if (rf.epf_iters >= 3) try filters.epf(arena, &pl, rf, 0, sig, vd.bw);
+        try filters.epf(arena, &pl, rf, 1, sig, vd.bw);
+        if (rf.epf_iters >= 2) try filters.epf(arena, &pl, rf, 2, sig, vd.bw);
+    }
+    var band: [3][]f32 = undefined;
+    for (&band, win) |*o, p| o.* = p[(y0 - ws) * stride ..][0 .. (y1 - y0) * stride];
+    const sink = ctx.band.?;
+    sink.write(sink.ctx, band, stride, &ctx.full, y0, y1 - y0);
+    ctx.bands_out += 1;
 }
 
 fn passGroup(br: *BitReader, arena: *Arena, ctx: *Context, pass: u32, g: u32) Error!void {

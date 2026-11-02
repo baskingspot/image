@@ -61,8 +61,10 @@ state: State = .start,
 image: headers.ImageHeader = undefined,
 /// The encoded ICC profile's size, until the profile is read.
 icc_size: ?u64 = null,
-/// The next frame's header, when already read.
+/// The next frame's header, when already read, and whether its TOC is
+/// permuted.
 next_frame: ?headers.FrameHeader = null,
+next_toc_permuted: bool = true,
 /// Whether frames may need the canvas and reference slots.
 needs_refs: bool = true,
 work_len: usize = 0,
@@ -79,6 +81,9 @@ nonvisible: u32 = 0,
 /// approximate rather than the stored integers.
 float_frames: bool = false,
 store: Store = .{},
+/// Whether frames that can stream do (`frame.streams`); false decodes
+/// every frame whole, for tests.
+stream: bool = true,
 /// Receives every VarDCT frame's quantized coefficients, for rebuilding a
 /// recompressed JPEG; for this package's JPEG reconstruction, not callers.
 coeff_sink: ?vardct.CoeffSink = null,
@@ -173,6 +178,8 @@ fn readHeaders(d: *Decoder) Error!void {
         try br.zeroPadToByte();
         const fh = try headers.FrameHeader.read(br, &d.image, false);
         d.next_frame = fh;
+        // The TOC's first bit says whether its sections are permuted.
+        d.next_toc_permuted = (br.peek(1) catch 1) == 1;
         // One frame that covers the canvas needs no canvas or slots.
         d.needs_refs = !(fh.is_last and !fh.have_crop and d.image.animation == null);
     }
@@ -204,7 +211,12 @@ fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
     // One frame: the only one, when the peeked first frame is the last;
     // otherwise any.
     const only: ?*const headers.FrameHeader = if (d.next_frame) |*f| (if (f.is_last) f else null) else null;
-    total += if (kind == .jpeg) jpegFrameBound(h, d.next_frame) else frameBound(h, only);
+    // The only frame streams when its TOC, peeked, is in order.
+    const stream = if (only) |f|
+        !d.next_toc_permuted and !needsBlending(f, h.num_ec) and frame.streams(h, f, false)
+    else
+        false;
+    total += if (kind == .jpeg) jpegFrameBound(h, d.next_frame) else frameBound(h, only, stream);
     // A group's channels with their transforms, at the peeked frame's
     // group size or the largest.
     const gd: u128 = if (d.next_frame) |f| @as(u128, 128) << @intCast(f.group_size_shift) else 1024;
@@ -229,8 +241,9 @@ fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
 /// The memory one frame's pixels take (docs/slop/jxl.md, work memory):
 /// frame `f`'s, or with `f` null, the most any frame of up to
 /// `frame_scale` times the canvas may take, Modular or VarDCT, with every
-/// feature.
-fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader) u128 {
+/// feature. A frame that `stream`s keeps a ring of group rows and a band's
+/// window instead of whole planes.
+fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, stream: bool) u128 {
     const px: u128 = @as(u128, h.width) * h.height;
     const ne: u128 = h.num_ec;
     // Pixels after upsampling, before it, and padded to whole blocks.
@@ -262,14 +275,26 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader) u12
     // is new), one more for a delta palette's indices, and the largest
     // palette.
     const nm: u128 = (if (modular_frame) @as(u128, h.colourChannels()) else 0) + ne;
-    total += 3 * nm * pre_px * 4 + pre_px * 4 + 4 * 137_728 * @max(nm, 1);
+    // A frame without frame-sized Modular channels (VarDCT without extra
+    // channels) has no delta palette there either.
+    total += 3 * nm * pre_px * 4 + (if (nm > 0) pre_px * 4 else 0) + 4 * 137_728 * @max(nm, 1);
     if (vardct_frame) {
         // VarDCT's three planes, coefficients kept between passes, block
         // fields; a pass group's coefficients and scratch, the LF group's
         // channels, the dequantization tables, and each pass's orders and
         // code.
         const window: u128 = entropy.window_size;
-        total += pad_px * 12 + (if (passes > 1) pad_px * 12 else 0) + pad_px / 64 * 24;
+        var planes_px = pad_px;
+        if (stream) {
+            const fh = f.?;
+            const dims: headers.Dims = .init(fh);
+            const rows: u128 = frame.ringRows(fh) + dims.group_dim + 16;
+            const ring = @min(pad_px, @as(u128, dims.xsize_blocks) * 8 * rows) + pad_px / 64;
+            // With extra channels, global transforms found in the frame
+            // take whole planes instead (`frame.lfGlobal`).
+            planes_px = if (ne > 0) @max(pad_px, ring) else ring;
+        }
+        total += planes_px * 12 + (if (passes > 1) pad_px * 12 else 0) + pad_px / 64 * 24;
         total += 4 << 20;
         total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + 786_432);
     } else if (drawn) {
@@ -567,7 +592,7 @@ fn jpegFrame(d: *Decoder, coefs: []i16, work: []u8) Error!Jpeg {
     var jpeg: Jpeg = try .init(&fh, &dims, coefs);
     const toc = try frame.readToc(&d.br, &st.arena, &dims, fh.passes.num);
     const refs: [4]?frame.PatchSource = @splat(null);
-    _ = try frame.decode(&d.br, &st.arena, image, &fh, &toc, .{ 1, 0 }, &refs, null, jpeg.sink());
+    _ = try frame.decode(&d.br, &st.arena, image, &fh, &toc, .{ 1, 0 }, &refs, null, jpeg.sink(), null);
     if (!jpeg.got_quant) return error.NotJpeg;
     d.state = .trailer;
     return jpeg;
@@ -657,7 +682,17 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
         lf_in = .{ .planes = .{ l.planes[0], l.planes[1], l.planes[2] }, .w = l.w, .h = l.h };
     }
     const counts = .{ d.visible, d.nonvisible };
-    const dec = try frame.decode(&d.br, &st.arena, image, fh, &toc, counts, &refs, lf_in, d.coeff_sink);
+    // A shown frame that replaces the canvas and is never referenced may
+    // stream: filtered and written a group row at a time.
+    var out: BandOut = .{ .d = d, .fh = fh, .dst = dst };
+    const direct = d.stream and shown and !needsBlending(fh, image.num_ec) and !canBeReferenced(fh) and
+        fh.kind == .regular;
+    const band: ?frame.BandSink = if (direct) .{ .ctx = &out, .write = BandOut.write } else null;
+    const dec = try frame.decode(&d.br, &st.arena, image, fh, &toc, counts, &refs, lf_in, d.coeff_sink, band);
+    if (dec.streamed) {
+        d.float_frames = true;
+        return true;
+    }
     if (fh.kind == .lf) {
         // Kept for the frames that use it; never shown.
         const l = &st.lf[fh.lf_level - 1];
@@ -705,6 +740,40 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
     return shown;
 }
 
+/// Writes a streamed frame's bands to `dst`.
+const BandOut = struct {
+    d: *const Decoder,
+    fh: *const headers.FrameHeader,
+    dst: PixelBuffer,
+
+    fn write(
+        ctx: *anyopaque,
+        planes: [3][]f32,
+        stride: usize,
+        extra: *const modular.Image,
+        y0: usize,
+        rows: usize,
+    ) void {
+        const o: *BandOut = @ptrCast(@alignCast(ctx));
+        const image = &o.d.image;
+        frame.colorTransformPlanes(image, o.fh, planes);
+        const f: Frame = .{
+            .d = o.d,
+            .img = extra,
+            .img_y = y0,
+            .num_color = image.colourChannels(),
+            .color = planes,
+            .color_stride = stride,
+            .ec = null,
+            .w = image.width,
+            .h = @intCast(rows),
+            .x0 = 0,
+            .y0 = 0,
+        };
+        f.writeRows(o.dst, y0, rows);
+    }
+};
+
 /// A decoded frame's channels and how to read them as floats.
 const Frame = struct {
     d: *const Decoder,
@@ -720,6 +789,9 @@ const Frame = struct {
     h: u32,
     x0: i32,
     y0: i32,
+    /// The row of `img` that is the frame's row 0: a streamed band's
+    /// first.
+    img_y: usize = 0,
 
     /// Channel `c` (colors, then extra channels) of row `y` from `x`, as
     /// floats.
@@ -737,7 +809,7 @@ const Frame = struct {
         }
         const depth = if (c < f.num_color) h.depth else h.ec[c - f.num_color].depth;
         const ch = &f.img.buf[if (f.color == null) c else c - f.num_color];
-        const in = ch.row(y)[x..][0..out.len];
+        const in = ch.row(f.img_y + y)[x..][0..out.len];
         frame.toFloat(depth, in, out);
     }
 
@@ -746,14 +818,20 @@ const Frame = struct {
     /// converted. (A blended canvas goes through `pivot` instead, which
     /// keeps the blend's precision as the reference does.)
     fn write(f: *const Frame, dst: PixelBuffer) void {
+        f.writeRows(dst, 0, f.d.image.height);
+    }
+
+    /// `write` of the frame's `rows` rows, from row 0, to `dst`'s rows
+    /// from `y0`.
+    fn writeRows(f: *const Frame, dst: PixelBuffer, y0: usize, rows: usize) void {
         const h = &f.d.image;
         const p = f.d.native_format;
         const conv: Converter = .init(dst.format, p);
         var buf: [chunk * 16]u8 align(4) = undefined;
         var fl: [max_planes][chunk]f32 = undefined;
         const alpha = h.alphaChannel();
-        for (0..h.height) |y| {
-            const out = dst.row(@intCast(y));
+        for (0..rows) |y| {
+            const out = dst.row(@intCast(y0 + y));
             var x: usize = 0;
             while (x < h.width) {
                 const n = @min(chunk, h.width - x);
@@ -1028,6 +1106,47 @@ fn blendPixel(
 fn fail(d: *Decoder, e: Error) Error {
     d.err = e;
     return e;
+}
+
+test "a streamed frame's pixels are the whole frame's" {
+    // basn2c08.png resized to 8 by 1100, `cjxl -d 2 --epf=3 --gaborish=1`:
+    // five group rows of VarDCT with every EPF pass, so each band's window
+    // reaches into its neighbors'.
+    const file =
+        "\xff\x0a\x5a\x22\xe0\x00\x48\x28\x5a\x04\x00\x13\x88\x06\x00\xe8\xc0\x3b\x08\x81\x02\x48\x00\x04" ++
+        "\x4c\x80\x05\xd3\x4f\x12\x00\x80\x0a\x95\x51\xc6\x0d\x5e\xce\xf5\x7c\xf9\xa1\xc3\x62\xda\xc6\x75" ++
+        "\x86\xb6\xda\xb6\xb0\x84\xb1\xd9\x5e\x18\x24\x4c\x81\x02\x35\x24\x99\xf1\xee\xb0\x07\x28\x1c\xa3" ++
+        "\x1d\x63\x15\xa3\x2a\xaa\x99\xf1\xe2\xc5\xe0\x25\x01\x0d\x91\x8e\x00\x00\xc2\x15\x80\xa8\xc2\xb7" ++
+        "\x8a\xc3\x56\x58\x62\x4d\xc2\x4a\x34\x9e\xf7\xdb\x5e\x7f\xf3\xd9\x67\x3f\x3b\x76\x7b\xe1\xdf\xc6" ++
+        "\x84\x3c\x1a\x32\x18\x58\x13\x40\x71\xcb\x2f\x4b\x37\x6b\x9c\x99\x5d\x29\x11\xec\x9b\x02\xe0\xe2" ++
+        "\xfb\x73\x79\x9e\xf3\x7b\x87\xfa\xba\xf7\xeb\xff\x89\xff\xa4\x9e\xff\xff\x8d\xfc\xf3\x9b\xb9\x65" ++
+        "\xd2\x08\xd9\xeb\xe9\x4a\x4f\x50\xaf\x6e\xb9\xee\x17\x89\x91\x10\x06\x91\x84\xc1\x85\x09\x02\x84" ++
+        "\x78\x9c\x66\x3b\xfd\x2e\x9c\x2d\xae\xad\xbe\xbc\xbf\xbd\xc6\x2d\x44\x0f\xe8\x1f\x09\x0a\x59\x8e" ++
+        "\x2c\x53\x63\xfc\x66\x9c\x94\x15\x6f\x0c\xb9\x4d\xb7\xff\xb4\xa3\xd8\xe9\xfe\x07\xd9\x21\x4d\x47" ++
+        "\xb4\x4e\x44\x87\x6c\x87\xf4\x80\xc8\x4f\x08\xca\x10\xe1\xe3\x87\xf7\xee\x5a\x26\x65\xbb\x35\x08" ++
+        "\x07\xd8\x2b\x99\x35\x8f\x37\x47\x34\xdc\x46\x49\x00\x62\xd0\x27\xe8\xb0\x00\xed\xc5\xcf\x15\x14" ++
+        "\xf5\xc5\x30\x03\xa3\x4e\xae\x86\x17\x56\xee\xe2\x18\xe6\xd7\xc2\x64\xad\x82\x26\xb7\x1c\xd5\x4f" ++
+        "\x4f\x75\xaf\xfe\x5d\xd7\xd2\xc9\x05\x88\x77\x01\x31\x04\x90\x30\x16\x2b\x18\xa0\x08\x30\x49\x58" ++
+        "\x34\xc1\xa0\xda\x5d\xa8\xf3\xf2\x60\xa4\x52\x04\x00\x02\x1a\x25\x81\x87\x06\x04\x78\xad\xcb\xf6" ++
+        "\x09\x04\x29\x6b\x98\xca\x46\x99\x44\x0a\x0a\x8a\x05\xd3\x63\x38\x0c\x25\x64\x41\x61\x5b\xcb\x11" ++
+        "\x6a\x54\xac\x24\x45\x09\xca\x70\xee\x00\xf9\x3b\x01\x27\x04\xfd\xd4\x23\x12\x00\xad\xcf\x97\x2f" ++
+        "\x13\xf0\xe3\x7c\x20\x1c\x05\x3a\xb4\xba\x7c\xbe\xc3\x00\xf0\x6f\x26\xce\x8c\x0a\x01\x19\xc4\x1d" ++
+        "\x4c\xf0\x00\x55\xaa\x07\x99\x13\x8c\xae\xb4\x77\xd2\x58\x10\xd0\xd0\x37\x27\x0c\x99\x0d\x0e\xf0" ++
+        "\x61\xc0\x6d\xda\x4e\x02\x36\xab\x63\x71\xe9\x29\x4d\x19\x90\x39\x94\x20\x1b";
+    var out: [2][8 * 1100 * 8]u8 = undefined;
+    var peak: [2]usize = undefined;
+    for (0..2) |i| {
+        var r: Io.Reader = .fixed(file);
+        var d: Decoder = .init(&r, .{});
+        d.stream = i == 0;
+        const c = try d.decodeConfig();
+        const work = try testing.allocator.alloc(u8, c.work_len);
+        defer testing.allocator.free(work);
+        _ = try d.decodeFrame(try .init(&out[i], .rgba16, 8, 1100), work);
+        peak[i] = d.store.arena.peak;
+    }
+    try testing.expectEqualSlices(u8, &out[1], &out[0]);
+    try testing.expect(peak[0] < peak[1]);
 }
 
 test "signature" {
