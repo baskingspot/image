@@ -29,6 +29,17 @@
 //! - A minimum code size of 0: Wuffs and this package decode it (clear
 //!   code 1, end code 2, codes from 1 bit wide); giflib decodes some such
 //!   files the same way and rejects others.
+//! - A NETSCAPE2.0 or ANIMEXTS1.0 extension with no sub-blocks, its
+//!   identifier followed by the block terminator: Wuffs reads that 0 as
+//!   the size of the loop count's sub-block, and on any size but 3 skips
+//!   that many bytes and then sub-blocks, so it reads past the terminator
+//!   and takes the next byte for a sub-block's size. The specification
+//!   makes 0 the terminator, as giflib and this package read it. `adapt`
+//!   hands Wuffs the extension under another identifier, which it skips
+//!   correctly; the extension holds no loop count, so the pixels cannot
+//!   change. (Two fuzzed inputs, mutation copies after such an extension,
+//!   had Wuffs and giflib both reject them for different reasons while
+//!   this package read the copy's first byte as the end of the image.)
 //! - giflib applies no palette, so for a frame with no color table, or an
 //!   index past its table, gif.c leaves the answer to Wuffs (opaque black,
 //!   as this package writes).
@@ -48,10 +59,22 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
     return true;
 }
 
+/// Hands Wuffs every NETSCAPE2.0 or ANIMEXTS1.0 extension without
+/// sub-blocks with its identifier renamed, so Wuffs skips it as an unknown
+/// application extension (see above). The pattern is matched anywhere, LZW
+/// data included, where a false match can only change Wuffs's answer.
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
-    _ = op;
-    _ = arena;
-    return input;
+    if (!std.mem.eql(u8, op, "gif-wuffs")) return input;
+    var out: ?[]u8 = null;
+    for ([_][]const u8{ "\x21\xff\x0bNETSCAPE2.0\x00", "\x21\xff\x0bANIMEXTS1.0\x00" }) |empty| {
+        var at: usize = 0;
+        while (std.mem.findPos(u8, out orelse input, at, empty)) |i| {
+            if (out == null) out = try arena.dupe(u8, input);
+            @memset(out.?[i + 3 ..][0..11], '_');
+            at = i + empty.len;
+        }
+    }
+    return out orelse input;
 }
 
 /// The canvas before a frame whose disposal is `previous`; compare.zig's

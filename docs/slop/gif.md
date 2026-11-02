@@ -97,7 +97,11 @@ specifications leave room, and why. Results: `results/gif-20261101.md`.
   and its terminator (`BadBlock`); when several come before one frame the
   last wins (Wuffs; giflib takes the first). A plain text extension does
   not consume the pending graphic control extension, as Wuffs reads it;
-  it is skipped, as are comments and unknown application extensions. The
+  it is skipped, as are comments and unknown application extensions. A
+  0 right after an application extension's identifier is its terminator,
+  as the specification says, even for NETSCAPE2.0, where Wuffs reads it as
+  the loop count's sub-block size and reads on past it (the oracle hands
+  Wuffs such an extension renamed; test/oracle/gif.zig). The
   loop count is read from NETSCAPE2.0 or ANIMEXTS1.0 before the first
   frame: `Config.loop_count` is the count plus one plays (0 forever), or
   1 when there is none, as browsers play such a file once (decision 12;
