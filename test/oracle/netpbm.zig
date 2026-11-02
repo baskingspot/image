@@ -185,11 +185,12 @@ const Ours = struct {
     inexact: bool = false,
 };
 
-var cache_hash: ?u64 = null;
-var cache: Ours = .{};
+// One per thread: compare.zig calls `comparable` from a worker per core.
+threadlocal var cache_hash: ?u64 = null;
+threadlocal var cache: Ours = .{};
 
-/// Our answer for `input`, kept for the next call, which is usually for
-/// the same input.
+/// Our answer for `input`, kept for this thread's next call, which is
+/// usually for the same input.
 fn ours(input: []const u8, maxval: ?u64) Ours {
     const hash = std.hash.Wyhash.hash(input.len, input);
     if (cache_hash != hash) {
