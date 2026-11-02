@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Interleaved A/B: ab.sh A_BIN B_BIN OUTDIR ROUNDS OP DIR [GLOB]
+# Interleaved A/B: ab.sh A_BIN B_BIN OUTDIR ROUNDS OP DIR [REGEX]
 # Each round times every input under A and B back to back, alternating
 # which goes first, both pinned to the last core; benchstat compares them.
 set -euo pipefail
-a=$1 b=$2 out=$3 rounds=$4 op=$5 dir=$6 glob=${7:-*}
+a=$1 b=$2 out=$3 rounds=$4 op=$5 dir=$6 pat=${7:-.}
 mkdir -p "$out"
 : > "$out/a.txt"
 : > "$out/b.txt"
 core=$(( $(nproc) - 1 ))
 export BENCHTIME_MS=${BENCHTIME_MS:-60}
-mapfile -t inputs < <(cd "$dir" && ls $glob)
+mapfile -t inputs < <(ls "$dir" | grep -E "$pat")
 for ((r = 0; r < rounds; r++)); do
   i=0
   for f in "${inputs[@]}"; do

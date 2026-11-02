@@ -346,13 +346,33 @@ fn entry(len: u32, value: u32) u16 {
 /// Builds the table for the code whose lengths are `lengths` into the
 /// front of `out`, returning its root bits and the entries it took.
 fn build(out: []u16, lengths: []const u8) Error!struct { root: u8, len: usize } {
+    // Mostly zeros: eight at a time are skipped, and the rest counted in
+    // four tables, so increments of one count do not wait on each other.
+    var counts: [4][16]u16 = @splat(@splat(0));
+    var first: usize = lengths.len;
+    var skipped: usize = 0;
+    var c8: usize = 0;
+    while (c8 + 8 <= lengths.len) : (c8 += 8) {
+        if (std.mem.readInt(u64, lengths[c8..][0..8], .little) == 0) {
+            skipped += 8;
+            continue;
+        }
+        first = @min(first, c8);
+        inline for (0..8) |k| counts[k & 3][lengths[c8 + k]] += 1;
+    }
+    for (lengths[c8..], c8..) |l, k| {
+        if (l != 0) first = @min(first, k);
+        counts[0][l] += 1;
+    }
     var count: [16]u16 = @splat(0);
-    for (lengths) |l| count[l] += 1;
-    const n = lengths.len - count[0];
+    for (counts) |c| for (&count, c) |*t, v| {
+        t.* += v;
+    };
+    const n = lengths.len - skipped - count[0];
     if (n == 0) return error.BadPrefixCode;
     if (n == 1) {
-        const sym = for (lengths, 0..) |l, i| {
-            if (l != 0) break i;
+        const sym = for (lengths[first..], first..) |l, k| {
+            if (l != 0) break k;
         } else unreachable;
         if (out.len < 1) return error.Unsupported;
         out[0] = entry(0, @intCast(sym));
@@ -372,10 +392,19 @@ fn build(out: []u16, lengths: []const u8) Error!struct { root: u8, len: usize } 
     offsets[1] = 0;
     for (1..15) |l| offsets[l + 1] = offsets[l] + count[l];
     var sorted: [max_green]u16 = undefined;
-    for (lengths, 0..) |l, i| {
-        if (l == 0) continue;
-        sorted[offsets[l]] = @intCast(i);
-        offsets[l] += 1;
+    var at = first & ~@as(usize, 7);
+    while (at < lengths.len) {
+        if (at + 8 <= lengths.len and std.mem.readInt(u64, lengths[at..][0..8], .little) == 0) {
+            at += 8;
+            continue;
+        }
+        const end = @min(lengths.len, at + 8);
+        for (lengths[at..end], at..) |l, k| {
+            if (l == 0) continue;
+            sorted[offsets[l]] = @intCast(k);
+            offsets[l] += 1;
+        }
+        at = end;
     }
 
     const root: u32 = @min(8, max_len);
@@ -437,18 +466,28 @@ const code_length_order = [19]u8{ 17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 
 fn readCode(br: *BitReader, alphabet: usize, out: []u16) Error!struct { root: u8, len: usize } {
     var lengths: [max_green]u8 = undefined;
     const lens = lengths[0..alphabet];
-    @memset(lens, 0);
     if (br.read(1) == 1) {
         // Simple: one or two symbols of length 1. A symbol outside the
-        // alphabet is dropped, as libwebp drops it.
+        // alphabet is dropped, as libwebp drops it. Its table is built
+        // here, where `build` would scan the whole alphabet.
         const two = br.read(1) == 1;
-        const first = br.read(if (br.read(1) == 1) 8 else 1);
-        if (first < alphabet) lens[first] = 1;
-        if (two) {
-            const second = br.read(8);
-            if (second < alphabet) lens[second] = 1;
+        const first: usize = br.read(if (br.read(1) == 1) 8 else 1);
+        const second: usize = if (two) br.read(8) else alphabet;
+        try br.check();
+        const a_ok = first < alphabet;
+        const b_ok = second < alphabet and second != first;
+        if (a_ok and b_ok) {
+            if (out.len < 2) return error.Unsupported;
+            out[0] = entry(1, @intCast(@min(first, second)));
+            out[1] = entry(1, @intCast(@max(first, second)));
+            return .{ .root = 1, .len = 2 };
         }
+        if (!a_ok and !(second < alphabet)) return error.BadPrefixCode;
+        if (out.len < 1) return error.Unsupported;
+        out[0] = entry(0, @intCast(if (a_ok) first else second));
+        return .{ .root = 0, .len = 1 };
     } else {
+        @memset(lens, 0);
         var cl: [19]u8 = @splat(0);
         const n = 4 + br.read(4);
         for (code_length_order[0..n]) |i| cl[i] = @intCast(br.read(3));
