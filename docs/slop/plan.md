@@ -161,7 +161,14 @@ input's branches cannot be learned; `png-decode-icons` and
 (`.encode`; the request is u32 width, u32 height, pixels; the response is
 the file), used by qoi_encode, and oracle modules must be thread-safe.
 `harness.checkEncoderWith` takes an `expect` hook and sides past 64 for
-quantizing and lossy encoders.
+quantizing and lossy encoders; `expect(want, trip)` sees the round trip
+(`harness.RoundTrip`: source, decode, file). A decoder declaring
+`float_direct = true` writes float formats from its own floats (decision
+24), and `checkDecoder` skips comparing those with converted native pixels.
+An oracle module may declare `toleranceFor(input) ?Oracle.Tolerance`
+(`peak`, optional `rms`, in sample units, 16-bit steps for floats) instead
+of a format-wide `tolerance` (decision 45). Gate recipes clear `.zig-cache`
+at 20 GiB or 85% disk, except under CI.
 
 Megapixels per second and peak RSS, decode and encode, per format, against
 the bar library and the comparison arms in AGENTS.md, using utf's harness
@@ -812,7 +819,7 @@ width)` for every file with several entries.
     a caller whose frame clears pixels disposes the previous frame to
     background. Documented, not detected.
 45. **JPEG XL lossy comparison. Decided by the owner:** the harness gets a
-    per-input tolerance hook (`toleranceFor(input) ?u16`); lossless answers
+    per-input tolerance hook (`toleranceFor(input) ?Oracle.Tolerance`); lossless answers
     stay exact, lossy frames get 3 (float evaluation in the sRGB curve's
     linear segment), and frames that draw splines get the conformance bound
     (peak 262, RMS ≤ 1e-4). Lossy frames stay out until the hook lands; no
