@@ -46,6 +46,17 @@ pub fn swap(buf: []u8, bytes: u8) void {
 /// Undoes horizontal differencing (predictor 2) on one row of machine-order
 /// samples, `stride` samples per pixel.
 pub fn horizontal(buf: []u8, bytes: u8, stride: usize) void {
+    // The usual layouts: 8-bit samples as prefix sums over vectors, and
+    // 16-bit ones with a pixel's running sums in registers, so that no
+    // sample waits on the store of the one a pixel before it.
+    switch (stride) {
+        inline 1...4 => |s| switch (bytes) {
+            1 => return horizontalVector(s, buf),
+            2 => return horizontalFixed(u16, s, buf),
+            else => {},
+        },
+        else => {},
+    }
     switch (bytes) {
         1 => {
             var i: usize = stride;
@@ -62,6 +73,65 @@ pub fn horizontal(buf: []u8, bytes: u8, stride: usize) void {
             }
         },
         else => unreachable,
+    }
+}
+
+fn horizontalVector(comptime s: usize, buf: []u8) void {
+    const n = 16;
+    const V = @Vector(n, u8);
+    if (buf.len < s) return;
+    // The previous block's outputs, whose last `s` lanes carry each
+    // channel's sum into the next block.
+    var last: [n]u8 = @splat(0);
+    last[n - s ..].* = buf[0..s].*;
+    var prev: V = last;
+    var i: usize = s;
+    while (i + n <= buf.len) : (i += n) {
+        var x: V = buf[i..][0..n].*;
+        comptime var k = s;
+        inline while (k < n) : (k *= 2) x +%= @shuffle(u8, x, @as(V, @splat(0)), shiftMask(n, k));
+        x +%= @shuffle(u8, prev, undefined, carryMask(n, s));
+        buf[i..][0..n].* = x;
+        prev = x;
+    }
+    while (i < buf.len) : (i += 1) buf[i] +%= buf[i - s];
+}
+
+/// Lane j takes lane j - k, or 0 from the second vector below k.
+fn shiftMask(comptime n: usize, comptime k: usize) @Vector(n, i32) {
+    var m: [n]i32 = undefined;
+    for (&m, 0..) |*v, j| v.* = if (j >= k) @intCast(j - k) else ~@as(i32, 0);
+    return m;
+}
+
+/// Lane j takes the last lane before the block of its channel: the
+/// previous block's lane n - s + j mod s.
+fn carryMask(comptime n: usize, comptime s: usize) @Vector(n, i32) {
+    var m: [n]i32 = undefined;
+    for (&m, 0..) |*v, j| v.* = @intCast(n - s + j % s);
+    return m;
+}
+
+fn horizontalFixed(comptime T: type, comptime s: usize, buf: []u8) void {
+    const n = @sizeOf(T);
+    const px = s * n;
+    if (buf.len < px) return;
+    var acc: [s]T = undefined;
+    inline for (0..s) |k| acc[k] = std.mem.readInt(T, buf[k * n ..][0..n], native_endian);
+    var i: usize = px;
+    while (i + px <= buf.len) : (i += px) {
+        const p = buf[i..][0..px];
+        inline for (0..s) |k| {
+            acc[k] +%= std.mem.readInt(T, p[k * n ..][0..n], native_endian);
+            std.mem.writeInt(T, p[k * n ..][0..n], acc[k], native_endian);
+        }
+    }
+    // A partial pixel at the end, which a line of whole pixels never has.
+    inline for (0..s) |k| {
+        if (i + (k + 1) * n <= buf.len) {
+            acc[k] +%= std.mem.readInt(T, buf[i + k * n ..][0..n], native_endian);
+            std.mem.writeInt(T, buf[i + k * n ..][0..n], acc[k], native_endian);
+        }
     }
 }
 
@@ -412,6 +482,29 @@ test "predictors" {
     horizontal(&wide, 2, 1);
     try testing.expectEqual(999, std.mem.readInt(u16, wide[2..4], native_endian));
     try testing.expectEqual(1001, std.mem.readInt(u16, wide[4..6], native_endian));
+    // Every stride and sample size against the definition, on rows that
+    // end in a partial pixel and an odd byte.
+    var prng: std.Random.DefaultPrng = .init(3);
+    for ([_]u8{ 1, 2, 4 }) |bytes| for (1..6) |stride| for ([_]usize{ 0, 1, 7, 40, 41 }) |len| {
+        var got: [41]u8 = undefined;
+        prng.random().bytes(&got);
+        var want = got;
+        var i = stride;
+        while (i < len / bytes) : (i += 1) {
+            const at = i * bytes;
+            const prev = std.mem.readVarInt(u32, want[at - stride * bytes ..][0..bytes], native_endian);
+            const cur = std.mem.readVarInt(u32, want[at..][0..bytes], native_endian);
+            switch (bytes) {
+                inline 1, 2, 4 => |n| {
+                    const T = @Int(.unsigned, 8 * n);
+                    std.mem.writeInt(T, want[at..][0..n], @truncate(cur +% prev), native_endian);
+                },
+                else => unreachable,
+            }
+        }
+        horizontal(got[0..len], bytes, stride);
+        try testing.expectEqualSlices(u8, &want, &got);
+    };
     // Two 32-bit floats, 1.0 (3f800000) and 2.0 (40000000), arranged by
     // byte significance and differenced with a stride of 1.
     var f = [_]u8{ 0x3f, 0x01, 0x40, 0x80, 0, 0, 0, 0 };
