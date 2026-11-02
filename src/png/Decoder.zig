@@ -5,9 +5,10 @@
 //!
 //! Format: the PNG specification, third edition (W3C, 2025), which includes
 //! APNG. Every color type, bit depth, and Adam7 interlacing; tRNS becomes an
-//! alpha channel in the native format. gAMA, cHRM, sRGB, pHYs, iCCP, eXIf,
-//! and bKGD are reported in `Config` and never applied; iCCP and eXIf bytes
-//! go to the blob sink as they pass.
+//! alpha channel in the native format. gAMA, cHRM, sRGB, cICP, mDCV, cLLI,
+//! pHYs, iCCP, eXIf, and bKGD are reported in `Config` and never applied;
+//! iCCP and eXIf bytes go to the blob sink as they pass. cICP takes
+//! precedence over iCCP, sRGB, gAMA, and cHRM, as section 4.3 orders them.
 //!
 //! Strict, as Wuffs is: the CRC-32 of every critical chunk (IHDR, PLTE,
 //! IDAT, IEND) is checked, and so is the image data's Adler-32, unless
@@ -211,6 +212,9 @@ const types = struct {
     const chrm = tag("cHRM");
     const srgb = tag("sRGB");
     const iccp = tag("iCCP");
+    const cicp = tag("cICP");
+    const mdcv = tag("mDCV");
+    const clli = tag("cLLI");
     const exif = tag("eXIf");
     const phys = tag("pHYs");
     const bkgd = tag("bKGD");
@@ -465,6 +469,7 @@ fn readHead(d: *Decoder) Error!void {
         }
     }
     if (h.color == 3 and !d.seen.plte) return error.BadChunk;
+    if (d.metadata.cicp) |c| fromCicp(&d.metadata, c);
     if (d.animated) {
         if (d.early_fctl) |raw| d.fctl = try d.parseFctl(&raw, true);
     }
@@ -490,6 +495,7 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
     // after it, so they are skipped there, as libpng skips them.
     if (d.state != .start) switch (c.type) {
         types.gama, types.chrm, types.srgb, types.phys, types.bkgd, types.iccp => return d.endChunk(),
+        types.cicp, types.mdcv, types.clli => return d.endChunk(),
         else => {},
     };
     switch (c.type) {
@@ -516,6 +522,33 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
             d.seen.srgb = true;
             d.metadata.transfer = .srgb;
         },
+        // A matrix other than 0 (PNG stores RGB) or a range flag past 1
+        // breaks cICP, which is then ignored; libpng ignores the former too.
+        types.cicp => if (try d.readSmall(&buf)) |b| {
+            if (b.len != 4 or b[2] != 0 or b[3] > 1 or d.metadata.cicp != null) return;
+            d.metadata.cicp = .{ .primaries = b[0], .transfer = b[1], .matrix = b[2], .full_range = b[3] == 1 };
+        },
+        // Luminances are PNG four-byte unsigned integers, at most 2^31 - 1.
+        types.mdcv => if (try d.readSmall(&buf)) |b| {
+            if (b.len != 24 or d.metadata.mastering_display != null) return;
+            const max = std.mem.readInt(u32, b[16..20], .big);
+            const min = std.mem.readInt(u32, b[20..24], .big);
+            if (max > 0x7fff_ffff or min > 0x7fff_ffff) return;
+            var p: [8]f32 = undefined;
+            for (&p, 0..) |*x, i| x.* = scaled(std.mem.readInt(u16, b[i * 2 ..][0..2], .big), 50_000);
+            d.metadata.mastering_display = .{
+                .primaries = p,
+                .min_luminance = scaled(min, 10_000),
+                .max_luminance = scaled(max, 10_000),
+            };
+        },
+        types.clli => if (try d.readSmall(&buf)) |b| {
+            if (b.len != 8 or d.metadata.content_light_level != null) return;
+            const cll = std.mem.readInt(u32, b[0..4], .big);
+            const fall = std.mem.readInt(u32, b[4..8], .big);
+            if (cll > 0x7fff_ffff or fall > 0x7fff_ffff) return;
+            d.metadata.content_light_level = .{ .max_cll = scaled(cll, 10_000), .max_fall = scaled(fall, 10_000) };
+        },
         types.phys => if (try d.readSmall(&buf)) |b| {
             if (b.len != 9 or b[8] > 1 or d.seen.phys) return;
             d.seen.phys = true;
@@ -533,6 +566,52 @@ fn readOther(d: *Decoder, c: Chunk) Error!void {
             try d.endChunk();
         },
     }
+}
+
+/// A stored integer over its divisor: the f64 quotient, rounded to f32.
+fn scaled(v: u32, divisor: f64) f32 {
+    return @floatCast(@as(f64, @floatFromInt(v)) / divisor);
+}
+
+/// cICP is the highest-precedence color chunk (section 4.3), so the
+/// transfer, gamma, and primaries come from its code points alone (ITU-T
+/// H.273, tables 2 and 3), and are null where they name nothing
+/// `Metadata` can say.
+fn fromCicp(m: *decode.Metadata, c: decode.Metadata.Cicp) void {
+    m.transfer = switch (c.transfer) {
+        // BT.709, BT.601, and BT.2020's 10- and 12-bit forms share a curve.
+        1, 6, 14, 15 => .bt709,
+        8 => .linear,
+        13 => .srgb,
+        16 => .pq,
+        // SMPTE ST 428-1, the 1/2.6 power law JPEG XL calls DCI.
+        17 => .dci,
+        18 => .hlg,
+        else => null,
+    };
+    // Displays of gamma 2.2 and 2.8: encoded with 1/2.2 and 1/2.8.
+    m.gamma = switch (c.transfer) {
+        4 => 45455,
+        5 => 35714,
+        else => null,
+    };
+    // Red, green, and blue xy, then white.
+    const d65 = .{ 0.3127, 0.329 };
+    const c_white = .{ 0.31, 0.316 };
+    m.primaries = switch (c.primaries) {
+        1 => .{ 0.64, 0.33, 0.3, 0.6, 0.15, 0.06 } ++ d65,
+        4 => .{ 0.67, 0.33, 0.21, 0.71, 0.14, 0.08 } ++ c_white,
+        5 => .{ 0.64, 0.33, 0.29, 0.6, 0.15, 0.06 } ++ d65,
+        6, 7 => .{ 0.63, 0.34, 0.31, 0.595, 0.155, 0.07 } ++ d65,
+        8 => .{ 0.681, 0.319, 0.243, 0.692, 0.145, 0.049 } ++ c_white,
+        9 => .{ 0.708, 0.292, 0.17, 0.797, 0.131, 0.046 } ++ d65,
+        // CIE XYZ, with equal-energy white.
+        10 => .{ 1, 0, 0, 1, 0, 0, 1.0 / 3.0, 1.0 / 3.0 },
+        11 => .{ 0.68, 0.32, 0.265, 0.69, 0.15, 0.06, 0.314, 0.351 },
+        12 => .{ 0.68, 0.32, 0.265, 0.69, 0.15, 0.06 } ++ d65,
+        22 => .{ 0.63, 0.34, 0.295, 0.605, 0.155, 0.077 } ++ d65,
+        else => null,
+    };
 }
 
 fn readPlte(d: *Decoder) Error!void {
@@ -2055,6 +2134,122 @@ test "metadata and blobs, through a reader that trickles" {
     _ = try d.decodeFrame(dst, work);
     try testing.expectEqual(null, try d.decodeFrame(dst, work));
     try testing.expectEqualSlices(u8, &want, &got);
+}
+
+test "cICP takes precedence over the other color chunks; mDCV and cLLI in nits" {
+    const a = testing.allocator;
+    const z = try zlibOf(&@as([48]u8, @splat(0)));
+    defer a.free(z);
+    const Named = struct { []const u8, []const u8 };
+    const srgb_etc = [_]Named{
+        .{ "sRGB", "\x00" },
+        .{ "gAMA", "\x00\x00\xb1\x8f" },
+        .{ "cHRM", "\x00\x00\x7a\x26\x00\x00\x80\x84\x00\x00\xfa\x00\x00\x00\x80\xe8" ++
+            "\x00\x00\x75\x30\x00\x00\xea\x60\x00\x00\x3a\x98\x00\x00\x17\x70" },
+    };
+    const bt2100 = [8]f32{ 0.708, 0.292, 0.17, 0.797, 0.131, 0.046, 0.3127, 0.329 };
+    const srgb_primaries = [8]f32{ 0.64, 0.33, 0.3, 0.6, 0.15, 0.06, 0.3127, 0.329 };
+    // BT.2100's primaries and D65 times 50,000; 1000 and 0.0001 nits.
+    const mdcv = "\x8a\x48\x39\x08\x21\x34\x9b\xaa\x19\x96\x08\xfc\x3d\x13\x40\x42" ++
+        "\x00\x98\x96\x80\x00\x00\x00\x01";
+    const Case = struct {
+        before: []const Named,
+        after: []const Named = &.{},
+        want: decode.Metadata,
+    };
+    const cases = [_]Case{
+        // cICP last still wins: PQ and BT.2020, with no gamma.
+        .{
+            .before = &(srgb_etc ++ [_]Named{
+                .{ "cICP", "\x09\x10\x00\x01" },
+                .{ "mDCV", mdcv },
+                .{ "cLLI", "\x00\x98\x96\x80\x00\x3d\x09\x00" },
+            }),
+            .want = .{
+                .transfer = .pq,
+                .primaries = bt2100,
+                .cicp = .{ .primaries = 9, .transfer = 16, .matrix = 0, .full_range = true },
+                .mastering_display = .{ .primaries = bt2100, .min_luminance = 0.0001, .max_luminance = 1000 },
+                .content_light_level = .{ .max_cll = 1000, .max_fall = 400 },
+            },
+        },
+        // A matrix other than 0 or a range flag past 1 is ignored, and a
+        // valid cICP after it counts.
+        .{
+            .before = &(srgb_etc ++ [_]Named{ .{ "cICP", "\x09\x10\x01\x01" }, .{ "cICP", "\x09\x10\x00\x02" } }),
+            .want = .{ .transfer = .srgb, .gamma = 45455, .primaries = srgb_primaries },
+        },
+        .{
+            .before = &.{
+                .{ "cICP", "\x09\x10\x00\x07" },
+                .{ "cICP", "\x01\x0d\x00\x00" },
+                .{ "cICP", "\x09\x12\x00\x01" },
+            },
+            .want = .{
+                .transfer = .srgb,
+                .primaries = srgb_primaries,
+                .cicp = .{ .primaries = 1, .transfer = 13, .matrix = 0, .full_range = false },
+            },
+        },
+        // Code points `Metadata` cannot name leave the fields null, even
+        // beside sRGB, gAMA, and cHRM.
+        .{
+            .before = &(srgb_etc ++ [_]Named{.{ "cICP", "\x02\x07\x00\x01" }}),
+            .want = .{ .cicp = .{ .primaries = 2, .transfer = 7, .matrix = 0, .full_range = true } },
+        },
+        // BT.470 BG: gamma 2.8 is a power law, and Display P3 by HLG.
+        .{
+            .before = &.{.{ "cICP", "\x05\x05\x00\x01" }},
+            .want = .{
+                .gamma = 35714,
+                .primaries = .{ 0.64, 0.33, 0.29, 0.6, 0.15, 0.06, 0.3127, 0.329 },
+                .cicp = .{ .primaries = 5, .transfer = 5, .matrix = 0, .full_range = true },
+            },
+        },
+        .{
+            .before = &.{.{ "cICP", "\x0c\x12\x00\x01" }},
+            .want = .{
+                .transfer = .hlg,
+                .primaries = .{ 0.68, 0.32, 0.265, 0.69, 0.15, 0.06, 0.3127, 0.329 },
+                .cicp = .{ .primaries = 12, .transfer = 18, .matrix = 0, .full_range = true },
+            },
+        },
+        // Luminances past 2^31 - 1 and wrong lengths are ignored.
+        .{
+            .before = &.{
+                .{ "mDCV", mdcv[0..16] ++ "\x80\x00\x00\x00" ++ mdcv[20..] },
+                .{ "cLLI", "\x00\x00\x00\x01\x80\x00\x00\x00" },
+                .{ "cLLI", "\x00\x00\x00\x01" },
+                .{ "cICP", "\x01\x01\x00" },
+            },
+            .want = .{},
+        },
+        // After the image data, they are skipped.
+        .{
+            .before = &.{},
+            .after = &.{
+                .{ "cICP", "\x09\x10\x00\x01" },
+                .{ "mDCV", mdcv },
+                .{ "cLLI", "\x00\x00\x00\x01\x00\x00\x00\x01" },
+            },
+            .want = .{},
+        },
+    };
+    for (cases) |c| {
+        var t: TestPng = .{};
+        defer t.deinit();
+        try t.head(5, 3, 8, 2, false);
+        for (c.before) |ch| try t.chunk(ch[0][0..4], ch[1]);
+        var seq: u32 = 0;
+        try t.chunks("IDAT", z, z.len, &seq);
+        for (c.after) |ch| try t.chunk(ch[0][0..4], ch[1]);
+        try t.chunk("IEND", "");
+        var r: Io.Reader = .fixed(t.bytes.items);
+        var d: Decoder = .init(&r, .{});
+        try testing.expectEqual(c.want, (try d.decodeConfig()).metadata);
+        var out: [45]u8 = undefined;
+        try testing.expectEqual(c.want, (try testDecode(t.bytes.items, .rgb8, &out)).metadata);
+    }
 }
 
 /// A reader that hands over at most 3 bytes per read.

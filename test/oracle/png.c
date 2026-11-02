@@ -224,9 +224,64 @@ done:
   return result;
 }
 
+// The HDR chunks libpng reads before the image data, as png.zig's `hdr`
+// lays out this package's `Metadata`: a byte of flags (1 cICP, 2 mDCV, 4
+// cLLI), cICP's four bytes, mDCV's eight chromaticities (red, green, blue,
+// white; x then y) and its minimum and maximum luminance, then cLLI's
+// MaxCLL and MaxFALL, as native f32s, zero where a chunk is absent. Each
+// float is the stored integer over its divisor in double, rounded to
+// float. A gray8 "image" one row of 53 bytes.
+#define HDR_LEN 53
+static enum status png_libpng_hdr(const uint8_t *in, size_t len, enum pixel_format format,
+                                  uint64_t max_pixels, struct image *out) {
+  (void)max_pixels;
+  if (format != PF_GRAY8) return STATUS_SKIPPED;
+  struct source src = {in, len, 0};
+  png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, libpng_error, libpng_warning);
+  png_infop info = png_create_info_struct(png);
+  volatile enum status result = STATUS_SKIPPED;
+  if (setjmp(png_jmpbuf(png))) goto done;
+  png_set_read_fn(png, &src, libpng_read);
+  png_set_user_limits(png, 0x7fffffff, 0x7fffffff);
+  png_read_info(png, info);
+  uint8_t rec[HDR_LEN] = {0};
+  float f[12] = {0};
+  png_byte cicp[4];
+  if (png_get_cICP(png, info, &cicp[0], &cicp[1], &cicp[2], &cicp[3])) {
+    rec[0] |= 1;
+    memcpy(rec + 1, cicp, 4);
+  }
+  png_fixed_point wx, wy, rx, ry, gx, gy, bx, by;
+  png_uint_32 maxdl, mindl, cll, fall;
+  if (png_get_mDCV_fixed(png, info, &wx, &wy, &rx, &ry, &gx, &gy, &bx, &by, &maxdl, &mindl)) {
+    rec[0] |= 2;
+    // libpng holds the chromaticities times 100,000, twice what mDCV stores.
+    png_fixed_point xy[8] = {rx, ry, gx, gy, bx, by, wx, wy};
+    for (int i = 0; i < 8; i++) f[i] = (float)((double)(xy[i] / 2) / 50000.0);
+    f[8] = (float)((double)mindl / 10000.0);
+    f[9] = (float)((double)maxdl / 10000.0);
+  }
+  if (png_get_cLLI_fixed(png, info, &cll, &fall)) {
+    rec[0] |= 4;
+    f[10] = (float)((double)cll / 10000.0);
+    f[11] = (float)((double)fall / 10000.0);
+  }
+  memcpy(rec + 5, f, sizeof f);
+  out->pixels = malloc(HDR_LEN);
+  memcpy(out->pixels, rec, HDR_LEN);
+  out->len = HDR_LEN;
+  out->width = HDR_LEN;
+  out->height = 1;
+  result = STATUS_OK;
+done:
+  png_destroy_read_struct(&png, &info, NULL);
+  return result;
+}
+
 const struct op png_ops[] = {
     {"png-wuffs", png_wuffs},
     {"png-libpng", png_libpng},
     {"png-spng", png_spng},
+    {"png-libpng-hdr", png_libpng_hdr},
     {0},
 };

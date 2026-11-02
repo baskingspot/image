@@ -128,6 +128,36 @@ records what it does where the specification leaves room, and why. Results:
   it there: it goes to the sink, and `applyTrailer` (plan.md decision 10)
   sets it and its orientation in `image.Decoder.finalConfig`. tIME and the
   text chunks, the only chunks allowed there, have no place in `Config`.
+- **HDR chunks** (plan.md decision 51): cICP, mDCV, and cLLI from the
+  third edition, read up to the image data as gAMA and the others are, and
+  skipped after it. cICP's four bytes are `Metadata.cicp` as stored, and,
+  as the highest-precedence color chunk (section 4.3), it sets
+  `transfer`, `gamma`, and `primaries` alone, whatever iCCP, sRGB, gAMA,
+  and cHRM say and wherever they are: H.273's transfer codes 1, 6, 14, and
+  15 are `.bt709`, 8 `.linear`, 13 `.srgb`, 16 `.pq`, 17 `.dci`, and 18
+  `.hlg`; 4 and 5 (display gamma 2.2 and 2.8) are `gamma` 45455 and 35714
+  with `transfer` null (decision 33); every defined ColourPrimaries code
+  (1, 4–12, 22) is its xy from H.273's table 2. Any other code leaves its
+  fields null, and the caller reads `cicp`. The iCCP profile is still
+  reported and passed to the sink (it may come before cICP), and the
+  caller applies the precedence. A narrow-range flag is reported as
+  `full_range = false` and the samples are not rescaled. A cICP whose
+  matrix is not 0 (PNG stores only RGB) or whose range flag is past 1 is
+  ignored as malformed (section 13.2), and the color chunks under it count
+  again; libpng also drops the former. mDCV's chromaticities are
+  `stored / 50000` and its luminances and cLLI's light levels
+  `stored / 10000` nits, each the f64 quotient rounded to f32; an mDCV or
+  cLLI with a luminance past 2^31 − 1 (PNG's four-byte limit) is ignored,
+  as libpng ignores it. As for the other metadata chunks, a malformed one
+  is not counted, so a valid duplicate after it is read; libpng counts the
+  malformed one as seen and drops the duplicate. The HDR chunks are read
+  after a PLTE too, as gAMA, cHRM, sRGB, and iCCP are, though the
+  specification puts them before it and libpng drops them there. The
+  pre-Recommendation names mDCv and cLLi are not read (libpng reads only
+  mDCV and cLLI). libpng 1.6.45 is the first to read all three; the
+  `png_hdr` oracle (test/oracle/png.zig) compares what both report on the
+  fuzz target's files, which carry the chunks, and on files the encoder
+  writes with random HDR options.
 - **`decodeFrameConfig`** (decision 11) reads up to the next frame's first
   data chunk (IDAT or fdAT, through its header) and returns its `Frame`;
   the frame stays pending, and `decodeFrame` draws it without reading those
@@ -213,8 +243,15 @@ same specification. Results: `results/png-encode-20261102.md`.
   becomes delay_num/delay_den exactly when it is a fraction with both
   below 65536, and the nearest such fraction (continued fractions)
   otherwise.
-- **Metadata.** cHRM, gAMA, sRGB or iCCP (not both: `BadMetadata`), then
-  pHYs and eXIf, all before PLTE. iCCP's profile is compressed twice, once
+- **Metadata.** cHRM, gAMA, sRGB or iCCP (not both: `BadMetadata`), cICP,
+  mDCV, and cLLI, then pHYs and eXIf, all before PLTE. cICP's code points
+  are written as given (its matrix must be 0); mDCV's chromaticities are
+  stored times 50,000 and its luminances, like cLLI's levels, times 10,000,
+  rounded, and a value that does not fit (a chromaticity past 1.3107, a
+  luminance past 214,748.3647 nits, negative or NaN) is `BadMetadata`. A
+  value a decoder reported reads back the same, though above 1024 nits an
+  f32 holds a luminance only to about 2^-23 of itself, coarser than the
+  chunk's ten-thousandth of a nit. iCCP's profile is compressed twice, once
   to learn the chunk's length and once into it, so no buffer holds it.
   `EncodeOptions.density` is pHYs: per meter or unitless as given, and per
   inch converted to per meter, rounded. Not written, by the owner's

@@ -1,6 +1,7 @@
 //! The PNG encoder's fuzz target: `harness.checkEncoder` through each
-//! effort, filter, with reduction off, and with the 8-bit cap, and an APNG round trip of up to
-//! four frames in mixed pixel formats, regions, disposals, and blends.
+//! effort, filter, with reduction off, and with the 8-bit cap, an APNG round trip of up to
+//! four frames in mixed pixel formats, regions, disposals, and blends, and
+//! a round trip of the HDR chunks.
 //! `generate` builds pixels from a few colors, often gray, opaque, or with
 //! one transparent color, so that every palette depth, gray depth, and
 //! tRNS key comes up.
@@ -39,6 +40,53 @@ pub fn check(input: []const u8, choice: u64) !void {
         else => unreachable,
     }
     try checkAnimation(input, choice);
+    try checkHdr(choice);
+}
+
+/// cICP, mDCV, and cLLI from `choice` read back as written: code points
+/// exactly, and each value exactly when it is one a stored integer reads
+/// as (its quotient by the divisor, rounded to f32), the values a decoder
+/// reports and a caller passes back. The cICP chunk overrides sRGB.
+fn checkHdr(choice: u64) !void {
+    var prng: std.Random.DefaultPrng = .init(choice);
+    const random = prng.random();
+    const Read = struct {
+        fn value(r: std.Random, divisor: f64, max: u32) f32 {
+            return @floatCast(@as(f64, @floatFromInt(r.uintAtMost(u32, max))) / divisor);
+        }
+    };
+    const cicp: image.Metadata.Cicp = .{
+        .primaries = random.int(u8),
+        .transfer = random.int(u8),
+        .matrix = 0,
+        .full_range = random.boolean(),
+    };
+    var display: image.Metadata.MasteringDisplay = undefined;
+    for (&display.primaries) |*p| p.* = Read.value(random, 50_000, 0xffff);
+    display.min_luminance = Read.value(random, 10_000, 0x7fff_ffff);
+    display.max_luminance = Read.value(random, 10_000, 0x7fff_ffff);
+    const light: image.Metadata.ContentLightLevel = .{
+        .max_cll = Read.value(random, 10_000, 0x7fff_ffff),
+        .max_fall = Read.value(random, 10_000, 0x7fff_ffff),
+    };
+    var px: [3]u8 = .{ 1, 2, 3 };
+    const src = PixelBuffer.init(&px, .rgb8, 1, 1) catch unreachable;
+    const options: png.EncodeOptions = .{
+        .srgb = .perceptual,
+        .cicp = cicp,
+        .mastering_display = display,
+        .content_light_level = light,
+    };
+    var w: std.Io.Writer = .fixed(&file);
+    png.encode(&w, src, options, work_mem[0..png.workLen(options, 1, 1).?]) catch return error.EncodeFailed;
+    var r: std.Io.Reader = .fixed(w.buffered());
+    var d = png.Decoder.init(&r, .{ .limits = harness.limits });
+    const m = (d.decodeConfig() catch return error.RoundTripDiffers).metadata;
+    if (!std.meta.eql(m.cicp, @as(?image.Metadata.Cicp, cicp)) or
+        !std.meta.eql(m.mastering_display, @as(?image.Metadata.MasteringDisplay, display)) or
+        !std.meta.eql(m.content_light_level, @as(?image.Metadata.ContentLightLevel, light)))
+        return error.RoundTripDiffers;
+    if (m.transfer == .srgb and cicp.transfer != 13) return error.RoundTripDiffers;
 }
 
 /// image.png with `options` as the default.

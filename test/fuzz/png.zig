@@ -390,7 +390,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
     var seq: u32 = 0;
 
     // Ancillary chunks before IDAT, in a random order.
-    var order: [12]u8 = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+    var order: [15]u8 = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
     random.shuffle(u8, &order);
     var plte_done = false;
     for (order) |which| {
@@ -457,7 +457,33 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
                 std.mem.writeInt(u32, scratch[4..8], random.uintLessThan(u32, 3), .big);
                 o.chunk(random, "acTL", scratch[0..8]);
             },
-            else => o.chunk(random, "prVt", "private"),
+            11 => o.chunk(random, "prVt", "private"),
+            // The HDR chunks: mostly valid code points and values, now and
+            // then a matrix, range flag, or luminance PNG does not allow.
+            12 => {
+                const common = [_][2]u8{ .{ 1, 13 }, .{ 9, 16 }, .{ 9, 18 }, .{ 12, 13 }, .{ 1, 1 }, .{ 5, 4 } };
+                const pick = common[random.uintLessThan(usize, common.len)];
+                scratch[0..4].* = .{ pick[0], pick[1], 0, random.uintLessThan(u8, 2) };
+                if (random.uintLessThan(u8, 8) == 0) random.bytes(scratch[0..2]);
+                if (random.uintLessThan(u8, 16) == 0) random.bytes(scratch[2..4]);
+                o.chunk(random, "cICP", scratch[0..4]);
+                // Sometimes a second, which only counts after a broken first.
+                if (random.uintLessThan(u8, 8) == 0) o.chunk(random, "cICP", "\x09\x10\x00\x01");
+            },
+            13 => {
+                random.bytes(scratch[0..24]);
+                for ([_]usize{ 16, 20 }) |i| {
+                    if (random.uintLessThan(u8, 16) != 0) scratch[i] &= 0x7f;
+                }
+                o.chunk(random, "mDCV", scratch[0..24]);
+            },
+            else => {
+                random.bytes(scratch[0..8]);
+                for ([_]usize{ 0, 4 }) |i| {
+                    if (random.uintLessThan(u8, 16) != 0) scratch[i] &= 0x7f;
+                }
+                o.chunk(random, "cLLI", scratch[0..8]);
+            },
         }
     }
     const fctl = struct {

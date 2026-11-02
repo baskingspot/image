@@ -7,6 +7,7 @@ pub const gif = @import("gif.zig");
 pub const gif_encode = @import("gif_encode.zig");
 pub const png = @import("png.zig");
 pub const png_encode = @import("png_encode.zig");
+pub const png_hdr = @import("png.zig").hdr;
 pub const jpeg = @import("jpeg.zig");
 pub const jpeg_encode = @import("jpeg_encode.zig");
 pub const qoi = @import("qoi.zig");

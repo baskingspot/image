@@ -230,6 +230,15 @@ pub const Metadata = struct {
     /// The luminance in nits (cd/m²) that a sample of 1.0 stands for, as
     /// JPEG XL states it for HDR images.
     intensity_target: ?f32 = null,
+    /// The ITU-T H.273 code points the file states (PNG cICP), as stored.
+    /// They take precedence over an ICC profile, `gamma`, and the other
+    /// color chunks: `transfer`, `gamma`, and `primaries` then come from
+    /// them alone, and are null for code points they cannot name.
+    cicp: ?Cicp = null,
+    /// The display the image was mastered on (PNG mDCV).
+    mastering_display: ?MasteringDisplay = null,
+    /// The brightest pixel and brightest frame average (PNG cLLI).
+    content_light_level: ?ContentLightLevel = null,
     /// The file carries a JPEG XL `jbrd` box: the original JPEG can be
     /// rebuilt with `image.jxl.JpegReconstructor`.
     jpeg_reconstruction: bool = false,
@@ -237,6 +246,36 @@ pub const Metadata = struct {
     icc: ?Blob = null,
     exif: ?Blob = null,
     xmp: ?Blob = null,
+
+    /// ITU-T H.273's video signal type code points.
+    pub const Cicp = struct {
+        /// ColourPrimaries: 1 is BT.709 and sRGB, 9 BT.2020, 12 Display P3.
+        primaries: u8,
+        /// TransferCharacteristics: 13 is sRGB, 16 PQ, 18 HLG.
+        transfer: u8,
+        /// MatrixCoefficients: 0, RGB, in PNG.
+        matrix: u8,
+        /// Whether samples use their full range; false is narrow (video)
+        /// range, such as 16 to 235 at 8 bits, which is not rescaled.
+        full_range: bool,
+    };
+
+    pub const MasteringDisplay = struct {
+        /// CIE 1931 xy of its red, green, and blue primaries and white
+        /// point, in that order, as `Metadata.primaries`.
+        primaries: [8]f32,
+        /// Its luminance range, in nits (cd/m²).
+        min_luminance: f32,
+        max_luminance: f32,
+    };
+
+    /// In nits (cd/m²); 0 when unknown.
+    pub const ContentLightLevel = struct {
+        /// MaxCLL: the brightest pixel's light level.
+        max_cll: f32,
+        /// MaxFALL: the brightest frame's average light level.
+        max_fall: f32,
+    };
 };
 
 /// How to rotate or flip the stored pixels for display: EXIF orientation

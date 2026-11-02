@@ -54,6 +54,15 @@ const variants = [_]image.png.EncodeOptions{
     .{ .filter = .paeth },
     .{ .max_depth = .@"8" },
     .{ .max_depth = .@"8", .reduce = false },
+    .{
+        .cicp = .{ .primaries = 9, .transfer = 16, .matrix = 0, .full_range = true },
+        .mastering_display = .{
+            .primaries = .{ 0.708, 0.292, 0.17, 0.797, 0.131, 0.046, 0.3127, 0.329 },
+            .min_luminance = 0.0001,
+            .max_luminance = 1000,
+        },
+        .content_light_level = .{ .max_cll = 1000, .max_fall = 400 },
+    },
 };
 
 var work: [4 << 20]u8 = undefined;

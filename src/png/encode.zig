@@ -17,8 +17,8 @@
 //! - An APNG (`encodeAnimation`) stores its first frame as the default
 //!   image, so it must cover the canvas, and every frame shares the color
 //!   type, depth, and palette the survey of all frames picks.
-//! - gAMA, cHRM, sRGB, iCCP, pHYs, and eXIf are written when the options
-//!   carry them, before PLTE and the image data.
+//! - gAMA, cHRM, sRGB, iCCP, cICP, mDCV, cLLI, pHYs, and eXIf are written
+//!   when the options carry them, before PLTE and the image data.
 //! - The bytes written depend only on the pixels, the options, and the
 //!   work memory's length, never on what the work memory held: encoding
 //!   twice over the same memory, once to measure (`Io.Writer.Discarding`)
@@ -90,6 +90,15 @@ pub const EncodeOptions = struct {
     srgb: ?RenderingIntent = null,
     /// iCCP; not with `srgb`.
     icc: ?Icc = null,
+    /// cICP: ITU-T H.273 code points, as `Metadata.cicp` reports them;
+    /// the matrix must be 0. Readers that know it ignore iCCP, sRGB,
+    /// gAMA, and cHRM.
+    cicp: ?decode.Metadata.Cicp = null,
+    /// mDCV: chromaticities stored times 50,000 and luminances times
+    /// 10,000, rounded.
+    mastering_display: ?decode.Metadata.MasteringDisplay = null,
+    /// cLLI: light levels stored times 10,000, rounded.
+    content_light_level: ?decode.Metadata.ContentLightLevel = null,
     /// eXIf: an EXIF profile, starting with its TIFF header.
     exif: ?[]const u8 = null,
     /// pHYs: pixels per meter, or only the aspect ratio with `.none`. Pixels
@@ -106,9 +115,11 @@ pub const EncodeError = shared.Error || error{
     /// frame that is not the whole canvas.
     BadFrame,
     /// A metadata option PNG cannot store: a gamma or density of 0, a value
-    /// past 2^31 - 1 (for `primaries`, once times 100,000), a negative or
-    /// NaN primary, a bad profile name, both `srgb` and `icc`, or a chunk
-    /// longer than 2^31 - 1 bytes.
+    /// past 2^31 - 1 (for `primaries`, once times 100,000; for luminances
+    /// and light levels, once times 10,000), a negative or NaN value, an
+    /// HDR chromaticity past 1.3107, a cICP matrix other than 0, a bad
+    /// profile name, both `srgb` and `icc`, or a chunk longer than
+    /// 2^31 - 1 bytes.
     BadMetadata,
 };
 
@@ -496,6 +507,9 @@ fn checkMetadata(o: EncodeOptions) EncodeError!void {
         if (zlib.encode.maxCompressedLength(icc.profile.len) + n.len + 2 > max) return error.BadMetadata;
     }
     if (o.exif) |e| if (e.len > max) return error.BadMetadata;
+    if (o.cicp) |c| if (c.matrix != 0) return error.BadMetadata;
+    if (o.mastering_display) |m| _ = mdcv(m) orelse return error.BadMetadata;
+    if (o.content_light_level) |c| _ = clli(c) orelse return error.BadMetadata;
     if (o.density) |density| {
         for (physDensity(density)) |v| if (v == 0 or v > max) return error.BadMetadata;
     }
@@ -526,7 +540,34 @@ fn chrm(primaries: [8]f32) ?[8]u32 {
     return v;
 }
 
-/// cHRM, gAMA, sRGB, and iCCP, then pHYs and eXIf.
+/// `v` times `scale`, rounded, if `v` is not negative or NaN and that is
+/// at most `max`.
+fn stored(v: f32, scale: f64, max: u32) ?u32 {
+    const r = @round(@as(f64, v) * scale);
+    if (!(v >= 0 and r <= @as(f64, @floatFromInt(max)))) return null;
+    return @intFromFloat(r);
+}
+
+/// mDCV's 24 bytes for `m`, or null if a value does not fit.
+fn mdcv(m: decode.Metadata.MasteringDisplay) ?[24]u8 {
+    var b: [24]u8 = undefined;
+    for (m.primaries, 0..) |x, i| {
+        std.mem.writeInt(u16, b[i * 2 ..][0..2], @intCast(stored(x, 50_000, 0xffff) orelse return null), .big);
+    }
+    std.mem.writeInt(u32, b[16..20], stored(m.max_luminance, 10_000, max_side) orelse return null, .big);
+    std.mem.writeInt(u32, b[20..24], stored(m.min_luminance, 10_000, max_side) orelse return null, .big);
+    return b;
+}
+
+/// cLLI's 8 bytes for `c`, or null if a value does not fit.
+fn clli(c: decode.Metadata.ContentLightLevel) ?[8]u8 {
+    var b: [8]u8 = undefined;
+    std.mem.writeInt(u32, b[0..4], stored(c.max_cll, 10_000, max_side) orelse return null, .big);
+    std.mem.writeInt(u32, b[4..8], stored(c.max_fall, 10_000, max_side) orelse return null, .big);
+    return b;
+}
+
+/// cHRM, gAMA, sRGB, iCCP, cICP, mDCV, and cLLI, then pHYs and eXIf.
 fn writeMetadata(w: *Io.Writer, o: EncodeOptions, fixed: *Work) EncodeError!void {
     if (o.primaries) |p| {
         var b: [32]u8 = undefined;
@@ -557,6 +598,9 @@ fn writeMetadata(w: *Io.Writer, o: EncodeOptions, fixed: *Work) EncodeError!void
         std.mem.writeInt(u32, &tail, ~crc_w.crc, .big);
         try w.writeAll(&tail);
     }
+    if (o.cicp) |c| try writeChunk(w, "cICP", &.{ c.primaries, c.transfer, c.matrix, @intFromBool(c.full_range) });
+    if (o.mastering_display) |m| try writeChunk(w, "mDCV", &mdcv(m).?);
+    if (o.content_light_level) |c| try writeChunk(w, "cLLI", &clli(c).?);
     if (o.density) |density| {
         var b: [9]u8 = undefined;
         const xy = physDensity(density);
@@ -862,6 +906,56 @@ test "metadata chunks are written and read" {
     const m2 = (try d.decodeConfig()).metadata;
     try testing.expectEqual(decode.Transfer.srgb, m2.transfer.?);
     try testing.expectEqual(decode.Density{ .x = 3, .y = 2, .unit = .none }, m2.density.?);
+}
+
+test "HDR chunks are written and read" {
+    var file: [1024]u8 = undefined;
+    var px = [_]u8{ 1, 2, 3, 4, 5, 6 };
+    const src = try PixelBuffer.init(&px, .rgb8, 2, 1);
+    const cicp: decode.Metadata.Cicp = .{ .primaries = 9, .transfer = 16, .matrix = 0, .full_range = false };
+    // Display P3 and D65; a 4000-nit display; light levels near the
+    // largest a chunk holds, 214,748.3647 nits.
+    const display: decode.Metadata.MasteringDisplay = .{
+        .primaries = .{ 0.68, 0.32, 0.265, 0.69, 0.15, 0.06, 0.3127, 0.329 },
+        .min_luminance = 0.005,
+        .max_luminance = 4000,
+    };
+    const light: decode.Metadata.ContentLightLevel = .{ .max_cll = 214_748.36, .max_fall = 0 };
+    var w: Io.Writer = .fixed(&file);
+    const options: EncodeOptions = .{
+        .srgb = .perceptual,
+        .cicp = cicp,
+        .mastering_display = display,
+        .content_light_level = light,
+    };
+    try encode(&w, src, options, testWork());
+    const out = w.buffered();
+    const mdcv_at = std.mem.find(u8, out, "mDCV").? + 4;
+    try testing.expectEqualSlices(u8, "\x84\xd0\x3e\x80\x33\xc2\x86\xc4\x1d\x4c\x0b\xb8\x3d\x13\x40\x42" ++
+        "\x02\x62\x5a\x00\x00\x00\x00\x32", out[mdcv_at..][0..24]);
+    const clli_at = std.mem.find(u8, out, "cLLI").? + 4;
+    // 214,748.36 is the f32 214,748.359375.
+    try testing.expectEqualSlices(u8, "\x7f\xff\xff\xca\x00\x00\x00\x00", out[clli_at..][0..8]);
+    try testing.expectEqualSlices(u8, "\x09\x10\x00\x00", out[std.mem.find(u8, out, "cICP").? + 4 ..][0..4]);
+    var r: Io.Reader = .fixed(out);
+    var d: Decoder = .init(&r, .{});
+    const m = (try d.decodeConfig()).metadata;
+    try testing.expectEqual(cicp, m.cicp.?);
+    try testing.expectEqual(decode.Transfer.pq, m.transfer.?);
+    try testing.expectEqual(display, m.mastering_display.?);
+    // Above 1024 nits an f32 cannot hold every ten-thousandth, but the
+    // value read back is the one written.
+    try testing.expectEqual(light, m.content_light_level.?);
+
+    const bad = [_]EncodeOptions{
+        .{ .cicp = .{ .primaries = 1, .transfer = 1, .matrix = 1, .full_range = true } },
+        .{ .mastering_display = .{ .primaries = @splat(1.32), .min_luminance = 0, .max_luminance = 1 } },
+        .{ .mastering_display = .{ .primaries = @splat(0.3), .min_luminance = -1, .max_luminance = 1 } },
+        .{ .mastering_display = .{ .primaries = @splat(0.3), .min_luminance = 0, .max_luminance = std.math.nan(f32) } },
+        .{ .content_light_level = .{ .max_cll = 214_748.37, .max_fall = 0 } },
+        .{ .content_light_level = .{ .max_cll = 0, .max_fall = std.math.inf(f32) } },
+    };
+    for (bad) |o| try testing.expectError(error.BadMetadata, encode(&w, src, o, testWork()));
 }
 
 test "an animation reads back frame by frame" {
