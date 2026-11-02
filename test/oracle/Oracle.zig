@@ -13,6 +13,12 @@ const mem = std.mem;
 const Io = std.Io;
 const PixelFormat = @import("image").PixelFormat;
 
+comptime {
+    // oracle.h's `enum pixel_format` lists these, in order, and oracle.c's
+    // `pixel_bytes` and `known` cover them: add a new format there too.
+    std.debug.assert(@intFromEnum(PixelFormat.cmyk16) == 21 and std.enums.values(PixelFormat).len == 22);
+}
+
 io: Io,
 /// Allocates the batch and the responses, which the caller frees with
 /// `free`.

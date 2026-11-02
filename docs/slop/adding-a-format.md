@@ -94,6 +94,9 @@ Rules every decoder keeps (AGENTS.md has the reasons):
   `Options` adds a `seeker` field only if it moves back, and
   `image.Decoder` passes on the shared fields a format's `Options` has; `src/ico/Decoder.zig`'s `goTo` is the example, and its
   fuzz target checks that a seeker changes nothing but what was behind.
+  `harness.checkDecoder` checks a decoder whose own `Options` has a
+  `seeker` twice, forward only and with a seeker over each of its readers,
+  so a fuzz target need not wrap one.
 - Metadata is reported in `Config.metadata` and `Frame`, and ICC, EXIF, and
   XMP bytes go to `options.blob_sink` as the decoder passes them (a blob
   whose length is known only at its end passes `len` null until its last
@@ -139,14 +142,19 @@ few-bytes-at-a-time writer, for a target's own checks.
   are left out), `extensions` the file endings to take. `seeds` are plain
   files; `harness.zigFuzz` encodes them for Zig's fuzzer. `just fuzz 600 ""
 <fmt>` runs one target, and `just fuzz 60/target` gives every target 60
-  seconds.
+  seconds. Avoid `threadlocal` in a fuzz target: a target runs on one
+  thread, so a plain global serves, and in Zig 0.16 Debug on the
+  x86 backend a `threadlocal` made png's zig-fuzz test fail with
+  `LaxDiffers`.
 - **Oracle.** Each oracle op decodes the input into the requested pixel format
   or rejects it. Ours must agree with every oracle that the others agree with;
   where the references disagree, `test/oracle/<fmt>.zig` documents why, and
   `comparable` or `adapt` keep one library's quirk from hiding another's.
   An encoder's oracle is `test/oracle/<fmt>_encode.zig` with `encode` (ours)
   and a `Decoder` that reads its sources from the inputs, against C ops
-  declared `{"name", .encode = fn}`, which encode raw pixels; the files must
+  declared `{"name", .encode = fn}`, which encode raw pixels. The protocol's
+  pixel formats (`enum pixel_format` in oracle.h) are `image.PixelFormat`'s,
+  `cmyk8` and `cmyk16` included, so an op can answer CMYK natively; the files must
   be the same bytes (test/oracle/qoi_encode.zig). Batches run on every
   core, so an oracle module, both its Zig and its C side, must be
   thread-safe: keep per-input state in locals or `threadlocal`, never in a

@@ -18,6 +18,9 @@
 //!   that announced, or null where it announced null, and fail with the
 //!   error it announced (`announced`); and decode the same frames, pixels,
 //!   and error whether or not it is called first.
+//!
+//! A decoder that can move back (its own `Options` has a `seeker`) is
+//! checked twice: reading forward only, and with a seeker over each reader.
 
 const std = @import("std");
 const Io = std.Io;
@@ -131,12 +134,13 @@ pub fn announced(comptime D: type, d: *D, dst: PixelBuffer, work: []u8) Finding!
 }
 
 /// Decodes every frame of `input` into `pixels` as `format`, reading
-/// through `reader`, and returns what happened. With `announce`, each frame
+/// through `reader` (and `seeker`, where `D` takes one), and returns what happened. With `announce`, each frame
 /// is checked against `decodeFrameConfig` first (`announced`).
 /// `convert_to`, when set, hashes each frame's pixels converted to it.
 fn decodeAll(
     comptime D: type,
     reader: *Io.Reader,
+    seeker: ?image.Seeker,
     config: image.Config,
     format: PixelFormat,
     pixels: []u8,
@@ -144,7 +148,7 @@ fn decodeAll(
     announce: bool,
 ) Finding!Result {
     var result: Result = .{};
-    var d = D.init(reader, .{ .limits = limits });
+    var d = open(D, reader, seeker, limits);
     _ = d.decodeConfig() catch |e| {
         result.err = e;
         return result;
@@ -239,10 +243,77 @@ test announced {
     try checkDecoder(FrameToy(.frame), "T\x02\x01ab", 0);
 }
 
+/// A toy one-frame format for testing seeking: "S", the width, the height,
+/// and the offset of the gray pixels, which may lie behind the header.
+/// With `lie`, a decoder given a seeker announces a taller frame.
+fn SeekToy(comptime lie: bool) type {
+    return struct {
+        const Self = @This();
+        pub const Options = struct {
+            limits: image.Limits = .{},
+            seeker: ?image.Seeker = null,
+        };
+        r: *Io.Reader,
+        options: Options,
+        config: ?image.Config = null,
+        offset: u8 = 0,
+        done: bool = false,
+
+        var seek_calls: usize = 0;
+
+        pub fn init(r: *Io.Reader, options: Options) Self {
+            return .{ .r = r, .options = options };
+        }
+        pub fn decodeConfig(d: *Self) !image.Config {
+            if (d.config) |c| return c;
+            const h = try d.r.takeArray(4);
+            if (h[0] != 'S') return error.BadSignature;
+            try d.options.limits.checkSize(h[1], h[2]);
+            d.offset = h[3];
+            d.config = .{ .width = h[1], .height = h[2], .native = .gray8, .frame_count = 1 };
+            return d.config.?;
+        }
+        pub fn decodeFrameConfig(d: *Self) !?image.Frame {
+            const c = try d.decodeConfig();
+            if (d.done) return null;
+            if (d.offset < 4 and d.options.seeker == null) return error.DataBehind;
+            const taller = lie and d.options.seeker != null;
+            return .{ .width = c.width, .height = c.height + @intFromBool(taller) };
+        }
+        pub fn decodeFrame(d: *Self, dst: PixelBuffer, _: []u8) !?image.Frame {
+            const c = try d.decodeConfig();
+            if (d.done) return null;
+            try dst.check();
+            if (d.offset < 4) {
+                const s = d.options.seeker orelse return error.DataBehind;
+                try s.seek(s.context, d.offset);
+                seek_calls += 1;
+            } else d.r.discardAll(d.offset - 4) catch return error.Truncated;
+            const conv: image.convert.Converter = .init(dst.format, .gray8);
+            var row: [255]u8 = undefined;
+            for (0..c.height) |y| {
+                d.r.readSliceAll(row[0..c.width]) catch return error.Truncated;
+                conv.run(dst.row(@intCast(y)), &row, c.width);
+            }
+            d.done = true;
+            return .{ .width = c.width, .height = c.height };
+        }
+    };
+}
+
+test "a decoder that can move back is checked with a seeker" {
+    // The pixels start at byte 1, behind the header.
+    const file = "S\x02\x02\x01" ++ "ab";
+    for (0..file.len + 1) |n| try checkDecoder(SeekToy(false), file[0..n], n);
+    try std.testing.expect(SeekToy(false).seek_calls > 0);
+    try std.testing.expectError(error.FrameConfigDiffers, checkDecoder(SeekToy(true), file, 0));
+}
+
 /// A reader that hands over at most `step` bytes per read, into a buffer
-/// of `image.min_buffer_len` bytes.
+/// of `image.min_buffer_len` bytes, and can seek.
 const Trickle = struct {
     data: []const u8,
+    at: usize = 0,
     step: usize,
     buffer: [image.min_buffer_len]u8 = undefined,
     reader: Io.Reader,
@@ -257,26 +328,65 @@ const Trickle = struct {
 
     fn stream(r: *Io.Reader, w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
         const t: *Trickle = @fieldParentPtr("reader", r);
-        if (t.data.len == 0) return error.EndOfStream;
-        const n = try w.write(t.data[0..limit.minInt(@min(t.step, t.data.len))]);
-        t.data = t.data[n..];
+        const rest = t.data[t.at..];
+        if (rest.len == 0) return error.EndOfStream;
+        const n = try w.write(rest[0..limit.minInt(@min(t.step, rest.len))]);
+        t.at += n;
         return n;
+    }
+
+    fn seeker(t: *Trickle) image.Seeker {
+        return .{ .context = t, .seek = seek };
+    }
+
+    fn seek(context: *anyopaque, offset: u64) error{ReadFailed}!void {
+        const t: *Trickle = @ptrCast(@alignCast(context));
+        t.at = @intCast(@min(offset, t.data.len));
+        t.reader.seek = 0;
+        t.reader.end = 0;
     }
 };
 
-/// Checks every property on `input`. `choice` picks the second pixel
+/// The options `D.init` takes.
+fn InitOptions(comptime D: type) type {
+    return @typeInfo(@TypeOf(D.init)).@"fn".params[1].type.?;
+}
+
+/// Whether `D` can move back: its own options have a `seeker`. Formats
+/// that never do take `image.DecodeOptions`, whose seeker they ignore.
+fn seeks(comptime D: type) bool {
+    return InitOptions(D) != image.DecodeOptions and @hasField(InitOptions(D), "seeker");
+}
+
+/// `D.init` over `reader`, with `seeker` where `D` takes one.
+fn open(comptime D: type, reader: *Io.Reader, seeker: ?image.Seeker, lim: image.Limits) D {
+    var options: InitOptions(D) = .{ .limits = lim };
+    if (comptime seeks(D)) options.seeker = seeker;
+    return D.init(reader, options);
+}
+
+/// Checks every property on `input`, reading forward only and, where `D`
+/// can move back, again with a seeker. `choice` picks the second pixel
 /// format and the trickle reader's step, so one input can be checked many
 /// ways.
 pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
+    try checkReading(D, input, choice, false);
+    if (comptime seeks(D)) try checkReading(D, input, choice, true);
+}
+
+fn checkReading(comptime D: type, input: []const u8, choice: u64, comptime seeking: bool) !void {
     var fixed: Io.Reader = .fixed(input);
-    var d = D.init(&fixed, .{ .limits = limits });
     const step = 1 + choice % 7;
     var trickle: Trickle = undefined;
     trickle.init(input, step);
+    // `fixed` is reset in place, so its seeker stays valid.
+    const fixed_seeker: ?image.Seeker = if (seeking) .fixed(&fixed) else null;
+    const trickle_seeker: ?image.Seeker = if (seeking) trickle.seeker() else null;
+    var d = open(D, &fixed, fixed_seeker, limits);
 
     const config = d.decodeConfig() catch |e| {
         // The same error through the trickle.
-        var t = D.init(&trickle.reader, .{ .limits = limits });
+        var t = open(D, &trickle.reader, trickle_seeker, limits);
         const again = t.decodeConfig();
         if (again) |_| return error.ChunkedDiffers else |e2| if (e2 != e) return error.ChunkedDiffers;
         return;
@@ -289,7 +399,7 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
     const pixel_count = @as(u64, config.width) * config.height;
     if (pixel_count > 0) {
         var r: Io.Reader = .fixed(input);
-        var tight = D.init(&r, .{ .limits = .{ .max_pixels = pixel_count - 1 } });
+        var tight = open(D, &r, if (seeking) .fixed(&r) else null, .{ .max_pixels = pixel_count - 1 });
         if (tight.decodeConfig()) |_| return error.LimitIgnored else |e| {
             if (e != error.ImageTooLarge) return error.LimitIgnored;
         }
@@ -297,20 +407,20 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
 
     const native = config.native;
     fixed = .fixed(input);
-    const want = try decodeAll(D, &fixed, config, native, &buffers[0], null, false);
+    const want = try decodeAll(D, &fixed, fixed_seeker, config, native, &buffers[0], null, false);
     fixed = .fixed(input);
-    const with = try decodeAll(D, &fixed, config, native, &buffers[1], null, true);
+    const with = try decodeAll(D, &fixed, fixed_seeker, config, native, &buffers[1], null, true);
     if (!want.eql(&with)) return error.FrameConfigDiffers;
-    const got = try decodeAll(D, &trickle.reader, config, native, &buffers[1], null, true);
+    const got = try decodeAll(D, &trickle.reader, trickle_seeker, config, native, &buffers[1], null, true);
     if (!want.eql(&got)) return error.ChunkedDiffers;
 
     // Another format: the native pixels converted, frame by frame.
     const formats = std.enums.values(PixelFormat);
     const other = formats[(choice / 7) % formats.len];
     fixed = .fixed(input);
-    const converted = try decodeAll(D, &fixed, config, native, &buffers[0], other, false);
+    const converted = try decodeAll(D, &fixed, fixed_seeker, config, native, &buffers[0], other, false);
     fixed = .fixed(input);
-    const direct = try decodeAll(D, &fixed, config, other, &buffers[1], other, false);
+    const direct = try decodeAll(D, &fixed, fixed_seeker, config, other, &buffers[1], other, false);
     var replaced = true;
     for (direct.frames[0..direct.count]) |f| replaced = replaced and f.frame.blend == .src;
     if (replaced and !converted.eql(&direct)) return error.FormatDiffers;
@@ -318,7 +428,7 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
     // Buffers one byte short.
     if (pixel_count > 0) {
         fixed = .fixed(input);
-        var short = D.init(&fixed, .{ .limits = limits });
+        var short = open(D, &fixed, fixed_seeker, limits);
         const len = PixelBuffer.len(native, config.width, config.height).?;
         const dst: PixelBuffer = .{
             .pixels = buffers[0][0 .. len - 1],
@@ -331,7 +441,7 @@ pub fn checkDecoder(comptime D: type, input: []const u8, choice: u64) !void {
     }
     if (config.work_len > 0 and want.count > 0) {
         fixed = .fixed(input);
-        var short = D.init(&fixed, .{ .limits = limits });
+        var short = open(D, &fixed, fixed_seeker, limits);
         const dst = PixelBuffer.init(&buffers[0], native, config.width, config.height) catch unreachable;
         const work = work_buffer[0 .. config.work_len - 1];
         if (short.decodeFrame(dst, work)) |_| return error.UndersizeAccepted else |_| {}

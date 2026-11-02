@@ -31,6 +31,9 @@ enum pixel_format {
   PF_BGRA16_PREMUL,
   PF_RGBA_F32,
   PF_RGBA_F32_PREMUL,
+  // Inverted inks, so all-zero bytes are black (src/pixel.zig).
+  PF_CMYK8,
+  PF_CMYK16,
 };
 
 enum status {
