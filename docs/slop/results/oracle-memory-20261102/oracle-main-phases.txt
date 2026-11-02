@@ -1,0 +1,11 @@
+bmp            76.6s peak  1718 MiB  42287 agree, 0 mm            zig:1413 cc1:391
+ico            18.6s peak  1126 MiB  87789 agree, 0 mm            oracle-compare:932 amp:173
+gif            50.4s peak  1571 MiB  78865 agree, 0 mm            oracle-compare:1243 amp:160
+png            45.8s peak  1768 MiB  93585 agree, 0 mm            oracle-compare:1454 amp:163
+jpeg           95.4s peak  1665 MiB  80346 agree, 0 mm            oracle-compare:1349 amp:161
+qoi           130.8s peak  2542 MiB  29849 agree, 0 mm            oracle-compare:2153 amp:164
+qoi_encode     97.0s peak  1712 MiB  33469 agree, 0 mm            oracle-compare:1685 amp:167
+tiff          167.4s peak  2885 MiB  91753 agree, 0 mm            oracle-compare:2445 amp:163
+tga            20.8s peak  1638 MiB  44143 agree, 0 mm            oracle-compare:1513 amp:163
+(after)         1.9s peak  5611 MiB                               oracle-compare:4281 image-oracle:436
+overall peak 5611 MiB; samples span 704 s

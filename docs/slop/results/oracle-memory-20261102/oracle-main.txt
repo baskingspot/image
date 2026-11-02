@@ -1,0 +1,63 @@
+# oracle-main
+restarted after a kill
+oracle-main    peak anon outside builds 5611 MiB (oracle-compare:4281 image-oracle:436 image-oracle:413)
+bmp: 155 corpus files and 100000 fuzzed inputs, 100155 comparisons against bmp-wuffs bmp-stb bmp-magick
+  42287 agree with every oracle, 0 mismatches, in 12.3 s
+  split-0: oracles disagree, ours accepts, bmp-magick differ: 13899
+  split-1: oracles disagree, ours accepts, bmp-magick differ (corpus): 18
+  split-2: oracles disagree, ours accepts, bmp-stb bmp-magick differ: 23060
+  split-3: oracles disagree, ours accepts, bmp-stb bmp-magick differ (corpus): 32
+  split-4: oracles disagree, ours accepts, bmp-stb differ: 6970
+  split-5: oracles disagree, ours accepts, bmp-stb differ (corpus): 27
+  split-6: oracles disagree, ours rejects, bmp-magick differ: 4012
+  split-7: oracles disagree, ours rejects, bmp-magick differ (corpus): 12
+  split-8: oracles disagree, ours rejects, bmp-stb bmp-magick differ: 141
+  split-9: oracles disagree, ours rejects, bmp-stb differ: 9696
+  split-10: oracles disagree, ours rejects, bmp-stb differ (corpus): 1
+ico: 28 corpus files and 100000 fuzzed inputs, 100028 comparisons against ico-magick
+  87789 agree with every oracle, 0 mismatches, in 18.6 s
+gif: 103 corpus files and 100000 fuzzed inputs, 100103 comparisons against gif-wuffs gif-giflib
+  78865 agree with every oracle, 0 mismatches, in 50.4 s
+  split-0: oracles disagree, ours accepts, gif-giflib differ: 17067
+  split-1: oracles disagree, ours accepts, gif-giflib differ (corpus): 5
+  split-2: oracles disagree, ours rejects, gif-giflib differ: 4166
+png: 337 corpus files and 100000 fuzzed inputs, 100337 comparisons against png-wuffs png-libpng png-spng
+  93585 agree with every oracle, 0 mismatches, in 45.8 s
+  split-0: oracles disagree, ours accepts, png-libpng differ: 1631
+  split-1: oracles disagree, ours accepts, png-libpng png-spng differ: 12
+  split-2: oracles disagree, ours accepts, png-spng differ: 195
+  split-3: oracles disagree, ours accepts, png-wuffs differ: 509
+  split-4: oracles disagree, ours accepts, png-wuffs png-libpng differ: 37
+  split-5: oracles disagree, ours accepts, png-wuffs png-spng differ: 8
+  split-6: oracles disagree, ours rejects, png-libpng differ: 532
+  split-7: oracles disagree, ours rejects, png-libpng png-spng differ: 1354
+  split-8: oracles disagree, ours rejects, png-spng differ: 1124
+  split-9: oracles disagree, ours rejects, png-spng differ (corpus): 1
+  split-10: oracles disagree, ours rejects, png-wuffs png-spng differ: 2
+jpeg: 399 corpus files (1 of 64 MiB or more left out) and 100000 fuzzed inputs, 100399 comparisons against jpeg-turbo jpeg-wuffs
+  80346 agree with every oracle, 0 mismatches, in 95.4 s
+  split-0: oracles disagree, ours accepts, jpeg-wuffs differ: 15863
+  split-1: oracles disagree, ours accepts, jpeg-wuffs differ (corpus): 9
+  split-2: oracles disagree, ours rejects, jpeg-wuffs differ: 4181
+qoi: 67 corpus files and 100000 fuzzed inputs, 100067 comparisons against qoi-wuffs qoi-qoih
+  29849 agree with every oracle, 0 mismatches, in 130.8 s
+  split-0: oracles disagree, ours accepts, qoi-qoih differ: 2358
+  split-1: oracles disagree, ours accepts, qoi-wuffs differ: 17327
+  split-2: oracles disagree, ours accepts, qoi-wuffs differ (corpus): 31
+  split-3: oracles disagree, ours rejects, qoi-qoih differ: 50502
+qoi_encode: 67 corpus files and 100000 fuzzed inputs, 100067 comparisons against qoi-qoih-encode
+  33469 agree with every oracle, 0 mismatches, in 97.0 s
+tiff: 510 corpus files (2 of 64 MiB or more left out) and 100000 fuzzed inputs, 100510 comparisons against tiff-rgba tiff-raw
+  91753 agree with every oracle, 0 mismatches, in 167.4 s
+tga: 47 corpus files and 100000 fuzzed inputs, 100047 comparisons against tga-wuffs tga-stb tga-magick
+  44143 agree with every oracle, 0 mismatches, in 20.8 s
+  split-0: oracles disagree, ours accepts, tga-magick differ: 15153
+  split-1: oracles disagree, ours accepts, tga-magick differ (corpus): 9
+  split-2: oracles disagree, ours accepts, tga-wuffs differ: 1118
+  split-3: oracles disagree, ours accepts, tga-wuffs tga-magick differ: 4261
+  split-4: oracles disagree, ours accepts, tga-wuffs tga-magick differ (corpus): 3
+  split-5: oracles disagree, ours rejects, tga-magick differ: 51
+  split-6: oracles disagree, ours rejects, tga-stb differ: 21606
+  split-7: oracles disagree, ours rejects, tga-stb tga-magick differ: 10527
+  split-8: oracles disagree, ours rejects, tga-wuffs differ: 1
+  split-9: oracles disagree, ours rejects, tga-wuffs tga-stb differ: 15

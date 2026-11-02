@@ -1,0 +1,9 @@
+# wbmp-main
+rc=1 wall=70.058618406 peak_anon_mib=1541 memory.peak_mib=1581
+wbmp-main      peak anon outside builds 1541 MiB (oracle-compare:1109 amp:171 image-oracle:131)
+MISMATCH wbmp: ours differs from wbmp-wuffs wbmp-magick : zig-out/oracle/wbmp/mismatch-243578.input
+wbmp: 49 corpus files and 100000 fuzzed inputs, 100049 comparisons against wbmp-wuffs wbmp-magick
+  91157 agree with every oracle, 1 mismatches, in 67.0 s
+  split-1: oracles disagree, ours accepts, wbmp-magick differ: 8889
+  split-2: oracles disagree, ours rejects, wbmp-wuffs differ: 2
+error: recipe `oracle` failed with exit code 1

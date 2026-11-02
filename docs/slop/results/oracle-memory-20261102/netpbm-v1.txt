@@ -1,0 +1,5 @@
+# netpbm-v1
+rc=0 wall=18.825672862 peak_anon_mib=1140 memory.peak_mib=1245
+netpbm-v1      peak anon outside builds 1140 MiB (oracle-compare:832 amp:164 image-oracle:132)
+netpbm: 49 corpus files and 20000 fuzzed inputs, 20049 comparisons against netpbm-wuffs netpbm-stb netpbm-magick
+  9958 agree with every oracle, 0 mismatches, in 15.8 s

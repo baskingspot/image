@@ -1,0 +1,5 @@
+test         94s peak anon 4654 MiB (zig:1647 zig:1614 zig:1595)
+test-be      57s peak anon 2975 MiB (zig:1577 zig:1516 amp:171)
+lint          8s peak anon 334 MiB (amp:180 MainThread:126 MainThread:124)
+oracle      324s peak anon 1528 MiB (oracle-compare:1229 amp:177 amp:119)
+compile steps: ['17s MaxRSS:1G', '1m MaxRSS:1G', '22s MaxRSS:1G', '4s MaxRSS:1G', '5s MaxRSS:1G']

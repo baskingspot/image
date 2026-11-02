@@ -1,0 +1,138 @@
+# ci-main
+restarted after a kill
+ci-main        peak anon outside builds 5141 MiB (oracle-compare:4210 image-oracle:377 image-oracle:282)
+testingx: Running 153 tests...
+testingx: 153 passed, 0 failed, 0 skipped (of 153 total) in 3518ms (seed: 0xedc4e1e9)
+ALL TESTS PASSED
+Build Summary: 7/7 steps succeeded; 26/26 tests passed
+test success
++- run test success 3s
+|  +- compile test Debug native success 4s MaxRSS:1G
+|     +- WriteFile dictionary.bin success
+|     +- options success
++- run test fuzz-zig 26 pass (26 total) 2s MaxRSS:10M
+   +- compile test fuzz-zig Debug native success 4s MaxRSS:1G
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+testingx: Running 153 tests...
+testingx: 153 passed, 0 failed, 0 skipped (of 153 total) in 574ms (seed: 0xee5e8839)
+ALL TESTS PASSED
+Build Summary: 7/7 steps succeeded; 26/26 tests passed
+test success
++- run test success 577ms
+|  +- compile test ReleaseSafe native success 1m MaxRSS:1G
+|     +- WriteFile dictionary.bin cached
+|     +- options success
++- run test fuzz-zig 26 pass (26 total) 155ms MaxRSS:8M
+   +- compile test fuzz-zig ReleaseSafe native success 54s MaxRSS:1G
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+testingx: Running 153 tests...
+testingx: 153 passed, 0 failed, 0 skipped (of 153 total) in 366ms (seed: 0x2d2f7ae3)
+ALL TESTS PASSED
+Build Summary: 5/5 steps succeeded
+test-unit success
++- run test success 368ms
+   +- compile test ReleaseFast native success 1m MaxRSS:1G
+      +- WriteFile dictionary.bin cached
+      +- options success
+
+zig build test -Dtarget=s390x-linux-musl -fqemu --summary all
+testingx: Running 153 tests...
+testingx: 153 passed, 0 failed, 0 skipped (of 153 total) in 33267ms (seed: 0xf0eef417)
+ALL TESTS PASSED
+Build Summary: 7/7 steps succeeded; 26/26 tests passed
+test success
++- run test success 33s
+|  +- compile test Debug s390x-linux-musl success 20s MaxRSS:1G
+|     +- WriteFile dictionary.bin cached
+|     +- options success
++- run test fuzz-zig 26 pass (26 total) 22s MaxRSS:36M
+   +- compile test fuzz-zig Debug s390x-linux-musl success 16s MaxRSS:1G
+      +- WriteFile dictionary.bin (reused)
+      +- options (reused)
+
+ziglint
+zig fmt --check src build.zig build.zig.zon test bench/zig docs/slop/results
+test -z "$(gofmt -l bench/go)"
+cargo fmt --check --manifest-path bench/rust/Cargo.toml
+nix fmt -- --ci
+traversed 1613 files
+emitted 1 files for processing
+formatted 1 files (0 changed) in 699ms
+oxfmt --check README.md AGENTS.md CHANGELOG.md THIRD_PARTY.md bench/README.md corpus/README.md docs/slop .github
+Checking formatting...
+
+All matched files use the correct format.
+Finished in 1048ms on 54 files using 4 threads.
+No config found, using defaults. Please add a config file or try `oxfmt --init` if needed.
+actionlint
+zizmor .
+ WARN audit: zizmor: zizmor is running in offline mode by default; some audits and auto-fixes will not be available. see https://docs.zizmor.sh/usage/#operating-modes for details
+No findings to report. Good job! (3 suppressed)
+just --fmt --check
+! rg -n setRuntimeSafety src
+just corpus qoi-test-images
+corpus/fetch qoi-test-images
+just oracle 20000 1
+bmp: 155 corpus files and 20000 fuzzed inputs, 20155 comparisons against bmp-wuffs bmp-stb bmp-magick
+  8470 agree with every oracle, 0 mismatches, in 2.9 s
+  split-0: oracles disagree, ours accepts, bmp-magick differ: 2855
+  split-1: oracles disagree, ours accepts, bmp-magick differ (corpus): 18
+  split-2: oracles disagree, ours accepts, bmp-stb bmp-magick differ: 4631
+  split-3: oracles disagree, ours accepts, bmp-stb bmp-magick differ (corpus): 32
+  split-4: oracles disagree, ours accepts, bmp-stb differ: 1380
+  split-5: oracles disagree, ours accepts, bmp-stb differ (corpus): 27
+  split-6: oracles disagree, ours rejects, bmp-magick differ: 786
+  split-7: oracles disagree, ours rejects, bmp-magick differ (corpus): 12
+  split-8: oracles disagree, ours rejects, bmp-stb bmp-magick differ: 33
+  split-9: oracles disagree, ours rejects, bmp-stb differ: 1910
+  split-10: oracles disagree, ours rejects, bmp-stb differ (corpus): 1
+ico: 28 corpus files and 20000 fuzzed inputs, 20028 comparisons against ico-magick
+  17562 agree with every oracle, 0 mismatches, in 6.1 s
+gif: 103 corpus files and 20000 fuzzed inputs, 20103 comparisons against gif-wuffs gif-giflib
+  15914 agree with every oracle, 0 mismatches, in 13.1 s
+  split-0: oracles disagree, ours accepts, gif-giflib differ: 3400
+  split-1: oracles disagree, ours accepts, gif-giflib differ (corpus): 5
+  split-2: oracles disagree, ours rejects, gif-giflib differ: 784
+png: 337 corpus files and 20000 fuzzed inputs, 20337 comparisons against png-wuffs png-libpng png-spng
+  18987 agree with every oracle, 0 mismatches, in 11.2 s
+  split-0: oracles disagree, ours accepts, png-libpng differ: 323
+  split-1: oracles disagree, ours accepts, png-libpng png-spng differ: 2
+  split-2: oracles disagree, ours accepts, png-spng differ: 36
+  split-3: oracles disagree, ours accepts, png-wuffs differ: 104
+  split-4: oracles disagree, ours accepts, png-wuffs png-libpng differ: 5
+  split-5: oracles disagree, ours accepts, png-wuffs png-spng differ: 4
+  split-6: oracles disagree, ours rejects, png-libpng differ: 90
+  split-7: oracles disagree, ours rejects, png-libpng png-spng differ: 291
+  split-8: oracles disagree, ours rejects, png-spng differ: 211
+  split-9: oracles disagree, ours rejects, png-spng differ (corpus): 1
+  split-10: oracles disagree, ours rejects, png-wuffs png-spng differ: 1
+jpeg: 399 corpus files (1 of 64 MiB or more left out) and 20000 fuzzed inputs, 20399 comparisons against jpeg-turbo jpeg-wuffs
+  16338 agree with every oracle, 0 mismatches, in 23.9 s
+  split-0: oracles disagree, ours accepts, jpeg-wuffs differ: 3176
+  split-1: oracles disagree, ours accepts, jpeg-wuffs differ (corpus): 9
+  split-2: oracles disagree, ours rejects, jpeg-wuffs differ: 876
+qoi: 67 corpus files and 20000 fuzzed inputs, 20067 comparisons against qoi-wuffs qoi-qoih
+  5948 agree with every oracle, 0 mismatches, in 26.4 s
+  split-0: oracles disagree, ours accepts, qoi-qoih differ: 422
+  split-1: oracles disagree, ours accepts, qoi-wuffs differ: 3541
+  split-2: oracles disagree, ours accepts, qoi-wuffs differ (corpus): 31
+  split-3: oracles disagree, ours rejects, qoi-qoih differ: 10125
+qoi_encode: 67 corpus files and 20000 fuzzed inputs, 20067 comparisons against qoi-qoih-encode
+  6752 agree with every oracle, 0 mismatches, in 18.9 s
+tiff: 510 corpus files (2 of 64 MiB or more left out) and 20000 fuzzed inputs, 20510 comparisons against tiff-rgba tiff-raw
+  18840 agree with every oracle, 0 mismatches, in 50.0 s
+tga: 47 corpus files and 20000 fuzzed inputs, 20047 comparisons against tga-wuffs tga-stb tga-magick
+  8834 agree with every oracle, 0 mismatches, in 4.3 s
+  split-0: oracles disagree, ours accepts, tga-magick differ: 3045
+  split-1: oracles disagree, ours accepts, tga-magick differ (corpus): 9
+  split-2: oracles disagree, ours accepts, tga-wuffs differ: 229
+  split-3: oracles disagree, ours accepts, tga-wuffs tga-magick differ: 871
+  split-4: oracles disagree, ours accepts, tga-wuffs tga-magick differ (corpus): 3
+  split-5: oracles disagree, ours rejects, tga-magick differ: 5
+  split-6: oracles disagree, ours rejects, tga-stb differ: 4247
+  split-7: oracles disagree, ours rejects, tga-stb tga-magick differ: 2135
+  split-8: oracles disagree, ours rejects, tga-wuffs tga-stb differ: 1
