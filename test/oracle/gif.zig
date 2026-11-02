@@ -52,8 +52,9 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
 }
 
 /// The canvas before a frame whose disposal is `previous`; compare.zig's
-/// pixel limit is 1 << 22, at 4 bytes a pixel.
-var saved: [(1 << 22) * 4]u8 = undefined;
+/// pixel limit is 1 << 22, at 4 bytes a pixel. One per thread, since
+/// compare.zig compares on every core.
+threadlocal var saved: [(1 << 22) * 4]u8 = undefined;
 
 /// This package's decoder, compositing every frame into the one canvas
 /// compare.zig asks for.
