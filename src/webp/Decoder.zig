@@ -37,6 +37,10 @@ const Decoder = @This();
 pub const Options = struct {
     limits: decode.Limits = .{},
     blob_sink: ?decode.BlobSink = null,
+    /// Lets an animation frame's ALPH chunk be decoded at the size of the
+    /// VP8 frame after it when that differs from the size its ANMF chunk
+    /// gives, as libwebp decodes it (`AlphaBehind`); see `image.Seeker`.
+    seeker: ?decode.Seeker = null,
     /// The most prefix code groups a lossless image may use, which sets
     /// how much work memory it needs (about 10 KiB a group); 0 is 2600,
     /// the most libwebp's encoder writes. An image that uses more is
@@ -60,6 +64,10 @@ pub const Error = decode.Error || error{
     BadVp8,
     /// An ALPH chunk's header is malformed, or its raw plane is too short.
     BadAlpha,
+    /// An animation frame's ALPH chunk is decoded at the size of the VP8
+    /// frame after it, which is not the size its ANMF chunk gives, and
+    /// `Options.seeker` is null, so the decoder cannot go back to it.
+    AlphaBehind,
 };
 
 reader: *Io.Reader,
@@ -746,9 +754,6 @@ fn peekChunk(d: *Decoder) Error!Chunk {
 /// unread: what `decodeFrameConfig` returns, and what drawing it needs.
 const Pending = struct {
     frame: decode.Frame,
-    /// The ANMF's size, which an ALPH chunk is decoded at.
-    fw: u32,
-    fh: u32,
     /// Where the ANMF's body ends, in `riff_left`'s terms.
     end: u64,
     blend: bool,
@@ -760,9 +765,11 @@ const Pending = struct {
 /// ALPH chunk and a VP8 or VP8L chunk, which must lie in its body; whatever
 /// else its body holds is read as the file's own chunks. A body that
 /// starts with neither is no frame, and returns null. The frame's size is
-/// its bitstream's; with an ALPH chunk, which comes first, it must be the
-/// size the fields give, which the alpha plane is decoded at (libwebp reads
-/// both chunks before decoding), so that is the size reported.
+/// its bitstream's, and so is its alpha plane's, as libwebp's demuxer and
+/// decoder have them. An ALPH chunk comes before its VP8 chunk: with a
+/// seeker, the VP8 frame's header is read past it and the reader moved
+/// back; without one, the frame is taken to be the size the fields give,
+/// and drawing it fails (`AlphaBehind`) when the VP8 frame is another.
 fn frameHead(d: *Decoder, c: Chunk) Error!?Pending {
     const padded = @as(u64, c.size) + (c.size & 1);
     if (padded < 16) return error.BadChunk;
@@ -792,7 +799,23 @@ fn frameHead(d: *Decoder, c: Chunk) Error!?Pending {
     var bh: u64 = fh;
     var has_alpha = true;
     if (n.tag == tags.alph) {
-        if (fw > d.width or fh > d.height) return error.BadHeader;
+        if (d.options.seeker) |s| {
+            const at = d.pos;
+            const alph_len = 8 + @as(u64, n.size) + (n.size & 1);
+            if (alph_len + 8 > d.riff_left) return error.BadChunk;
+            try d.skip(alph_len);
+            const h = d.reader.peekArray(18) catch |e| return mapRead(e);
+            const v_size = std.mem.readInt(u32, h[4..8], .little);
+            if (std.mem.readInt(u32, h[0..4], .little) != tags.vp8) return error.BadChunk;
+            const need = alph_len + 8 + v_size + (v_size & 1);
+            if (need > d.riff_left or d.riff_left - need < end) return error.BadChunk;
+            if (v_size < 10) return error.BadVp8;
+            const v = try vp8.FrameHeader.parse(h[8..18], v_size);
+            bw = v.width;
+            bh = v.height;
+            try s.seek(s.context, at);
+            d.pos = at;
+        } else if (fw > d.width or fh > d.height) return error.BadHeader;
     } else {
         const need = 8 + @as(u64, n.size) + (n.size & 1);
         if (need > d.riff_left or d.riff_left - need < end) return error.BadChunk;
@@ -833,8 +856,6 @@ fn frameHead(d: *Decoder, c: Chunk) Error!?Pending {
             .blend = if (blend) .src_over else .src,
             .is_opaque = !has_alpha,
         },
-        .fw = @intCast(fw),
-        .fh = @intCast(fh),
         .end = end,
         .blend = blend,
         .key = key,
@@ -850,10 +871,10 @@ fn framePixels(d: *Decoder, p: Pending, dst: PixelBuffer, work: []u8) Error!deco
     var plane: ?[]u8 = null;
     var layout: LossyLayout = undefined;
     if (n.tag == tags.alph) {
-        // The plane is decoded now, at the size the fields give.
-        layout = LossyLayout.init(p.fw, p.fh, d.riff_left, true, d.options.max_prefix_groups).?;
-        const pl = frame_work[layout.plane..][0 .. @as(usize, p.fw) * p.fh];
-        if (try d.alphaChunk(n, p.fw, p.fh, pl, frame_work[layout.shared..layout.total])) |e| return e;
+        // The plane is decoded now, at the frame's size.
+        layout = LossyLayout.init(f.width, f.height, d.riff_left, true, d.options.max_prefix_groups).?;
+        const pl = frame_work[layout.plane..][0 .. @as(usize, f.width) * f.height];
+        if (try d.alphaChunk(n, f.width, f.height, pl, frame_work[layout.shared..layout.total])) |e| return e;
         plane = pl;
         if (d.riff_left < 8) return error.BadChunk;
         if ((try d.peekChunk()).tag != tags.vp8) return error.BadChunk;
@@ -865,7 +886,8 @@ fn framePixels(d: *Decoder, p: Pending, dst: PixelBuffer, work: []u8) Error!deco
     if (n.tag == tags.vp8) {
         if (n.size < 10) return error.BadVp8;
         vp8_header = try vp8.FrameHeader.parse(try d.take(10), n.size);
-        if (vp8_header.width != f.width or vp8_header.height != f.height) return error.BadHeader;
+        // Only a frame read without a seeker can differ (`frameHead`).
+        if (vp8_header.width != f.width or vp8_header.height != f.height) return error.AlphaBehind;
         d.image_left = n.size - 10;
     } else {
         _ = try d.take(5);
@@ -1127,10 +1149,17 @@ test "an extended lossless file: metadata, pixels, and truncation" {
     try testing.expectError(error.BadChunk, testDecode(copy, .rgba8, &out));
 }
 
+/// A 2x2 VP8 frame of 0x4080c0, as cwebp writes it at quality 75.
+const test_vp8 = "\xd0\x01\x00\x9d\x01\x2a\x02\x00\x02\x00\x02\x00\x34\x25\xa0\x02\x74\xba\x01\xf8\x00" ++
+    "\x03\xb0\x00\xfe\xdf\x80\x3f\xf1\xbb\x71\x86\xfc\x17\x7f\xe1\x57\xc6\xe4\x2c\x28\x00";
+
+/// test_vp8's pixels under the alpha values 10, 20, 30, and 40.
+const test_vp8_rgba = [16]u8{
+    0x41, 0x80, 0xbf, 0x0a, 0x41, 0x80, 0xbf, 0x14,
+    0x41, 0x80, 0xbf, 0x1e, 0x41, 0x80, 0xbf, 0x28,
+};
+
 test "a lossy file with two ALPH chunks of odd size" {
-    // A 2x2 VP8 frame of 0x4080c0, as cwebp writes it at quality 75.
-    const vp8_body = "\xd0\x01\x00\x9d\x01\x2a\x02\x00\x02\x00\x02\x00\x34\x25\xa0\x02\x74\xba\x01\xf8\x00" ++
-        "\x03\xb0\x00\xfe\xdf\x80\x3f\xf1\xbb\x71\x86\xfc\x17\x7f\xe1\x57\xc6\xe4\x2c\x28\x00";
     var buf: [128]u8 = undefined;
     var w: Io.Writer = .fixed(&buf);
     try w.writeAll("RIFF\x00\x00\x00\x00WEBP");
@@ -1139,16 +1168,51 @@ test "a lossy file with two ALPH chunks of odd size" {
     // last one counts.
     try TestChunk.put(&w, "ALPH", "\x00\x01\x02\x03\x04");
     try TestChunk.put(&w, "ALPH", "\x00\x0a\x14\x1e\x28");
-    try TestChunk.put(&w, "VP8 ", vp8_body);
+    try TestChunk.put(&w, "VP8 ", test_vp8);
     const file = w.buffered();
     std.mem.writeInt(u32, file[4..8], @intCast(file.len - 8), .little);
 
     var out: [2 * 2 * 4]u8 = undefined;
     _ = try testDecode(file, .rgba8, &out);
-    try testing.expectEqualSlices(u8, &.{
-        0x41, 0x80, 0xbf, 0x0a, 0x41, 0x80, 0xbf, 0x14,
-        0x41, 0x80, 0xbf, 0x1e, 0x41, 0x80, 0xbf, 0x28,
-    }, &out);
+    try testing.expectEqualSlices(u8, &test_vp8_rgba, &out);
+}
+
+test "an animation frame whose alpha is another size than its ANMF says" {
+    // The ANMF says 1x1; its VP8 frame, and so its alpha plane, is 2x2.
+    var buf: [160]u8 = undefined;
+    var w: Io.Writer = .fixed(&buf);
+    try w.writeAll("RIFF\x00\x00\x00\x00WEBP");
+    try TestChunk.put(&w, "VP8X", "\x12\x00\x00\x00\x01\x00\x00\x01\x00\x00");
+    try TestChunk.put(&w, "ANIM", "\x00\x00\x00\x00\x00\x00");
+    var body: [96]u8 = undefined;
+    var bw: Io.Writer = .fixed(&body);
+    try bw.writeAll(&.{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 0, 0, 0 });
+    try TestChunk.put(&bw, "ALPH", "\x00\x0a\x14\x1e\x28");
+    try TestChunk.put(&bw, "VP8 ", test_vp8);
+    try TestChunk.put(&w, "ANMF", bw.buffered());
+    const file = w.buffered();
+    std.mem.writeInt(u32, file[4..8], @intCast(file.len - 8), .little);
+
+    var out: [2 * 2 * 4]u8 = undefined;
+    const dst = try PixelBuffer.init(&out, .rgba8, 2, 2);
+    for ([_]bool{ true, false }) |seeking| {
+        var r: Io.Reader = .fixed(file);
+        var d: Decoder = .init(&r, .{ .seeker = if (seeking) .fixed(&r) else null });
+        const config = try d.decodeConfig();
+        const work = try testing.allocator.alloc(u8, config.work_len);
+        defer testing.allocator.free(work);
+        const announced = (try d.decodeFrameConfig()).?;
+        if (seeking) {
+            // libwebp's size: the bitstream's.
+            try testing.expectEqual(2, announced.width);
+            try testing.expectEqual(announced, (try d.decodeFrame(dst, work)).?);
+            try testing.expectEqualSlices(u8, &test_vp8_rgba, &out);
+            try testing.expectEqual(null, try d.decodeFrame(dst, work));
+        } else {
+            try testing.expectEqual(1, announced.width);
+            try testing.expectError(error.AlphaBehind, d.decodeFrame(dst, work));
+        }
+    }
 }
 
 test "an animation: regions, blending, and the previous frame's disposal" {

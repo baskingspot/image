@@ -41,10 +41,7 @@
 //! - Animation: Wuffs does not decode animations, and no answer in RGB8
 //!   counts: a canvas without alpha cannot hold the transparent pixels
 //!   later frames blend over, so this package's RGB8 canvas differs from
-//!   libwebp's RGBA canvas with the alpha dropped. An ALPH chunk is decoded
-//!   before the VP8 chunk after it is read, at the size the ANMF chunk
-//!   gives, so this package rejects a frame with alpha whose bitstream is
-//!   another size, which libwebp decodes at the bitstream's size.
+//!   libwebp's RGBA canvas with the alpha dropped.
 
 const std = @import("std");
 const image = @import("image");
@@ -87,8 +84,13 @@ pub const Decoder = struct {
 
     pub const Options = image.webp.Decoder.Options;
 
+    /// With a seeker, so that a frame whose ALPH chunk is another size than
+    /// its ANMF says decodes at the bitstream's size, as in libwebp;
+    /// compare.zig's reader is `fixed` over the whole input.
     pub fn init(reader: *std.Io.Reader, options: Options) Decoder {
-        return .{ .d = .init(reader, options) };
+        var o = options;
+        o.seeker = .fixed(reader);
+        return .{ .d = .init(reader, o) };
     }
 
     pub fn decodeConfig(c: *Decoder) image.webp.Decoder.Error!image.Config {

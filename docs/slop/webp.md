@@ -225,15 +225,19 @@ canvas, and the caller disposes of a frame's region before the next call.
   body that starts with neither is skipped, as the demuxer does. A frame's
   size is its bitstream's (the demuxer ignores the ANMF's), and it must fit
   the canvas at twice the ANMF's offsets. An ALPH chunk comes before its
-  VP8 chunk, and the demuxer reads both before decoding, but this decoder
-  streams: it decodes the alpha plane at the ANMF's size and fails
-  (`BadHeader`) a frame whose bitstream is another size. Metadata chunks
-  between and after frames go to the blob sink.
+  VP8 chunk, and libwebp decodes the alpha plane at the VP8 frame's size
+  (plan.md decision 21: match libwebp). This decoder streams, so with
+  `Options.seeker` it reads the VP8 frame's header past the ALPH chunk and
+  moves back; without one it takes the frame to be the ANMF's size and
+  fails (`AlphaBehind`) a frame whose bitstream is another size, as ICO
+  needs a seeker for an entry behind the reader. Metadata chunks between
+  and after frames go to the blob sink.
 - **decodeFrameConfig** (plan.md decision 11) reads the chunks up to the
   next ANMF, its fields, and its first image chunk's header, peeking a VP8
   or VP8L header for the frame's size and alpha, and keeps them for the
   `decodeFrame` call that draws it; with an ALPH chunk first, the frame is
-  reported at the ANMF's size, which the bitstream must then have. A still
+  reported at the VP8 frame's size with a seeker and at the ANMF's without
+  (see Frames). A still
   image's frame is the canvas, opaque as the config says.
 - **Compositing**, as libwebp's animation decoder does it, given a caller
   that disposes to transparent black (as libwebp does, ignoring the
