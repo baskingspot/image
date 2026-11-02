@@ -232,7 +232,14 @@ Running beside wave 1's tail, started early by the owner:
   encoding's transfer (or gamma), primaries, and intensity target, and
   linear sRGB for XYB images with an ICC (decision 46); the last frame comes
   back before the boxes after the codestream are read, as libjxl and
-  jxl-oxide return it. Next: lossy frames in the oracle on the harness's
+  jxl-oxide return it. A single-frame VarDCT image of five group rows or
+  more streams a group row at a time into dst, alpha included, with whole
+  planes when GlobalModular transforms the extra channels; the work arena
+  aligns arrays of 4 KiB or more to cache lines (+1.6% lossy); 50 MP lossy
+  peak RSS is 507 MiB against libjxl's 527 (results/jxl-mem-20261102.md).
+  Images under a megapixel don't stream (to-1-MP class 28.0 MiB against
+  libjxl's 23.1), nor do subsampled, noisy, or upsampled frames or Modular.
+  Next: lossy frames in the oracle on the harness's
   per-input tolerance (decision 45), f32 output (decision 24), render by
   group row, then speed.
 
@@ -428,9 +435,21 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
 - **WebP lossy encode** (branch `wave5-webp-lossy`, a new orb):
   `src/webp/vp8_encode.zig` and any new `src/webp/vp8_encode_*.zig` files,
   the webp_lossy_encode fuzz and oracle files, and the webp-encode-lossy
-  bench rows; only its export lines in `src/webp/root.zig`. It writes ALPH
-  raw until the lossless encoder (`wave5-webp-encode`) lands, then
-  compresses it with that encoder.
+  bench rows; only its export lines in `src/webp/root.zig`. Landed
+  (webp-lossy-encode.md, results/webp-lossy-encode-20261102.md):
+  `image.webp.lossy`, one VP8 key frame from RFC 6386, simple format or VP8X
+  with alpha or ICCP/EXIF/XMP. Quality 0–100 maps to cwebp's base
+  quantizer; four segments by luma activity, each with its own quantizer and
+  filter level; rate-distortion mode choice for 16×16, 4×4, and chroma;
+  token probabilities and the skip flag chosen by cost. Efforts `fast`,
+  `default`, `best`. Alpha goes in ALPH through `encodeAlpha` at lossless
+  effort 0/1/5, unfiltered, raw when smaller; colors under alpha 0 cost
+  nothing. At quality 75 against libwebp 1.6.0 (BD-rate PSNR/SSIM, 18 opaque
+  images): `fast` vs -m 2 −4.5%/−1.2% at 1.10–1.22× its speed; `default` vs
+  -m 4 −1.1%/−4.6% at 1.15–1.46×; `best` vs -m 6 +0.8%/−4.3% at 1.00–1.08×.
+  RGBA, visible PSNR: −3.6% vs -m 4. Peak RSS below libwebp's except RGBA
+  ≤1 MP (31.0 vs 30.1 MiB). Next: trellis and SNS-like tuning; `fast` is
+  1.3× slower than cwebp -m 0.
 - **Shared types for JPEG XL** (landed; results/convert-f32-20261102.md):
   decision 29's metadata fields (`Transfer` bt709, dci, pq, and hlg;
   `Metadata.primaries` replacing `chromaticities`; `intensity_target`;
