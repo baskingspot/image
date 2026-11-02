@@ -35,9 +35,6 @@ err: ?Error = null,
 
 const State = enum { start, config, done };
 
-/// The most octets a multi-byte integer may take: five hold 32 bits.
-const max_int_len = 5;
-
 /// Starts a decoder on `reader`, whose buffer must hold at least
 /// `image.min_buffer_len` bytes. The decoder reads nothing until
 /// `decodeConfig` or `decodeFrame`.
@@ -92,15 +89,19 @@ fn readHeader(d: *Decoder) Error!void {
     try d.options.limits.checkSize(d.width, d.height);
 }
 
+/// A width or height, read as Wuffs reads it: any number of octets, so
+/// leading zero groups (`0x80`) are only slower, but a value of 2^24 or
+/// more is `Unsupported`. The check comes before each shift, so `v` stays
+/// under 2^24.
 fn readInt(r: *Io.Reader) Error!u32 {
     var v: u32 = 0;
-    for (0..max_int_len) |_| {
+    while (true) {
         const b = r.takeByte() catch |e| return mapRead(e);
-        if (v >> 25 != 0) return error.BadHeader;
-        v = v << 7 | (b & 0x7f);
+        v |= b & 0x7f;
         if (b & 0x80 == 0) return v;
+        if (v >= 1 << 17) return error.Unsupported;
+        v <<= 7;
     }
-    return error.BadHeader;
 }
 
 fn mapRead(e: Io.Reader.Error) Error {
@@ -205,17 +206,20 @@ test "multi-byte integers" {
         try testing.expectEqual(@as(u8, if (b >> @intCast(7 - x % 8) & 1 != 0) 255 else 0), out[x]);
     }
     _ = try testDecode("\x00\x00\x80\x80\x01\x01\x80", .gray8, out[0..1]);
-    // 2^32 - 1 fits; 2^32 does not.
-    var none: Io.Reader = .fixed("\x00\x00\x8f\xff\xff\xff\x7f\x01");
+    // Any number of leading zero groups: a height of 12 in nine octets, as
+    // Wuffs and ImageMagick read it.
+    const tall = "\x00\x00\x01" ++ "\x80" ** 8 ++ "\x0c";
+    try testing.expectEqual(12, (try testDecode(tall ++ "\xff" ** 12, .gray8, out[0..12])).height);
+    // 2^24 - 1 is a size; 2^24 is not, even after zero groups.
+    var none: Io.Reader = .fixed("\x00\x00\x80\x87\xff\xff\x7f\x00");
     var d: Decoder = .init(&none, .{ .limits = .none });
-    try testing.expectEqual(std.math.maxInt(u32), (try d.decodeConfig()).width);
-    none = .fixed("\x00\x00\x90\x80\x80\x80\x00\x01");
+    try testing.expectEqual((1 << 24) - 1, (try d.decodeConfig()).width);
+    none = .fixed("\x00\x00\x80\x88\x80\x80\x00\x00");
     d = .init(&none, .{ .limits = .none });
-    try testing.expectError(error.BadHeader, d.decodeConfig());
-    // Six octets is too many, even for a small value.
-    none = .fixed("\x00\x00\x80\x80\x80\x80\x80\x01\x01");
+    try testing.expectError(error.Unsupported, d.decodeConfig());
+    none = .fixed("\x00\x00\x01\x8f\xff\xff\xff\x7f");
     d = .init(&none, .{ .limits = .none });
-    try testing.expectError(error.BadHeader, d.decodeConfig());
+    try testing.expectError(error.Unsupported, d.decodeConfig());
 }
 
 test "malformed streams" {

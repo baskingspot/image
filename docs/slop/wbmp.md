@@ -15,14 +15,17 @@ extension headers.
 ## Decoder decisions
 
 - **Strict header.** The type must be the single octet 0 and the fixed
-  header octet 0; anything else is `BadHeader`. An overlong type (`0x80
-0x00`) is rejected too, as Wuffs rejects it: ImageMagick reads it as type
-  0, and on a file with zero height that left this package alone against
-  both oracles in `just oracle 100000`. The width and height may take at
-  most five octets and must fit in 32 bits, else `BadHeader`; leading
-  `0x80` octets (an overlong encoding) are accepted within those five, as
-  Wuffs accepts them. Wuffs rejects a dimension of 2^24 or more as
-  unsupported; this package leaves size to `Limits`.
+  header octet 0; anything else is `BadHeader`. Wuffs and ImageMagick both
+  read these as two zero octets, so an overlong type (`0x80 0x00`) is
+  rejected too.
+- **Widths and heights as Wuffs reads them.** A multi-byte integer may
+  take any number of octets, so leading zero groups (`0x80`) are accepted
+  however many there are, as both Wuffs and ImageMagick accept them (an
+  earlier five-octet cap left this package alone against both oracles on a
+  height of 12 in nine octets). A value of 2^24 or more is `Unsupported`,
+  as Wuffs calls it an unsupported dimension. ImageMagick has no cap of its
+  own (its `size_t` shifts out high bits) but rejects a size larger than
+  the file. Below 2^24, size is left to `Limits`.
 - **Zero width or height** decodes to an empty image, as Wuffs does.
   ImageMagick rejects it. `image.detect` does not name such a file WBMP
   (detect.zig wants both dimensions nonzero), so only `Decoder.init(.wbmp)`
