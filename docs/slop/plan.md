@@ -274,8 +274,12 @@ owning the files adding-a-format.md assigns to its format plus
   INDEX, runs, and RGBA take their own branches, and DIFF, LUMA, and RGB go
   through the 256-entry table. The 64×64 branch-per-kind loop is gone: it
   won only on single-file icon rows, where the predictor has learned the
-  file. Rotating icons are 1.31–1.60× the qoi crate. Next: whatever the full
-  bench-compare shows below 1.
+  file. Rotating icons are 1.31–1.60× the qoi crate. QOI encode treats
+  packed `rgba8` and `rgb8` sources as one span, and its chunk loop checks
+  only a pixel count, computed from the output room left
+  (results/qoi-encode-20261102.md): 1.02–1.17× the `qoi` crate by size
+  class. The full bench-compare on eabc1ac found no convert row below 1
+  outside noise; next is the same one-counter bound in the QOI decoder.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
