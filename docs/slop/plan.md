@@ -180,7 +180,6 @@ owning the files adding-a-format.md assigns to its format plus
 `docs/slop/<fmt>.md`, with one line per registry:
 
 - **JPEG decode** (branch `wave2-jpeg`): `src/jpeg/`.
-- **GIF decode** (branch `wave2-gif`): `src/gif/`, with GIF's LZW.
 - **WebP decode** (branch `wave3-webp`): `src/webp/`.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
   It uses `image.Seeker` (landed), and decodes
@@ -241,6 +240,28 @@ orb asks for a change to them, or for text in this file, in its report.
   frame). PNG entries
   decode only through `Options.entry` until png has a `workLen` bound, and
   PNG-entry encoding waits for wave 5.
+- **GIF decode** (landed; gif.md). GIF87a and GIF89a from the specifications,
+  with the NETSCAPE2.0 (and ANIMEXTS1.0) loop count. Work memory is about 68
+  KiB for any image: the LZW table, whose entries hold 8 bytes of their
+  string's tail, an 8 KiB index buffer, 4 KiB of sub-blocks, and the palette
+  in the destination's format. Frames follow APNG's model. Frame 0 clears
+  outside its region and writes transparent pixels as transparent black
+  (`src`); later frames with a transparent index are `src_over`. Disposal 2 is
+  background (transparent black; the background color is reported, not
+  applied), 3 and 4 are previous (4 as Wuffs and Chromium read it), and frame
+  0's previous is reported as background. `gif.Decoder.decodeFrameConfig`
+  returns the next frame before it is drawn. Native format is RGBA8 and
+  `is_opaque` is false. `frame_count` is null, and `loop_count` is null
+  without a loop extension before the first frame. Where Wuffs and giflib
+  disagree it follows Wuffs: the canvas grows to hold the first frame and
+  later frames are clipped; LZW data must hold exactly the frame
+  (`NotEnoughData`, `TooMuchData`), and data after the end code is skipped; a
+  byte that starts no block ends the image; the last of several graphic
+  control extensions wins; an index past the color table is opaque black. A
+  minimum code size of 0 decodes, since both references read it. A missing
+  trailer is `Truncated` after the last frame. XMP and ICC are skipped until a
+  blob can stream without a length. 1.12× Wuffs over 52 rows, with the lowest
+  peak RSS of every arm (results/gif-20261101.md).
 - **TGA, decode and encode** (landed; tga.md). Every image type in the 2.0
   spec. The color map is the only work memory. The footer and extension area
   follow the pixels, so the `decodeFrame` call that returns null reads them,
