@@ -452,7 +452,18 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
 - **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
   `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
   fuzz and oracle files, and the jxl-encode bench rows; only its export
-  lines in `src/jxl/root.zig`.
+  lines in `src/jxl/root.zig`. Stage 1 landed (jxl-encode.md,
+  results/jxl-encode-20261102.md): one lossless Modular frame in a bare
+  codestream. 8-bit sources are stored at 8 bits and others at 16, CMYK as
+  RGB, alpha as an extra channel (associated when premultiplied). A global
+  palette, or the cheapest of the 42 RCTs; 256×256 groups; one MA tree
+  learned from sampled rows of every group; ANS with up to 256 clustered
+  histograms. Efforts `fast`, `default`, and `best` sit at about cjxl e3,
+  between e6 and e7, and e8 in size; `default` runs at e7's speed above
+  icons and 0.43× on icons. Files decode bit for bit in libjxl (oracle),
+  jxl-oxide (117 files), and ours. LZ77 was measured with no gain and is not
+  kept. Next: photos (3–4% behind e7), learning memory up to a megapixel
+  (more than libjxl there), prefix codes for small images, and icon speed.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
