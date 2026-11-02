@@ -270,6 +270,9 @@ pub const testing_encoder = struct {
             }
             i += n;
         }
+        // The decoder adds an entry for the last code too, a code late, and
+        // reads the end code at the width that leaves it.
+        if (next >= @as(u16, 1) << width and width < 12) width += 1;
         try Put.put(&out, gpa, &acc, &nbits, clear + 1, width);
         if (nbits > 0) try out.append(gpa, @truncate(acc));
         return out.toOwnedSlice(gpa);
