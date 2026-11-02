@@ -1,0 +1,11 @@
+# Scratch LZW harness: indices of four gif_encode/few inputs (first-seen order), lzw_encode.Encoder.write in 1024-index pieces, best of 15 calls, MP/s; ab.sh runs A and B alternately 8 times, median. Outputs byte-identical (Wyhash of the stream).
+# B = state in locals, cached code width, output a 32-bit word at a time
+photo_kodak-kodim01-768x512.raw          A    95.7 B    91.0 B/A 0.951
+photo_wikipedia-001-1276x850.raw         A   104.8 B    99.8 B/A 0.951
+screenshot_game-20XX_Menu_picture-634x40 A   169.9 B   152.6 B/A 0.898
+screenshot_web-amazon_com-1313x6097.raw  A   173.1 B   161.1 B/A 0.931
+# B = tableLen four slots a code (16384 at most) instead of two
+photo_kodak-kodim01-768x512.raw          A    95.3 B    87.2 B/A 0.915
+photo_wikipedia-001-1276x850.raw         A   104.7 B    94.8 B/A 0.906
+screenshot_game-20XX_Menu_picture-634x40 A   164.4 B   143.4 B/A 0.872
+screenshot_web-amazon_com-1313x6097.raw  A   175.6 B   176.4 B/A 1.005

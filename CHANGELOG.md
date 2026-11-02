@@ -57,6 +57,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.gif.encode` stores an image of at most 256 colors 1.14–1.25× faster, reading its pixels once instead of twice up to about 2.4 megapixels, with the same bytes and work memory.
 - `image.jpeg.encode` is faster: baseline color over 1 MP from 0.93× to 1.18× libjpeg-turbo's speed (4:4:4 from 0.98× to 1.26×), and 2.16× over all encode benchmark rows, with the same bytes.
 - `image.convert` runs a row's last pixels through its SIMD kernels instead of the per-pixel path, and RGB↔BGR stores whole cache lines: narrow rows convert up to twice as fast, so 24- and 32-bit BMP and TGA decodes of narrow images gain up to 25%; `convert.Converter.run` may convert in place between formats of one pixel size.
 - `image.png.Decoder` computes the chunks' CRC-32 with carry-less multiplication on x86-64 CPUs that have PCLMULQDQ, about 4% of a decode.

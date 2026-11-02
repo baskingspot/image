@@ -1,0 +1,32 @@
+# ab.py, A = origin/main d31bf28 bench-image, B = one pass on exact frames; ratio B/A (throughput), median of R rounds per input, geomean by class
+# R=7
+gif-encode-anim/1mp            2 0.960
+gif-encode-anim/icon           1 1.026
+gif-encode-anim/large          1 0.989
+gif-encode-few/1mp             4 1.253
+gif-encode-few/icon            4 1.141
+gif-encode-few/large           3 1.137
+gif-encode/1mp                 5 1.003
+gif-encode/icon                2 1.012
+gif-encode/large               4 0.983
+all                           26 1.068
+# gif-encode-anim again, R=11
+gif-encode-anim/1mp            2 0.995
+gif-encode-anim/icon           1 1.010
+gif-encode-anim/large          1 0.996
+all                            4 0.999
+# Where an exact encode's time goes (A against builds that stop early), R=5:
+# skipping mapping and LZW (count only), B/A
+gif-encode-few/1mp             4 5.304
+gif-encode-few/icon            4 2.243
+gif-encode-few/large           3 4.200
+# skipping LZW (count and map), B/A
+gif-encode-few/1mp             4 2.495
+gif-encode-few/icon            4 1.688
+gif-encode-few/large           3 2.098
+# Not taken: an image-sized index buffer (a byte a pixel), A = one pass, R=7
+gif-encode-few/1mp             4 1.003
+gif-encode-few/icon            4 1.006
+gif-encode-few/large           3 1.149
+all                           11 1.042
+# bench-image check gif-encode-few gif-encode gif-encode-anim: identical before and after (26 rows)

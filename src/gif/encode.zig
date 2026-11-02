@@ -32,7 +32,9 @@
 //! The work memory is a few rows, the LZW table, and, for an image of more
 //! than 256 pixels, the quantizer's tables (about 2.6 MiB); with both
 //! `interlace` and dithering, an image's worth of palette indices too, so
-//! error diffusion can run top to bottom.
+//! error diffusion can run top to bottom. An exact frame does not use the
+//! quantizer's tables, so counting its colors keeps the indices of as many
+//! rows as fit there, and only rows past them are mapped again.
 
 const std = @import("std");
 const testing = std.testing;
@@ -156,6 +158,11 @@ const Layout = struct {
     lookup: usize,
     /// An image of indices, for interlaced dithering.
     image: ?usize,
+    /// Where an exact frame's indices are kept from counting its colors to
+    /// compressing them: the quantizer's tables, which an exact frame does
+    /// not use, or room for 256 pixels in an image too small to quantize.
+    spill: usize,
+    spill_len: usize,
     total: usize,
 
     fn of(options: EncodeOptions, width: u32, height: u32) ?Layout {
@@ -184,7 +191,12 @@ const Layout = struct {
         if (pixels > exact_pixels) {
             l.quant = Place.place(&at, @sizeOf(quantize.Work), @alignOf(quantize.Work));
             l.lookup = Place.place(&at, @sizeOf(quantize.Lookup), @alignOf(quantize.Lookup));
+            l.spill = l.quant.?;
+            l.spill_len = at - l.spill;
             if (options.interlace and options.dither != .none) l.image = Place.place(&at, @intCast(pixels), 1);
+        } else {
+            l.spill_len = exact_pixels;
+            l.spill = Place.place(&at, l.spill_len, 1);
         }
         // Alignment the caller's slice may lack.
         l.total = at + 7;
@@ -233,6 +245,9 @@ const State = struct {
     quant: ?*quantize.Work,
     lookup: ?*quantize.Lookup,
     image: ?[]u8,
+    spill: []u8,
+    /// The rows of the last frame counted whose indices are in `spill`.
+    spilled_rows: u32 = 0,
     global: quantize.Palette = .{},
     /// Whether the canvas shows the previous frame's pixels exactly.
     prev_exact: bool = false,
@@ -275,6 +290,7 @@ fn write(
         .quant = if (l.quant) |q| @ptrCast(@alignCast(mem[q..][0..@sizeOf(quantize.Work)])) else null,
         .lookup = if (l.quant != null) @ptrCast(@alignCast(mem[l.lookup..][0..@sizeOf(quantize.Lookup)])) else null,
         .image = if (l.image) |i| mem[i..][0 .. wide * height] else null,
+        .spill = mem[l.spill..][0..l.spill_len],
     };
     for (frames, 0..) |f, i| {
         const prev: ?AnimationFrame = if (i > 0) frames[i - 1] else null;
@@ -470,19 +486,30 @@ fn writeFrame(s: *State, f: AnimationFrame, prev_frame: ?AnimationFrame, first: 
 
 /// Counts the colors of `region`, pixels equal to `prev`'s counting as
 /// transparent, into the color set; false when there are more than 256.
+/// The indices of as many rows as fit are kept in `spill`, so storing the
+/// frame exactly need not map them again.
 fn countColors(s: *State, region: PixelBuffer, prev: ?PixelBuffer) bool {
     const set = s.set;
     set.reset();
     const rows = rowsOf(s, region, prev);
-    const clear = s.clear[0..region.width];
+    const n = region.width;
+    const clear = s.clear[0..n];
+    const kept: u32 = @intCast(@min(region.height, s.spill.len / n));
+    s.spilled_rows = 0;
     for (0..region.height) |yy| {
         const cur, const old = rows.get(@intCast(yy));
         classify(cur, old, clear);
-        for (clear, 0..) |c, x| {
-            const key = if (c) transparent_key else keyOf(cur[x * 4 ..][0..4]);
-            _ = set.insert(key) orelse return false;
+        if (yy < kept) {
+            for (s.spill[yy * n ..][0..n], clear, 0..) |*i, c, x| {
+                i.* = set.insert(if (c) transparent_key else keyOf(cur[x * 4 ..][0..4])) orelse return false;
+            }
+        } else {
+            for (clear, 0..) |c, x| {
+                _ = set.insert(if (c) transparent_key else keyOf(cur[x * 4 ..][0..4])) orelse return false;
+            }
         }
     }
+    s.spilled_rows = kept;
     return true;
 }
 
@@ -612,6 +639,10 @@ fn writePixels(s: *State, region: PixelBuffer, prev: ?PixelBuffer, plan: *const 
     }
     var it = order(region.height, s.options.interlace);
     while (it.next()) |y| {
+        if (plan.exact and y < s.spilled_rows) {
+            try z.write(s.spill[@as(usize, y) * n ..][0..n]);
+            continue;
+        }
         const cur, const old = rows.get(y);
         classify(cur, old, clear);
         if (plan.exact) {
@@ -891,4 +922,32 @@ test "the contract's errors" {
     try testing.expectEqual(null, workLen(.{}, 65536, 1));
     try testing.expectError(error.BadFrame, encodeAnimation(&w, 2, 2, &.{}, .{}, work));
     try testing.expectError(error.BadFrame, encodeAnimation(&w, 2, 2, &.{.{ .pixels = src, .x = 1 }}, .{}, work));
+}
+
+test "an exact image too large to keep all its indices while counting comes back exactly" {
+    const gpa = testing.allocator;
+    const w = 1300;
+    const h = 2300;
+    const n = w * h;
+    const rgba = try gpa.alloc(u8, n * 4);
+    defer gpa.free(rgba);
+    var prng: std.Random.DefaultPrng = .init(9);
+    const random = prng.random();
+    var colors: [250][4]u8 = undefined;
+    for (&colors) |*c| random.bytes(c);
+    // Short runs, so rows differ, and transparency.
+    for (0..n) |i| rgba[i * 4 ..][0..4].* = colors[(i / 7 + i / w * 3 + random.uintLessThan(usize, 3)) % 250];
+    const want = try gpa.dupe(u8, rgba);
+    defer gpa.free(want);
+    binarize(want);
+    const src = try PixelBuffer.init(rgba, .rgba8, w, h);
+    // Rows past the kept indices are mapped again.
+    try testing.expect(Layout.of(.{}, w, h).?.spill_len < n);
+    for ([_]bool{ false, true }) |interlace| {
+        const file = try encodeAlloc(gpa, src, .{ .interlace = interlace });
+        defer gpa.free(file);
+        const all = try decodeAll(gpa, file);
+        defer freeAll(gpa, all);
+        try testing.expectEqualSlices(u8, want, all.canvases[0]);
+    }
 }

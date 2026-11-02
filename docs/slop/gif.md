@@ -183,6 +183,15 @@ pixels, position, duration in flicks, and disposal), allocation-free with
   image; an image of more than 256 pixels adds the quantizer (about 2.4 MiB
   in all). Interlacing a dithered image adds a byte a pixel, since error
   diffusion runs top to bottom and the file wants the passes.
+- **One pass on exact frames.** Counting a frame's colors maps each pixel
+  to its index in the color set, so the count keeps the indices it makes
+  in memory an exact frame leaves idle (the quantizer's 2.4 MiB, or 256
+  bytes for an image too small to quantize), and the LZW encoder reads
+  them back; only rows past what fits (images over about 2.4 megapixels)
+  are converted and mapped a second time. Mapping and counting were each
+  about a fifth of an exact encode, and LZW the rest. An image-sized
+  index buffer would make large images one pass too, at a byte a pixel of
+  work memory; that trade is not taken (results/gif-encode2-20261102.md).
 
 ### Decisions
 
