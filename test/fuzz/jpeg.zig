@@ -1,10 +1,12 @@
 //! The JPEG fuzz target: the decoder properties in harness.zig, at full
 //! size and, chosen by the input, at a reduced scale, on mutated corpus
 //! files and generated ones. The generator writes a JPEG the way the
-//! decoder reads one: it walks the decoder's states, sequential or
-//! progressive, chooses each symbol at random from those the decoder can
-//! read next, and writes its Huffman code and bits, so the files reach
-//! every marker, sampling layout, scan type, and restart interval.
+//! decoder reads one: it walks the decoder's states, sequential,
+//! progressive, or lossless, chooses each symbol at random from those the
+//! decoder can read next, and writes its Huffman code and bits, so the
+//! files reach every marker, sampling layout, scan type, precision, and
+//! restart interval. Arithmetic-coded scans get random bytes, which that
+//! decoder reads as some sequence of decisions.
 
 const std = @import("std");
 const image = @import("image");
@@ -187,6 +189,8 @@ const Gen = struct {
     ids: [4]u8,
     progressive: bool,
     restart: u16,
+    precision: u8 = 8,
+    coding: enum { huffman, arithmetic, lossless } = .huffman,
     dc: [4]Table = undefined,
     ac: [4]Table = undefined,
     hmax: u8 = 1,
@@ -244,9 +248,22 @@ const Gen = struct {
             }
         }
         if (g.restart != 0) g.segment(0xdd, &.{ @intCast(g.restart >> 8), @truncate(g.restart) });
+        if (g.coding == .arithmetic and g.chance(2)) {
+            // Conditioning: L and U for a DC table, Kx for an AC one.
+            var dac: [8]u8 = undefined;
+            const n = 1 + g.random.uintLessThan(usize, 4);
+            for (0..n) |i| {
+                const t = g.random.uintLessThan(u8, 2);
+                if (g.chance(2)) {
+                    const l = g.random.uintAtMost(u8, 4);
+                    dac[2 * i ..][0..2].* = .{ t, (l + g.random.uintAtMost(u8, 4)) << 4 | l };
+                } else dac[2 * i ..][0..2].* = .{ 0x10 | t, 1 + g.random.uintLessThan(u8, 63) };
+            }
+            g.segment(0xcc, dac[0 .. 2 * n]);
+        }
         // The frame.
         var sof: [6 + 12]u8 = undefined;
-        sof[0] = 8;
+        sof[0] = g.precision;
         std.mem.writeInt(u16, sof[1..3], g.height, .big);
         std.mem.writeInt(u16, sof[3..5], g.width, .big);
         sof[5] = g.ncomp;
@@ -254,11 +271,26 @@ const Gen = struct {
             const tq = if (i == 0) 0 else g.random.uintLessThan(u8, 2);
             sof[6 + 3 * i ..][0..3].* = .{ g.ids[i], g.h[i] << 4 | g.v[i], tq };
         }
-        const kind: u8 = if (g.progressive) 0xc2 else if (g.chance(2)) 0xc1 else 0xc0;
+        const kind: u8 = switch (g.coding) {
+            .huffman => if (g.progressive) 0xc2 else if (g.chance(2) or g.precision != 8) 0xc1 else 0xc0,
+            .arithmetic => if (g.progressive) 0xca else 0xc9,
+            .lossless => 0xc3,
+        };
         g.segment(kind, sof[0 .. 6 + 3 * @as(usize, g.ncomp)]);
     }
 
     fn defineTables(g: *Gen) void {
+        if (g.coding == .arithmetic) return;
+        if (g.coding == .lossless) {
+            // Difference categories 0 to 16.
+            var syms: [17]u8 = undefined;
+            for (&syms, 0..) |*v, i| v.* = @intCast(i);
+            for (0..2) |t| {
+                g.dc[t] = Table.flat(g.random, &syms, 5);
+                g.writeDht(@intCast(t), &g.dc[t]);
+            }
+            return;
+        }
         // DC: categories 0 to 11; AC: every run and size, the end-of-band
         // runs, and ZRL.
         var ac_syms: [176]u8 = undefined;
@@ -329,6 +361,7 @@ const Gen = struct {
     /// markers.
     fn scan(g: *Gen, comps: []const u8, kind: Kind, ss: u8, se: u8, al: u8) void {
         g.sos(comps, ss, se, if (kind == .dc_refine or kind == .ac_refine) al + 1 else 0, al);
+        if (g.coding == .arithmetic) return g.randomData(comps);
         var b: Bits = .{ .out = g.o };
         var eobrun: u32 = 0;
         var mcus: u32 = 0;
@@ -367,6 +400,71 @@ const Gen = struct {
             }
         }
         // An end-of-band run still open is written before the scan ends.
+        b.flush();
+    }
+
+    /// The number of MCUs in a scan of `comps`.
+    fn mcuCount(g: *const Gen, comps: []const u8, du: u32) u32 {
+        if (comps.len == 1) {
+            const ci = comps[0];
+            if (du == 8) return g.wb[ci] * g.hb[ci];
+            const w = (g.width * @as(u32, g.h[ci]) + g.hmax - 1) / g.hmax;
+            return w * ((g.height * @as(u32, g.v[ci]) + g.vmax - 1) / g.vmax);
+        }
+        const mcus_x = (g.width + du * @as(u32, g.hmax) - 1) / (du * @as(u32, g.hmax));
+        const mcus_y = (g.height + du * @as(u32, g.vmax) - 1) / (du * @as(u32, g.vmax));
+        return mcus_x * mcus_y;
+    }
+
+    /// An arithmetic-coded scan's data: random bytes for each restart
+    /// interval, more or fewer than the decoder reads.
+    fn randomData(g: *Gen, comps: []const u8) void {
+        const total = g.mcuCount(comps, 8);
+        const per = if (g.restart == 0) total else g.restart;
+        var done: u32 = 0;
+        var next_rst: u8 = 0;
+        while (done < total) : (done += per) {
+            if (done > 0) {
+                g.o.marker(0xd0 + next_rst);
+                next_rst = (next_rst + 1) & 7;
+            }
+            const n = g.random.uintAtMost(u32, 2 + 12 * @min(per, total - done));
+            for (0..n) |_| {
+                if (g.o.full()) return;
+                const c = g.random.int(u8);
+                g.o.byte(c);
+                if (c == 0xff) g.o.byte(0);
+            }
+        }
+    }
+
+    /// A lossless scan: each sample's difference category and bits, in
+    /// MCU order.
+    fn losslessScan(g: *Gen, comps: []const u8, psv: u8, pt: u8) void {
+        g.sos(comps, psv, 0, 0, pt);
+        var b: Bits = .{ .out = g.o };
+        var mcus: u32 = 0;
+        var next_rst: u8 = 0;
+        for (0..g.mcuCount(comps, 1)) |_| {
+            if (g.o.full()) return;
+            if (g.restart != 0 and mcus == g.restart) {
+                b.flush();
+                g.o.marker(0xd0 + next_rst);
+                next_rst = (next_rst + 1) & 7;
+                mcus = 0;
+            }
+            mcus += 1;
+            for (comps) |ci| {
+                const n: u32 = if (comps.len == 1) 1 else @as(u32, g.h[ci]) * g.v[ci];
+                for (0..n) |_| {
+                    const t = &g.dc[tableOf(ci)];
+                    const top: u5 = if (g.chance(8)) 15 else 4;
+                    const cat: u5 = if (g.chance(3)) 0 else if (g.chance(16)) 16 else g.random.uintAtMost(u5, top);
+                    t.write(&b, cat);
+                    if (cat != 16) g.magnitude(&b, cat);
+                }
+            }
+        }
         b.flush();
     }
 
@@ -471,6 +569,14 @@ const Gen = struct {
 
     fn scans(g: *Gen) void {
         var all: [4]u8 = .{ 0, 1, 2, 3 };
+        if (g.coding == .lossless) {
+            const psv = 1 + g.random.uintLessThan(u8, 7);
+            const pt = if (g.chance(4)) g.random.uintLessThan(u8, g.precision) else 0;
+            if (g.ncomp > 1 and g.restart == 0 and g.chance(4)) {
+                for (0..g.ncomp) |ci| g.losslessScan(&.{@intCast(ci)}, psv, pt);
+            } else g.losslessScan(all[0..g.ncomp], psv, pt);
+            return;
+        }
         if (!g.progressive) {
             if (g.ncomp > 1 and g.chance(4)) {
                 // One scan per component.
@@ -520,6 +626,16 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
         .restart = if (random.uintLessThan(u8, 4) == 0) 1 + random.uintLessThan(u16, 6) else 0,
     };
     if (random.uintLessThan(u8, 8) == 0) g.ids = .{ 'R', 'G', 'B', 'A' };
+    switch (random.uintLessThan(u8, 8)) {
+        0 => g.coding = .arithmetic,
+        1 => {
+            g.coding = .lossless;
+            g.progressive = false;
+            g.precision = 2 + random.uintLessThan(u8, 15);
+        },
+        else => {},
+    }
+    if (g.coding != .lossless and random.uintLessThan(u8, 6) == 0) g.precision = 12;
     // Sampling: usually a common chroma layout, sometimes any factors up
     // to 4 with at most 10 blocks per MCU.
     switch (random.uintLessThan(u8, 6)) {
@@ -546,6 +662,10 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
     for (0..ncomp) |i| {
         g.hmax = @max(g.hmax, g.h[i]);
         g.vmax = @max(g.vmax, g.v[i]);
+    }
+    // A lossless restart interval is whole MCU rows.
+    if (g.coding == .lossless and g.restart != 0) {
+        g.restart = @intCast(random.uintAtMost(u32, 2) * ((g.width + @as(u32, g.hmax) - 1) / g.hmax));
     }
     const mcus_x = (g.width + 8 * @as(u32, g.hmax) - 1) / (8 * @as(u32, g.hmax));
     for (0..ncomp) |i| {

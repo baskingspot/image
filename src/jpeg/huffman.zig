@@ -364,8 +364,10 @@ pub const BitReader = struct {
     }
 };
 
-/// Decodes one block of a sequential scan (F.2.2) into `block`, which must
-/// be zero, with `pred` the component's DC predictor.
+/// Decodes one block of a sequential scan (F.2.2) into `block`, with
+/// `pred` the component's DC predictor. It writes the DC and the nonzero
+/// AC coefficients, so `block` is zero beforehand but in a scan that
+/// decodes a component again.
 pub fn sequential(reader: *BitReader, dc: *const Table, ac: *const Table, pred: *i32, block: *[64]i16) Error!void {
     // A copy that never escapes, so it lives in registers.
     var copy = reader.*;
@@ -402,6 +404,19 @@ pub fn sequential(reader: *BitReader, dc: *const Table, ac: *const Table, pred: 
             k += 16;
         }
     }
+}
+
+/// H.2.1: a lossless difference, modulo 2^16. Its category is at most 16,
+/// and 16 is 32768 with no bits after it.
+pub fn difference(reader: *BitReader, t: *const Table) Error!u16 {
+    // A copy that never escapes, so it lives in registers.
+    var copy = reader.*;
+    defer reader.* = copy;
+    const br = &copy;
+    try br.need();
+    const s = try br.decode(t);
+    if (s == 16) return 32768;
+    return @truncate(@as(u32, @bitCast(br.receive(s))));
 }
 
 /// Progressive scans' state that carries across blocks: the run of

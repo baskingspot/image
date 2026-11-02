@@ -8,13 +8,15 @@ specifications leave open, never translated. This file records what the
 decoder does where the specifications leave room, and why. Results:
 `results/jpeg-20261102.md`.
 
-Stage 1 (this one): sequential and progressive Huffman-coded DCT images with
-8-bit samples (SOF0, SOF1, SOF2), restart intervals, every sampling factor
+Stage 1: sequential and progressive Huffman-coded DCT images with 8-bit
+samples (SOF0, SOF1, SOF2), restart intervals, every sampling factor
 libjpeg-turbo accepts, grayscale, YCbCr, RGB, CMYK, and YCCK, DCT-domain
 scaling to 1/2, 1/4, and 1/8, and JFIF density, EXIF orientation, ICC, EXIF,
-and XMP reported. Stage 2: 12-bit samples (SOF1 and SOF2 with precision 12),
-arithmetic coding (SOF9 to SOF11, DAC), and lossless (SOF3 and SOF11); they
-are `Unsupported` until then.
+and XMP reported. Stage 2: 12-bit samples (SOF1, SOF2, SOF9, SOF10 with
+precision 12), arithmetic coding (SOF9, SOF10, DAC), and lossless (SOF3,
+process 14, precisions 2 to 16). What libjpeg-turbo does not decode is
+`Unsupported`: lossless arithmetic coding (SOF11) and the hierarchical
+processes.
 
 ## Shape
 
@@ -34,6 +36,21 @@ are `Unsupported` until then.
   KiB for a 16×16 icon, 85 KiB for a 768×512 baseline photo, 643 KiB for the
   8192×6144 baseline mosaic, and 145 MiB for the same mosaic progressive,
   where libjpeg-turbo needs the same coefficient buffer.
+- `arith.zig`: T.81 Annex D's decoder (Initdec, Decode, Renorm_d,
+  Byte_in) with Table D.3 as data plus one state that never moves for the
+  fixed one-half estimate, and the block decoders for sequential (F.2.4)
+  and progressive (G.1.3) scans. Statistics live in work memory where the
+  Huffman tables would, one area per table destination (16 of each, as DAC
+  allows), reset at each scan and restart. K.4.1's test sequence is a unit
+  test. Data that ends at a marker feeds zero bytes, as D.2.6 says, and that
+  is not an error; data that ends at the end of the input is.
+- Lossless (`losslessScan`): each iMCU row's differences into a row buffer,
+  then each component's rows reconstructed (H.1.2.1's predictors, modulo
+  2^16) into a second buffer, which keeps the row above, and scaled by the
+  point transform into the sample rows. A single-scan image streams; one of
+  several scans keeps every component's samples (2 bytes each past 8 bits).
+- 12-bit samples run the same pipeline on `u16` sample rows: the IDCT in 64
+  bits, upsampling and conversion generic over the sample type.
 - `huffman.zig`: the bit reader refills up to eight bytes at a time when
   none is 0xFF (a SWAR test), inline in the decode loop, and byte by byte
   around stuffing and markers. Tables have a 9-bit lookahead; AC tables also
@@ -128,6 +145,43 @@ are `Unsupported` until then.
   the profile's header gives, and dropped (no error) if the segments are out
   of order, their counts disagree, or one is missing. XMP: the first XMP
   APP1 segment. Each blob goes to the blob sink as it passes.
+- **Samples past 8 bits, and lossless ones below.** Native is 16-bit
+  (`gray16`, `rgb16`, `rgba16`) past 8 bits and 8-bit otherwise. Color
+  conversion runs at the image's precision, as libjpeg-turbo's does, then
+  each sample is scaled to the native format, rounded:
+  `(v · 65535 + m/2) / m` for maximum `m`, and `(v · 255 + m/2) / m` below 8
+  bits. libjpeg-turbo returns 12-bit samples for a 12-bit image and P-bit
+  ones for a lossless one, so the oracle scales them the same way. A
+  lossless sample that corrupt data reconstructs past the maximum (the
+  reference keeps the low bits in its sample type, unsigned 16-bit past 8
+  bits, 8-bit below) is clamped to it.
+- **12-bit quantization values are unsigned.** libjpeg-turbo builds its
+  12-bit code without SIMD, where the IDCT's multiplier type is `int`, not
+  the 8-bit SIMD build's `short`, so a 16-bit quantization value past 32767
+  multiplies as positive at 12 bits and negative at 8. Only corrupt files
+  have such values.
+- **A component two sequential scans name** gets the second scan's DC and
+  nonzero AC coefficients over the first's, as libjpeg-turbo writes only
+  nonzero coefficients into its coefficient buffer. (Its scan-position quirk
+  for component IDs makes such files out of renumbered ones.)
+- **Arithmetic coding** follows T.81, and where it leaves room
+  libjpeg-turbo: DAC may set any Kx (T.81 allows 1 to 63; every value
+  decodes), table destinations go to 15, a zero run past the band's end or a
+  magnitude past 15 bits is `BadArithmeticCode` (the reference warns and
+  stops decoding the scan), and the DC predictor of a progressive first
+  scan fails past 32 bits as the Huffman one does.
+- **Lossless**, where T.81 leaves room, follows libjpeg-turbo: a restart
+  interval must be whole MCU rows (`BadRestart` otherwise), there are no
+  standard Huffman tables, a three-component image without markers is RGB,
+  a scan restarts its prediction at the first row of the iMCU row where a
+  restart falls (in a single-component scan of a component sampled more
+  than once vertically, that can be a row before the RSTn marker), and an
+  image of several scans where some component has none is `BadScan` (the
+  reference reads that component's samples uninitialized and fails). It
+  does not convert colors in lossless mode, so a YCbCr or YCCK lossless
+  image is `Unsupported` here: the conversion would undo the losslessness,
+  and there would be nothing to match. **Owner decision:** convert them
+  anyway, with the 8- or 12-bit formula, unchecked.
 - **TIFF's JPEG (compression 7).** `Options.tables` takes the bytes of a
   TIFF's JPEGTables tag: a table-specification stream (SOI, DQT, DHT, DRI,
   then EOI), whose tables load before the image stream's own markers, as T.81
@@ -144,18 +198,30 @@ are `Unsupported` until then.
   64-bit arithmetic on random blocks on both sides of each bound, the queue
   on mixed blocks, the vector upsampling against a scalar definition, the
   color conversion over every chroma pair, Huffman table building and the
-  bit reader's stuffing, fill bytes, and markers, and decoder cases.
+  bit reader's stuffing, fill bytes, and markers, the arithmetic decoder on
+  K.4.1's test sequence, and decoder cases.
 - The oracle (`test/oracle/jpeg.zig`, `jpeg.c`): libjpeg-turbo with SIMD
   off and block smoothing off, strict, reading through a 256-byte source
   manager (its fast Huffman path decodes a bad code as symbol 0 when 512
   bytes per block are buffered, instead of warning), and Wuffs as a second
-  oracle. Both corpus files and fuzzed inputs: 0 mismatches; the splits are
-  all Wuffs (its own edge upsampling and damaged-file handling).
+  oracle for 8-bit Huffman-coded DCT images. RGB and gray, 8- and 16-bit:
+  libjpeg-turbo's samples are read at their own precision (its 12- and
+  16-bit entry points), scaled as this package scales them, and a gray
+  image is decoded as gray and copied to RGB (lossless mode converts no
+  colors). Both corpus files and fuzzed inputs: 0 mismatches; the splits
+  are all Wuffs (its own edge upsampling and damaged-file handling).
 - `djpeg` at every scale against this package on the corpus (libjpeg-turbo's
-  and Wuffs's test images and the benchmark corpus): identical but for the
-  12-bit and arithmetic files (stage 2) and the truncated progressive files
-  (block smoothing).
+  and Wuffs's test images, the benchmark corpus, and the generated files):
+  identical but for the truncated progressive files (block smoothing).
+- `corpus/gen/jpeg.sh` writes what the public test images lack with cjpeg:
+  arithmetic coding at each sampling, with restarts, progressive, and one
+  scan per component; 12-bit Huffman and arithmetic, sequential and
+  progressive; and lossless with every predictor, point transforms,
+  precisions 2 to 16, subsampling, restarts, and one scan per component.
 - The fuzz target generates files by walking the decoder's states: metadata
   segments, quantization and Huffman tables (flat or standard), restart
   intervals, sequential and progressive scripts with refinement, and
   restart markers, and checks a scaled decode alongside the full one.
+  Stage 2 adds 12-bit frames, arithmetic-coded frames with DAC segments and
+  random bytes for their data, and lossless frames of every precision and
+  predictor with Huffman-coded differences.

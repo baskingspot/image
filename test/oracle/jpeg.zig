@@ -1,5 +1,5 @@
 //! JPEG against libjpeg-turbo, the bar, and Wuffs (test/oracle/jpeg.c), in
-//! RGB8, and gray8 for grayscale images. libjpeg-turbo's decoding choices
+//! RGB and, for grayscale images, gray, each 8- and 16-bit. libjpeg-turbo's decoding choices
 //! are its defaults, which this package matches bit for bit (owner
 //! decision 2), so any pixel it writes differently is a mismatch.
 //!
@@ -22,8 +22,9 @@
 //!   upsampling at the image edges and for other sampling layouts), and it
 //!   accepts or rejects some damaged files differently.
 //!
-//! Arithmetic-coded, lossless, and 12-bit images are not decoded yet, so
-//! `comparable` leaves them out.
+//! Wuffs decodes only 8-bit Huffman-coded DCT images, and its 16-bit
+//! output only widens them, so `comparable` leaves out its answer for the
+//! other processes and for 16-bit formats.
 
 const std = @import("std");
 const image = @import("image");
@@ -32,13 +33,13 @@ pub const name = "jpeg";
 pub const Decoder = image.jpeg.Decoder;
 pub const fuzz = @import("fuzz").jpeg;
 pub const oracles = [_][]const u8{ "jpeg-turbo", "jpeg-wuffs" };
-pub const formats = [_]image.PixelFormat{ .rgb8, .gray8 };
+pub const formats = [_]image.PixelFormat{ .rgb8, .gray8, .rgb16, .gray16 };
 
-/// Whether `op`'s answer counts: not for the frame types this package does
-/// not decode yet.
+/// Whether `op`'s answer counts: Wuffs's only for 8-bit Huffman-coded DCT
+/// images in 8-bit formats.
 pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) bool {
-    _ = op;
-    _ = format;
+    if (!std.mem.eql(u8, op, "jpeg-wuffs")) return true;
+    if (format != .rgb8 and format != .gray8) return false;
     const sof = firstSof(input) orelse return true;
     return switch (sof.marker) {
         0xc0, 0xc1, 0xc2 => sof.precision == 8,

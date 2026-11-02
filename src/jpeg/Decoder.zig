@@ -1,21 +1,25 @@
 //! A streaming JPEG decoder: reads from a `std.Io.Reader`, writes any
 //! `PixelFormat`, and allocates nothing. It needs `Config.work_len` bytes
-//! of work memory: the Huffman tables, a few rows of each component, and,
-//! for progressive and multi-scan files, every component's coefficients.
+//! of work memory: the entropy decoder's tables, a few rows of each
+//! component, and, for progressive and multi-scan files, every
+//! component's coefficients (or, lossless, samples).
 //!
 //! Format: ITU T.81 (JPEG), with T.871 (JFIF) and Adobe's APP14 for the
-//! color transform. Sequential and progressive Huffman-coded DCT images
-//! with 8-bit samples, every sampling factor libjpeg-turbo accepts,
-//! restart intervals, grayscale, YCbCr, RGB, CMYK, and YCCK, and decoding
-//! at 1/2, 1/4, or 1/8 size in the DCT domain (`Options.scale`).
-//! Arithmetic coding, lossless (process 14), and 12-bit samples are
-//! `Unsupported` so far.
+//! color transform. Sequential and progressive DCT images with 8- or
+//! 12-bit samples, Huffman- or arithmetic-coded; lossless images (process
+//! 14, Huffman-coded) of 2 to 16 bits; every sampling factor libjpeg-turbo
+//! accepts, restart intervals, grayscale, YCbCr, RGB, CMYK, and YCCK; and
+//! decoding DCT images at 1/2, 1/4, or 1/8 size (`Options.scale`). The
+//! hierarchical processes and lossless arithmetic coding, which
+//! libjpeg-turbo does not decode either, are `Unsupported`.
 //!
 //! The pixels are libjpeg-turbo's with its default settings, bit for bit:
 //! its accurate integer IDCT, its "fancy" upsampling, and its YCbCr to RGB
 //! (owner decision 2; docs/slop/jpeg.md has the details). CMYK and YCCK
 //! images decode to RGB by libjpeg-turbo's naive conversion, or to their
-//! stored inks with `Options.cmyk = .raw`.
+//! stored inks with `Options.cmyk = .raw`. Samples of other precisions
+//! than 8 bits are scaled to the native format, rounded: 16-bit past 8
+//! bits, 8-bit below.
 //!
 //! Strict, as libjpeg-turbo is when it treats warnings as errors: a
 //! truncated file, a marker segment of the wrong length, an undefined
@@ -37,6 +41,7 @@ const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
 const exif = @import("../exif.zig");
+const arith = @import("arith.zig");
 const huffman = @import("huffman.zig");
 const idct = @import("idct.zig");
 const sample = @import("sample.zig");
@@ -48,7 +53,8 @@ pub const Options = struct {
     blob_sink: ?decode.BlobSink = null,
     /// Decode at a fraction of the size, in the DCT domain, as
     /// libjpeg-turbo's `scale_num / scale_denom` does: the canvas is the
-    /// image's size times the scale, rounded up.
+    /// image's size times the scale, rounded up. Lossless images, which
+    /// have no DCT, ignore it, as in libjpeg-turbo.
     scale: Scale = .full,
     /// A table-specification stream (SOI, then DQT, DHT, DAC, or DRI
     /// segments, then EOI) whose tables apply as if they came before the
@@ -88,7 +94,8 @@ pub const Cmyk = enum {
     rgb,
     /// The stored inks, C, M, Y, and K in the R, G, B, and A channels of an
     /// RGBA pixel, as Adobe stores them (inverted: 0 is full ink). Native
-    /// is `rgba8`, and other formats convert from it as if it were RGBA.
+    /// is `rgba8` (`rgba16` past 8 bits), and other formats convert from it
+    /// as if it were RGBA.
     raw,
 };
 
@@ -106,7 +113,8 @@ pub const Error = decode.Error || error{
     /// A scan names a component, table, or band the frame does not have:
     /// an unknown component, a component twice, a missing quantization or
     /// Huffman table, more than 10 blocks per MCU, or a spectral band or
-    /// successive approximation the progressive process does not allow.
+    /// successive approximation the progressive process does not allow;
+    /// or a lossless image with a component no scan covers.
     BadScan,
     /// A progressive scan out of order: an AC scan before the component's
     /// DC scan, or a refinement whose bit position does not follow the
@@ -119,6 +127,10 @@ pub const Error = decode.Error || error{
     NotEnoughData,
     /// A restart interval ends at a marker other than the expected RSTn.
     BadRestart,
+    /// Arithmetic-coded data decodes to a value T.81 does not allow: a
+    /// run of zero coefficients past the end of the band, or a magnitude
+    /// past 15 bits.
+    BadArithmeticCode,
 };
 
 reader: *Io.Reader,
@@ -134,6 +146,10 @@ pending: ?u8 = null,
 // The frame (SOF).
 saw_sof: bool = false,
 progressive: bool = false,
+/// Arithmetic coding (SOF9, SOF10) rather than Huffman.
+arithmetic: bool = false,
+/// The lossless process (SOF3) rather than the DCT.
+lossless: bool = false,
 precision: u8 = 8,
 width: u32 = 0,
 height: u32 = 0,
@@ -148,6 +164,9 @@ ac_spec: [4]huffman.Spec = undefined,
 dc_set: [4]bool = @splat(false),
 ac_set: [4]bool = @splat(false),
 restart: u16 = 0,
+/// Arithmetic coding's conditioning (DAC): the DC L and U and the AC Kx
+/// of each table destination.
+cond: [16]arith.Conditioning = @splat(.{}),
 
 // Markers before the first scan.
 jfif: bool = false,
@@ -203,6 +222,9 @@ const Component = struct {
     dc: u8 = 0,
     ac: u8 = 0,
     pred: i32 = 0,
+    /// Arithmetic coding: the classification of the previous DC
+    /// difference.
+    ctx: u8 = 0,
 };
 
 const Scan = struct {
@@ -298,7 +320,8 @@ pub fn init(reader: *Io.Reader, options: Options) Decoder {
 
 /// Reads the markers through the first scan's header. The native format
 /// is `gray8` for one component and `rgb8` for three or four (`rgba8`
-/// with `Options.cmyk = .raw`). Calling it again returns the same config.
+/// with `Options.cmyk = .raw`), or `gray16`, `rgb16`, and `rgba16` for
+/// samples past 8 bits. Calling it again returns the same config.
 pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     if (d.err) |e| return e;
     if (d.state == .start) {
@@ -452,11 +475,15 @@ fn readTables(d: *Decoder, tables: []const u8) Error!void {
 /// come, when APPn segments are read for metadata.
 fn readMarker(d: *Decoder, m: u8, header: bool) Error!void {
     switch (m) {
-        markers.sof0, markers.sof1 => try d.readSof(false),
-        markers.sof2 => try d.readSof(true),
-        // Lossless and arithmetic coding come later; the differential
-        // (hierarchical) processes, as in libjpeg-turbo, never.
-        markers.sof3, markers.sof9, markers.sof10, markers.sof11 => return error.Unsupported,
+        markers.sof0, markers.sof1 => try d.readSof(.sequential, false),
+        markers.sof2 => try d.readSof(.progressive, false),
+        markers.sof3 => try d.readSof(.lossless, false),
+        markers.sof9 => try d.readSof(.sequential, true),
+        markers.sof10 => try d.readSof(.progressive, true),
+        // Lossless arithmetic coding and the differential (hierarchical)
+        // processes are not decoded, as libjpeg-turbo does not decode
+        // them.
+        markers.sof11 => return error.Unsupported,
         markers.sof5, markers.sof6, markers.sof7, markers.jpg => return error.Unsupported,
         markers.sof13, markers.sof14, markers.sof15 => return error.Unsupported,
         markers.dht => try d.readDht(),
@@ -475,10 +502,12 @@ fn readMarker(d: *Decoder, m: u8, header: bool) Error!void {
     }
 }
 
-fn readSof(d: *Decoder, progressive: bool) Error!void {
+fn readSof(d: *Decoder, process: enum { sequential, progressive, lossless }, arithmetic: bool) Error!void {
     if (d.saw_sof) return error.BadMarker;
     d.saw_sof = true;
-    d.progressive = progressive;
+    d.progressive = process == .progressive;
+    d.lossless = process == .lossless;
+    d.arithmetic = arithmetic;
     const len = try d.readU16();
     const b = d.reader.takeArray(6) catch |e| return mapRead(e);
     d.pos += 6;
@@ -490,10 +519,14 @@ fn readSof(d: *Decoder, progressive: bool) Error!void {
     if (d.width == 0 or nc == 0) return error.BadHeader;
     if (d.height == 0) return error.Unsupported;
     if (len != 8 + 3 * @as(u32, nc)) return error.BadMarker;
-    const s = d.options.scale.blockSize();
+    // Lossless images are not scaled, as in libjpeg-turbo.
+    const s = if (d.lossless) 8 else d.options.scale.blockSize();
     try d.options.limits.checkSize(ceilDiv(d.width * s, 8), ceilDiv(d.height * s, 8));
     if (d.width > max_dimension or d.height > max_dimension) return error.Unsupported;
-    if (d.precision != 8) return error.Unsupported;
+    // T.81's precisions: 8 or 12 bits for the DCT, 2 to 16 lossless.
+    if (d.lossless) {
+        if (d.precision < 2 or d.precision > 16) return error.BadHeader;
+    } else if (d.precision != 8 and d.precision != 12) return error.BadHeader;
     if (nc != 1 and nc != 3 and nc != 4) return error.Unsupported;
     d.ncomp = nc;
     for (d.comps[0..nc]) |*c| {
@@ -547,16 +580,24 @@ fn readDqt(d: *Decoder) Error!void {
     if (left != 0) return error.BadMarker;
 }
 
-/// DAC: checked as libjpeg-turbo checks it, though arithmetic coding is
-/// not decoded yet.
+/// DAC (B.2.4.3): Tc and Tb, then L and U for a DC table or Kx for an
+/// AC one. Like libjpeg-turbo, any Kx is taken, though T.81 allows 1 to
+/// 63: the decoding is defined for every value.
 fn readDac(d: *Decoder) Error!void {
     var left: i32 = @as(i32, try d.readU16()) - 2;
     while (left > 0) {
         const index = try d.readByte();
         const val = try d.readByte();
         left -= 2;
-        if (index >= 8) return error.BadMarker;
-        if (index < 4 and val & 0x0f > val >> 4) return error.BadMarker;
+        if (index >= 32) return error.BadMarker;
+        const c = &d.cond[index & 15];
+        if (index >= 16) {
+            c.kx = val;
+        } else {
+            if (val & 0x0f > val >> 4) return error.BadMarker;
+            c.l = @intCast(val & 0x0f);
+            c.u = @intCast(val >> 4);
+        }
     }
     if (left != 0) return error.BadMarker;
 }
@@ -712,31 +753,39 @@ fn setup(d: *Decoder) Error!void {
         g.hmax = @max(g.hmax, c.h);
         g.vmax = @max(g.vmax, c.v);
     }
-    g.min_ss = d.options.scale.blockSize();
-    g.out_w = ceilDiv(@as(u64, d.width) * g.min_ss, 8);
-    g.out_h = ceilDiv(@as(u64, d.height) * g.min_ss, 8);
-    g.mcus_x = ceilDiv(d.width, 8 * @as(u32, g.hmax));
-    g.mcus_y = ceilDiv(d.height, 8 * @as(u32, g.vmax));
+    // The data unit: an 8×8 block, or one sample for lossless.
+    const du: u32 = if (d.lossless) 1 else 8;
+    g.min_ss = if (d.lossless) 1 else d.options.scale.blockSize();
+    g.out_w = ceilDiv(@as(u64, d.width) * g.min_ss, du);
+    g.out_h = ceilDiv(@as(u64, d.height) * g.min_ss, du);
+    g.mcus_x = ceilDiv(d.width, du * g.hmax);
+    g.mcus_y = ceilDiv(d.height, du * g.vmax);
     g.multi = d.progressive or d.scan.n < d.ncomp;
     g.color = try d.colorSpace();
+    // libjpeg-turbo does not convert a lossless image's colors (the
+    // conversion would lose what the process kept), so there is nothing to
+    // match for a YCbCr or YCCK one.
+    if (d.lossless and (g.color == .ycc or g.color == .ycck)) return error.Unsupported;
+    const wide = d.precision > 8;
     g.native = switch (g.color) {
-        .gray => .gray8,
-        .ycc, .rgb => .rgb8,
-        .cmyk, .ycck => if (d.options.cmyk == .raw) .rgba8 else .rgb8,
+        .gray => if (wide) .gray16 else .gray8,
+        .ycc, .rgb => if (wide) .rgb16 else .rgb8,
+        .cmyk, .ycck => if (d.options.cmyk != .raw) (if (wide) .rgb16 else .rgb8) else if (wide) .rgba16 else .rgba8,
     };
+    const sb: u64 = if (wide) 2 else 1;
     g.context = false;
     const fancy = g.min_ss > 1;
     for (comps) |*c| {
         // Scale chroma up through the IDCT rather than by upsampling where
         // the ratios allow, as libjpeg-turbo does.
         var ss: u32 = g.min_ss;
-        while (ss < 8 and (@as(u32, g.hmax) * g.min_ss) % (c.h * ss * 2) == 0 and
+        while (ss < du and (@as(u32, g.hmax) * g.min_ss) % (c.h * ss * 2) == 0 and
             (@as(u32, g.vmax) * g.min_ss) % (c.v * ss * 2) == 0) ss *= 2;
         c.ss = @intCast(ss);
-        c.w = ceilDiv(@as(u64, d.width) * c.h * ss, @as(u64, g.hmax) * 8);
-        c.ht = ceilDiv(@as(u64, d.height) * c.v * ss, @as(u64, g.vmax) * 8);
-        c.wb = ceilDiv(ceilDiv(@as(u64, d.width) * c.h, g.hmax), 8);
-        c.hb = ceilDiv(ceilDiv(@as(u64, d.height) * c.v, g.vmax), 8);
+        c.w = ceilDiv(@as(u64, d.width) * c.h * ss, @as(u64, g.hmax) * du);
+        c.ht = ceilDiv(@as(u64, d.height) * c.v * ss, @as(u64, g.vmax) * du);
+        c.wb = ceilDiv(ceilDiv(@as(u64, d.width) * c.h, g.hmax), du);
+        c.hb = ceilDiv(ceilDiv(@as(u64, d.height) * c.v, g.vmax), du);
         c.bw = g.mcus_x * c.h;
         c.bh = g.mcus_y * c.v;
         const hin = c.h * ss / g.min_ss;
@@ -757,14 +806,23 @@ fn setup(d: *Decoder) Error!void {
             return error.Unsupported;
         if (c.up.context()) g.context = true;
     }
-    // Work memory: Huffman tables, coefficients, sample rows, upsampled
-    // rows, and a row of the native format.
+    // Work memory: Huffman tables (or arithmetic coding's statistics),
+    // coefficients (or, lossless, an iMCU row of differences and of
+    // reconstructed values), sample rows, upsampled rows, and a row of the
+    // native format.
     var off: u64 = 0;
     g.tables = 0;
-    off += 8 * @sizeOf(huffman.Table);
+    off += @max(8 * @sizeOf(huffman.Table), @sizeOf(arith.Stats));
     off = std.mem.alignForward(u64, off, 64);
     g.coefs = @intCast(off);
-    if (g.multi) {
+    if (d.lossless) {
+        var n: u64 = 0;
+        for (comps) |*c| {
+            c.coef = @intCast(n);
+            n += 2 * @as(u64, c.bw) * c.v;
+        }
+        off += n * 2;
+    } else if (g.multi) {
         var n: u64 = 0;
         for (comps) |*c| {
             c.coef = @intCast(n);
@@ -778,16 +836,17 @@ fn setup(d: *Decoder) Error!void {
     for (comps) |*c| {
         c.stride = @as(usize, c.bw) * c.ss;
         const rows = c.v * @as(u32, c.ss);
-        c.ring = if (g.context) 3 * rows else rows;
+        // Lossless images of several scans keep every row.
+        c.ring = if (g.context) 3 * rows else if (d.lossless and g.multi) c.bh else rows;
         c.plane = @intCast(n);
-        n = std.mem.alignForward(u64, n + @as(u64, c.ring) * c.stride, 64);
+        n = std.mem.alignForward(u64, n + @as(u64, c.ring) * c.stride * sb, 64);
     }
     off += n;
     g.rows = @intCast(off);
     n = 0;
     for (comps) |*c| {
         c.row = @intCast(n);
-        if (c.up != .full) n = std.mem.alignForward(u64, n + @as(u64, c.up.hexp()) * c.stride + 16, 64);
+        if (c.up != .full) n = std.mem.alignForward(u64, n + (@as(u64, c.up.hexp()) * c.stride + 16) * sb, 64);
     }
     off += n;
     g.native_row = @intCast(off);
@@ -819,7 +878,9 @@ fn colorSpace(d: *const Decoder) Error!Color {
             };
             const c = d.comps;
             if (c[0].id == 'R' and c[1].id == 'G' and c[2].id == 'B') return .rgb;
-            return .ycc;
+            // Without markers, libjpeg-turbo guesses RGB for a lossless
+            // image.
+            return if (d.lossless) .rgb else .ycc;
         },
         else => {
             switch (d.options.color) {
@@ -839,11 +900,12 @@ fn colorSpace(d: *const Decoder) Error!Color {
 
 /// Checks the scan whose header was just read and prepares its tables,
 /// in the order libjpeg-turbo does.
-fn startScan(d: *Decoder, tables: *[8]huffman.Table) Error!void {
+fn startScan(d: *Decoder, w: Work) Error!void {
     const s = d.scan;
     var blocks: u32 = 0;
     for (s.comp[0..s.n]) |ci| blocks += @as(u32, d.comps[ci].h) * d.comps[ci].v;
     if (s.n > 1 and blocks > max_blocks_in_mcu) return error.BadScan;
+    if (d.lossless) return d.startLossless(w);
     for (s.comp[0..s.n]) |ci| {
         const c = &d.comps[ci];
         if (c.latched) continue;
@@ -872,38 +934,69 @@ fn startScan(d: *Decoder, tables: *[8]huffman.Table) Error!void {
                 bits[k] = s.al;
             }
         }
-        for (s.comp[0..s.n]) |ci| {
+        if (!d.arithmetic) for (s.comp[0..s.n]) |ci| {
             const c = &d.comps[ci];
             if (dc_band) {
-                if (s.ah == 0) try d.table(tables, .dc, c.dc, false);
-            } else try d.table(tables, .ac, c.ac, false);
-        }
-    } else {
+                if (s.ah == 0) try d.table(w.tables, .dc, c.dc, false);
+            } else try d.table(w.tables, .ac, c.ac, false);
+        };
+    } else if (!d.arithmetic) {
         for (s.comp[0..s.n]) |ci| {
             const c = &d.comps[ci];
-            try d.table(tables, .dc, c.dc, true);
-            try d.table(tables, .ac, c.ac, true);
+            try d.table(w.tables, .dc, c.dc, true);
+            try d.table(w.tables, .ac, c.ac, true);
         }
     }
     for (d.comps[0..d.ncomp]) |*c| c.pred = 0;
+    if (d.arithmetic) d.resetStats(w);
+}
+
+/// A lossless scan (H.1, H.2): DC Huffman tables only, with category 16,
+/// and no standard tables; Ss the predictor, 1 to 7; Se and Ah zero; Al
+/// the point transform, below the precision; and, as libjpeg-turbo
+/// requires, a restart interval of whole MCU rows.
+fn startLossless(d: *Decoder, w: Work) Error!void {
+    const s = d.scan;
+    for (s.comp[0..s.n]) |ci| try d.table(w.tables, .lossless, d.comps[ci].dc, false);
+    if (s.ss < 1 or s.ss > 7 or s.se != 0 or s.ah != 0 or s.al >= d.precision) return error.BadScan;
+    const per_row = if (s.n == 1) d.comps[s.comp[0]].wb else d.geo.mcus_x;
+    if (d.restart % per_row != 0) return error.BadRestart;
+}
+
+/// Arithmetic coding: the statistics areas the scan uses start over, at
+/// the scan and at each restart (F.1.4.4, G.1.3), with the components' DC
+/// conditioning.
+fn resetStats(d: *Decoder, w: Work) void {
+    const s = d.scan;
+    w.stats.fixed = arith.fixed;
+    for (s.comp[0..s.n]) |ci| {
+        const c = &d.comps[ci];
+        if (!d.progressive or (s.ss == 0 and s.ah == 0)) {
+            w.stats.dc[c.dc] = @splat(0);
+            c.ctx = 0;
+        }
+        if (!d.progressive or s.ss != 0) w.stats.ac[c.ac] = @splat(0);
+    }
 }
 
 /// Builds Huffman table `slot` of `kind`. A sequential scan may name table
 /// 0 or 1 without a DHT for it: then it is T.81's standard table, as in
 /// libjpeg-turbo.
-fn table(d: *Decoder, tables: *[8]huffman.Table, kind: enum { dc, ac }, slot: u8, standard: bool) Error!void {
+fn table(d: *Decoder, tables: *[8]huffman.Table, kind: enum { dc, ac, lossless }, slot: u8, standard: bool) Error!void {
     if (slot >= 4) return error.BadScan;
-    const set = if (kind == .dc) d.dc_set else d.ac_set;
+    const ac = kind == .ac;
+    const set = if (ac) d.ac_set else d.dc_set;
     const spec: *const huffman.Spec = if (set[slot])
-        (if (kind == .dc) &d.dc_spec[slot] else &d.ac_spec[slot])
-    else if (standard and slot < 2) switch (kind) {
-        .dc => if (slot == 0) &huffman.standard.dc_luma else &huffman.standard.dc_chroma,
-        .ac => if (slot == 0) &huffman.standard.ac_luma else &huffman.standard.ac_chroma,
+        (if (ac) &d.ac_spec[slot] else &d.dc_spec[slot])
+    else if (standard and slot < 2) switch (ac) {
+        false => if (slot == 0) &huffman.standard.dc_luma else &huffman.standard.dc_chroma,
+        true => if (slot == 0) &huffman.standard.ac_luma else &huffman.standard.ac_chroma,
     } else return error.BadScan;
-    const t = &tables[if (kind == .dc) slot else 4 + slot];
+    const t = &tables[if (ac) 4 + slot else slot];
     switch (kind) {
         .dc => try t.init(spec, .dc),
         .ac => try t.init(spec, .ac),
+        .lossless => try t.init(spec, .lossless),
     }
 }
 
@@ -912,6 +1005,8 @@ fn table(d: *Decoder, tables: *[8]huffman.Table, kind: enum { dc, ac }, slot: u8
 /// The work memory, typed.
 const Work = struct {
     tables: *[8]huffman.Table,
+    /// Arithmetic coding's statistics, in the Huffman tables' place.
+    stats: *arith.Stats,
     coefs: []i16,
     planes: []u8,
     rows: []u8,
@@ -922,10 +1017,10 @@ fn workMemory(d: *const Decoder, work: []u8) Work {
     const g = d.geo;
     const skew = std.mem.alignForward(usize, @intFromPtr(work.ptr), 64) - @intFromPtr(work.ptr);
     const w = work[skew..][0 .. g.work_len - 64];
-    const coef_end = if (g.multi) g.planes else g.coefs;
     return .{
         .tables = @ptrCast(@alignCast(w[g.tables..][0 .. 8 * @sizeOf(huffman.Table)])),
-        .coefs = @alignCast(std.mem.bytesAsSlice(i16, w[g.coefs..coef_end])),
+        .stats = @ptrCast(@alignCast(w[g.tables..][0..@sizeOf(arith.Stats)])),
+        .coefs = @alignCast(std.mem.bytesAsSlice(i16, w[g.coefs..g.planes])),
         .planes = w[g.planes..g.rows],
         .rows = w[g.rows..g.native_row],
         .native_row = w[g.native_row..],
@@ -933,11 +1028,26 @@ fn workMemory(d: *const Decoder, work: []u8) Work {
 }
 
 fn frame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
+    if (d.lossless) {
+        if (d.precision <= 8) try d.frameOf(u8, true, dst, work) else try d.frameOf(u16, true, dst, work);
+    } else {
+        if (d.precision == 8) try d.frameOf(u8, false, dst, work) else try d.frameOf(u16, false, dst, work);
+    }
+}
+
+/// Decodes the frame with samples of type `S`: 8 or 12 bits for the DCT,
+/// and to 8 bits or past them lossless.
+fn frameOf(d: *Decoder, comptime S: type, comptime lossless: bool, dst: PixelBuffer, work: []u8) Error!void {
+    const bits = if (S == u8) 8 else 12;
     const w = d.workMemory(work);
-    var out: Output = .init(d, dst, w);
-    try d.startScan(w.tables);
+    var out: Output(S) = .init(d, dst, w);
+    try d.startScan(w);
     if (!d.geo.multi) {
-        try d.sequentialDirect(w, &out);
+        if (lossless) {
+            try d.losslessScan(S, w, &out);
+        } else if (d.arithmetic) {
+            try d.sequentialDirect(arith.Reader, bits, w, &out);
+        } else try d.sequentialDirect(huffman.BitReader, bits, w, &out);
         // A single-scan image ends at EOI; another scan is an error.
         while (true) {
             const m = try d.nextMarker();
@@ -946,9 +1056,18 @@ fn frame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
             try d.readMarker(m, false);
         }
     }
-    @memset(w.coefs, 0);
+    // A DCT component no scan covers is zero, as in the reference. A
+    // lossless one is an error: the reference reads its samples
+    // uninitialized and fails.
+    if (!lossless) @memset(std.mem.sliceAsBytes(w.coefs), 0);
+    var covered: u4 = 0;
     while (true) {
-        try d.scanToCoefs(w);
+        for (d.scan.comp[0..d.scan.n]) |ci| covered |= @as(u4, 1) << @intCast(ci);
+        if (lossless) {
+            try d.losslessScan(S, w, null);
+        } else if (d.arithmetic) {
+            try d.scanToCoefs(arith.Reader, w);
+        } else try d.scanToCoefs(huffman.BitReader, w);
         const m = while (true) {
             const m = try d.nextMarker();
             if (m == markers.eoi or m == markers.sos) break m;
@@ -956,10 +1075,11 @@ fn frame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
         };
         if (m == markers.eoi) break;
         try d.readSos();
-        try d.startScan(w.tables);
+        try d.startScan(w);
     }
+    if (lossless and covered != (@as(u5, 1) << @intCast(d.ncomp)) - 1) return error.BadScan;
     for (0..d.geo.mcus_y) |my| {
-        d.idctRow(w, @intCast(my));
+        if (!lossless) d.idctRow(bits, w, @intCast(my));
         out.rowDecoded(@intCast(my));
     }
 }
@@ -972,7 +1092,7 @@ const Restarts = struct {
 };
 
 /// Ends a restart interval: the next marker must be RSTn.
-fn restartMarker(d: *Decoder, br: *huffman.BitReader, r: *Restarts) Error!void {
+fn restartMarker(d: *Decoder, br: anytype, r: *Restarts) Error!void {
     try d.endSegment(br);
     const m = try d.nextMarker();
     if (m != markers.rst0 + @as(u8, r.next)) return error.BadRestart;
@@ -981,9 +1101,15 @@ fn restartMarker(d: *Decoder, br: *huffman.BitReader, r: *Restarts) Error!void {
     for (d.comps[0..d.ncomp]) |*c| c.pred = 0;
 }
 
+/// A reader for the entropy-coded data that starts here.
+fn entropyReader(d: *Decoder, comptime R: type) Error!R {
+    if (R == huffman.BitReader) return .{ .reader = d.reader };
+    return R.init(d.reader) catch |e| mapRead(e);
+}
+
 /// Hands the reader back from the entropy decoder: drops the bits it
 /// buffered and keeps the marker it stopped at, if any.
-fn endSegment(d: *Decoder, br: *huffman.BitReader) Error!void {
+fn endSegment(d: *Decoder, br: anytype) Error!void {
     d.pos += br.consumed;
     br.consumed = 0;
     br.reset();
@@ -995,16 +1121,27 @@ fn endSegment(d: *Decoder, br: *huffman.BitReader) Error!void {
     br.stop = .none;
 }
 
-fn checkOverrun(br: *const huffman.BitReader) Error!void {
-    if (br.overran()) return if (br.stop == .end) error.Truncated else error.NotEnoughData;
+/// Huffman-coded data that ends early is an error. Arithmetic-coded data
+/// may end at a marker, after which the decoder reads zeros (D.2.6), but
+/// not at the end of the input.
+fn checkOverrun(br: anytype) Error!void {
+    if (@TypeOf(br.*) == arith.Reader) {
+        if (br.stop == .end) return error.Truncated;
+    } else if (br.overran()) return if (br.stop == .end) error.Truncated else error.NotEnoughData;
 }
 
 /// A single-scan sequential image, decoded, transformed, and written row
 /// by row.
-fn sequentialDirect(d: *Decoder, w: Work, out: *Output) Error!void {
+fn sequentialDirect(
+    d: *Decoder,
+    comptime R: type,
+    comptime bits: u8,
+    w: Work,
+    out: *Output(idct.Sample(bits)),
+) Error!void {
     const g = d.geo;
     const s = d.scan;
-    var br: huffman.BitReader = .{ .reader = d.reader };
+    var br = try d.entropyReader(R);
     var rs: Restarts = .{ .interval = d.restart, .togo = d.restart };
     var block: [64]i16 = @splat(0);
     var qu: idct.Queue = .{};
@@ -1018,16 +1155,16 @@ fn sequentialDirect(d: *Decoder, w: Work, out: *Output) Error!void {
             for (0..rows) |j| {
                 const row = ringRow(c, my, @intCast(j));
                 for (0..c.wb) |bx| {
-                    try d.restartPoint(&br, &rs);
+                    try d.restartPoint(w, &br, &rs);
                     try d.decodeOne(w, &br, c, &block);
                     try checkOverrun(&br);
-                    putBlock(w, c, &block, @intCast(bx), row, &qu);
+                    putBlock(bits, w, c, &block, @intCast(bx), row, &qu);
                 }
             }
         } else {
             for (0..g.mcus_x) |mx_| {
                 const mx: u32 = @intCast(mx_);
-                try d.restartPoint(&br, &rs);
+                try d.restartPoint(w, &br, &rs);
                 for (s.comp[0..s.n]) |ci| {
                     const c = &d.comps[ci];
                     for (0..c.v) |j| {
@@ -1035,7 +1172,9 @@ fn sequentialDirect(d: *Decoder, w: Work, out: *Output) Error!void {
                             try d.decodeOne(w, &br, c, &block);
                             const bx = mx * c.h + @as(u32, @intCast(i));
                             const by = my * c.v + @as(u32, @intCast(j));
-                            if (bx < c.wb and by < c.hb) putBlock(w, c, &block, bx, ringRow(c, my, @intCast(j)), &qu);
+                            if (bx < c.wb and by < c.hb) {
+                                putBlock(bits, w, c, &block, bx, ringRow(c, my, @intCast(j)), &qu);
+                            }
                             @memset(&block, 0);
                         }
                     }
@@ -1049,18 +1188,24 @@ fn sequentialDirect(d: *Decoder, w: Work, out: *Output) Error!void {
     try d.endSegment(&br);
 }
 
-inline fn restartPoint(d: *Decoder, br: *huffman.BitReader, rs: *Restarts) Error!void {
+inline fn restartPoint(d: *Decoder, w: Work, br: anytype, rs: *Restarts) Error!void {
     if (rs.interval == 0) return;
     if (rs.togo == 0) {
         try d.restartMarker(br, rs);
-        br.* = .{ .reader = d.reader };
+        if (d.arithmetic) d.resetStats(w);
+        br.* = try d.entropyReader(@TypeOf(br.*));
     }
     rs.togo -= 1;
 }
 
-inline fn decodeOne(d: *Decoder, w: Work, br: *huffman.BitReader, c: *Component, block: *[64]i16) Error!void {
-    _ = d;
-    try huffman.sequential(br, &w.tables[c.dc], &w.tables[4 + c.ac], &c.pred, block);
+inline fn decodeOne(d: *Decoder, w: Work, br: anytype, c: *Component, block: *[64]i16) Error!void {
+    if (@TypeOf(br.*) == arith.Reader) {
+        const dc: u4 = @intCast(c.dc);
+        const ac: u4 = @intCast(c.ac);
+        try arith.sequential(br, w.stats, dc, ac, d.cond[dc], d.cond[ac], &c.pred, &c.ctx, block);
+    } else {
+        try huffman.sequential(br, &w.tables[c.dc], &w.tables[4 + c.ac], &c.pred, block);
+    }
 }
 
 /// Where block row `j` of iMCU row `my` starts in the component's ring of
@@ -1073,31 +1218,161 @@ inline fn ringRow(c: *const Component, my: u32, j: u32) usize {
 
 /// The inverse DCT of a block into row `row` of the component's ring;
 /// zeroes the block.
-fn putBlock(w: Work, c: *const Component, block: *[64]i16, bx: u32, row: usize, qu: *idct.Queue) void {
-    const out = w.planes[c.plane + row * c.stride + bx * @as(usize, c.ss) ..];
-    transform(c, block, out, qu);
+fn putBlock(
+    comptime bits: u8,
+    w: Work,
+    c: *const Component,
+    block: *[64]i16,
+    bx: u32,
+    row: usize,
+    qu: *idct.Queue,
+) void {
+    transform(bits, c, block, plane(bits, w, c)[row * c.stride + bx * @as(usize, c.ss) ..], qu);
     @memset(block, 0);
 }
 
-/// The inverse DCT of a block into `out`: full-size blocks through `qu`,
-/// which may hold one until the next block or its flush.
-fn transform(c: *const Component, block: *const [64]i16, out: []u8, qu: *idct.Queue) void {
-    if (c.ss == 8) return qu.put(.{ .block = block, .q = &c.quant, .out = out, .stride = c.stride });
+/// A component's ring of sample rows.
+fn plane(comptime bits: u8, w: Work, c: *const Component) []idct.Sample(bits) {
+    return @alignCast(std.mem.bytesAsSlice(idct.Sample(bits), w.planes[c.plane..]));
+}
+
+/// The inverse DCT of a block into `out`: full-size 8-bit blocks through
+/// `qu`, which may hold one until the next block or its flush.
+fn transform(
+    comptime bits: u8,
+    c: *const Component,
+    block: *const [64]i16,
+    out: []idct.Sample(bits),
+    qu: *idct.Queue,
+) void {
+    if (bits == 8 and c.ss == 8) return qu.put(.{ .block = block, .q = &c.quant, .out = out, .stride = c.stride });
     const ac = !idct.acZero(block);
     switch (c.ss) {
-        inline 4, 2, 1 => |n| {
+        inline 8, 4, 2, 1 => |n| {
             if (!ac) {
-                idct.dcOnly(8, n, block[0], c.quant[0], out, c.stride);
+                idct.dcOnly(bits, n, block[0], c.quant[0], out, c.stride);
             } else {
-                idct.idct(8, n, block, &c.quant, out, c.stride);
+                idct.idct(bits, n, block, &c.quant, out, c.stride);
             }
         },
         else => unreachable,
     }
 }
 
+/// A lossless scan (H.1.2): each iMCU row's differences, then its samples
+/// reconstructed from them, scaled by the point transform, and written,
+/// or kept for the end when the image has more scans (`out` null).
+///
+/// Restarts follow libjpeg-turbo, which T.81 leaves room for in one
+/// place: a restart starts the prediction over at the first row of its
+/// iMCU row, which in a scan of one component sampled more than once
+/// vertically may not be the row after the RSTn marker.
+fn losslessScan(d: *Decoder, comptime S: type, w: Work, out: ?*Output(S)) Error!void {
+    const g = d.geo;
+    const s = d.scan;
+    const vals = std.mem.bytesAsSlice(u16, std.mem.sliceAsBytes(w.coefs));
+    var br: huffman.BitReader = .{ .reader = d.reader };
+    const per_row = if (s.n == 1) d.comps[s.comp[0]].wb else g.mcus_x;
+    var rs: Restarts = .{ .interval = d.restart, .togo = d.restart };
+    // Each component's next row is the first after a restart.
+    var first: [4]bool = @splat(true);
+    for (0..g.mcus_y) |my_| {
+        const my: u32 = @intCast(my_);
+        if (s.n == 1) {
+            const c = &d.comps[s.comp[0]];
+            const rows = @min(c.v, c.hb - my * c.v);
+            const t = &w.tables[c.dc];
+            for (0..rows) |j| {
+                if (rs.interval != 0) {
+                    if (rs.togo == 0) {
+                        try d.restartMarker(&br, &rs);
+                        br = .{ .reader = d.reader };
+                        first = @splat(true);
+                    }
+                    rs.togo -= @intCast(per_row);
+                }
+                const diffs = vals[c.coef + j * c.bw ..][0..c.wb];
+                for (diffs) |*v| {
+                    v.* = try huffman.difference(&br, t);
+                    try checkOverrun(&br);
+                }
+            }
+        } else {
+            if (rs.interval != 0) {
+                if (rs.togo == 0) {
+                    try d.restartMarker(&br, &rs);
+                    br = .{ .reader = d.reader };
+                    first = @splat(true);
+                }
+                rs.togo -= @intCast(per_row);
+            }
+            for (0..g.mcus_x) |mx| {
+                for (s.comp[0..s.n]) |ci| {
+                    const c = &d.comps[ci];
+                    const t = &w.tables[c.dc];
+                    for (0..c.v) |j| {
+                        const diffs = vals[c.coef + j * c.bw + mx * c.h ..][0..c.h];
+                        for (diffs) |*v| v.* = try huffman.difference(&br, t);
+                    }
+                }
+                try checkOverrun(&br);
+            }
+        }
+        for (s.comp[0..s.n]) |ci| {
+            const c = &d.comps[ci];
+            const diff = vals[c.coef..][0 .. c.v * c.bw];
+            const undiff = vals[c.coef + c.v * c.bw ..][0 .. c.v * c.bw];
+            const samples: []S = @alignCast(std.mem.bytesAsSlice(S, w.planes[c.plane..]));
+            const rows = @min(c.v, c.hb - my * c.v);
+            for (0..rows) |j| {
+                const prev = undiff[(if (j == 0) c.v - 1 else j - 1) * c.bw ..][0..c.wb];
+                const this = undiff[j * c.bw ..][0..c.wb];
+                const dj = diff[j * c.bw ..][0..c.wb];
+                if (first[ci]) {
+                    first[ci] = false;
+                    undifference(0, dj, prev, this, @as(u16, 1) << @intCast(d.precision - s.al - 1));
+                } else switch (s.ss) {
+                    inline 1...7 => |psv| undifference(psv, dj, prev, this, 0),
+                    else => unreachable,
+                }
+                const r = (my * c.v + @as(u32, @intCast(j))) % c.ring;
+                for (samples[r * c.stride ..][0..c.wb], this) |*o, v| o.* = @truncate(@as(u32, v) << s.al);
+            }
+        }
+        if (out) |o| o.rowDecoded(my);
+    }
+    try d.endSegment(&br);
+}
+
+/// One row's reconstruction (H.1.2.1): each value its difference plus the
+/// prediction from its neighbors, modulo 2^16. Selection value `psv` 0 is
+/// the first row after the start or a restart, predicted from the left,
+/// and from `initial` at its first sample; the others predict a row's
+/// first sample from the one above it. `prev` may be `out` (one row per
+/// iMCU row), so each value above is read before its place is written.
+fn undifference(comptime psv: u8, diff: []const u16, prev: []const u16, out: []u16, initial: u16) void {
+    var b: i32 = prev[0];
+    out[0] = diff[0] +% (if (psv == 0) initial else prev[0]);
+    for (1..out.len) |x| {
+        const a: i32 = out[x - 1];
+        const c = b;
+        b = prev[x];
+        const p: i32 = switch (psv) {
+            0, 1 => a,
+            2 => b,
+            3 => c,
+            4 => a + b - c,
+            5 => a + ((b - c) >> 1),
+            6 => b + ((a - c) >> 1),
+            7 => (a + b) >> 1,
+            else => unreachable,
+        };
+        out[x] = diff[x] +% @as(u16, @truncate(@as(u32, @bitCast(p))));
+    }
+}
+
 /// Decodes the current scan into the coefficient buffer.
-fn scanToCoefs(d: *Decoder, w: Work) Error!void {
+fn scanToCoefs(d: *Decoder, comptime R: type, w: Work) Error!void {
     const s = d.scan;
     const Kind = enum { sequential, dc_first, dc_refine, ac_first, ac_refine };
     const kind: Kind = if (!d.progressive)
@@ -1106,31 +1381,31 @@ fn scanToCoefs(d: *Decoder, w: Work) Error!void {
         (if (s.ah == 0) .dc_first else .dc_refine)
     else if (s.ah == 0) .ac_first else .ac_refine;
     switch (kind) {
-        inline else => |k| try d.scanLoop(w, k),
+        inline else => |k| try d.scanLoop(R, w, k),
     }
 }
 
-fn scanLoop(d: *Decoder, w: Work, comptime kind: anytype) Error!void {
+fn scanLoop(d: *Decoder, comptime R: type, w: Work, comptime kind: anytype) Error!void {
     const g = d.geo;
     const s = d.scan;
-    var br: huffman.BitReader = .{ .reader = d.reader };
+    var br = try d.entropyReader(R);
     var rs: Restarts = .{ .interval = d.restart, .togo = d.restart };
     var prog: huffman.Progressive = .{};
     if (s.n == 1) {
         const c = &d.comps[s.comp[0]];
         for (0..c.hb) |by| {
             for (0..c.wb) |bx| {
-                try d.restartPoint(&br, &rs);
+                try d.restartPoint(w, &br, &rs);
                 if (rs.interval != 0 and rs.togo + 1 == rs.interval) prog = .{};
                 const block = coefBlock(w, c, @intCast(bx), @intCast(by));
-                try decodeBlock(kind, w, &br, c, &prog, s, block);
+                try d.decodeBlock(kind, w, &br, c, &prog, s, block);
                 try checkOverrun(&br);
             }
         }
     } else {
         for (0..g.mcus_y) |my| {
             for (0..g.mcus_x) |mx| {
-                try d.restartPoint(&br, &rs);
+                try d.restartPoint(w, &br, &rs);
                 if (rs.interval != 0 and rs.togo + 1 == rs.interval) prog = .{};
                 for (s.comp[0..s.n]) |ci| {
                     const c = &d.comps[ci];
@@ -1139,7 +1414,7 @@ fn scanLoop(d: *Decoder, w: Work, comptime kind: anytype) Error!void {
                             const bx = @as(u32, @intCast(mx)) * c.h + @as(u32, @intCast(i));
                             const by = @as(u32, @intCast(my)) * c.v + @as(u32, @intCast(j));
                             const block = coefBlock(w, c, bx, by);
-                            try decodeBlock(kind, w, &br, c, &prog, s, block);
+                            try d.decodeBlock(kind, w, &br, c, &prog, s, block);
                         }
                     }
                 }
@@ -1155,20 +1430,28 @@ fn coefBlock(w: Work, c: *const Component, bx: u32, by: u32) *[64]i16 {
 }
 
 inline fn decodeBlock(
+    d: *Decoder,
     comptime kind: anytype,
     w: Work,
-    br: *huffman.BitReader,
+    br: anytype,
     c: *Component,
     prog: *huffman.Progressive,
     s: Scan,
     block: *[64]i16,
 ) Error!void {
+    if (@TypeOf(br.*) == arith.Reader) return switch (kind) {
+        .sequential => try d.decodeOne(w, br, c, block),
+        .dc_first => try arith.dcFirst(br, w.stats, @intCast(c.dc), d.cond[c.dc], &c.pred, &c.ctx, s.al, block),
+        .dc_refine => try arith.dcRefine(br, w.stats, s.al, block),
+        .ac_first => try arith.acBand(br, w.stats, @intCast(c.ac), d.cond[c.ac], s.ss, s.se, s.al, block),
+        .ac_refine => try arith.acRefine(br, w.stats, @intCast(c.ac), s.ss, s.se, s.al, block),
+    };
     switch (kind) {
-        .sequential => {
-            // A sequential scan of a multi-scan image replaces the block.
-            @memset(block, 0);
-            try huffman.sequential(br, &w.tables[c.dc], &w.tables[4 + c.ac], &c.pred, block);
-        },
+        // A sequential scan of a multi-scan image writes the DC and the
+        // nonzero AC coefficients over the block, as the reference does, so
+        // a component that two scans name gets the second's over the
+        // first's.
+        .sequential => try huffman.sequential(br, &w.tables[c.dc], &w.tables[4 + c.ac], &c.pred, block),
         .dc_first => try huffman.dcFirst(br, &w.tables[c.dc], &c.pred, s.al, block),
         .dc_refine => try huffman.dcRefine(br, s.al, block),
         .ac_first => try huffman.acFirst(br, &w.tables[4 + c.ac], prog, s.ss, s.se, s.al, block),
@@ -1177,7 +1460,7 @@ inline fn decodeBlock(
 }
 
 /// The inverse DCT of iMCU row `my` from the coefficient buffer.
-fn idctRow(d: *Decoder, w: Work, my: u32) void {
+fn idctRow(d: *Decoder, comptime bits: u8, w: Work, my: u32) void {
     var qu: idct.Queue = .{};
     defer qu.flush();
     for (d.comps[0..d.ncomp]) |*c| {
@@ -1187,7 +1470,7 @@ fn idctRow(d: *Decoder, w: Work, my: u32) void {
             const row = ringRow(c, my, @intCast(j));
             for (0..c.wb) |bx| {
                 const block = coefBlock(w, c, @intCast(bx), by);
-                transform(c, block, w.planes[c.plane + row * c.stride + bx * @as(usize, c.ss) ..], &qu);
+                transform(bits, c, block, plane(bits, w, c)[row * c.stride + bx * @as(usize, c.ss) ..], &qu);
             }
         }
     }
@@ -1195,102 +1478,150 @@ fn idctRow(d: *Decoder, w: Work, my: u32) void {
 
 /// Upsampling, color conversion, and writing rows, as MCU rows of samples
 /// become ready.
-const Output = struct {
-    d: *Decoder,
-    dst: PixelBuffer,
-    w: Work,
-    conv: ?Converter,
+fn Output(comptime S: type) type {
+    return struct {
+        d: *Decoder,
+        dst: PixelBuffer,
+        w: Work,
+        conv: ?Converter,
 
-    fn init(d: *Decoder, dst: PixelBuffer, w: Work) Output {
-        const native = d.geo.native;
-        return .{
-            .d = d,
-            .dst = dst,
-            .w = w,
-            .conv = if (dst.format == native) null else Converter.init(dst.format, native),
-        };
-    }
+        const Self = @This();
 
-    /// Called once iMCU row `my` is in the component rows: writes the
-    /// rows that are complete.
-    fn rowDecoded(o: *Output, my: u32) void {
-        const g = o.d.geo;
-        if (!g.context) return o.emit(my);
-        if (my > 0) o.emit(my - 1);
-        if (my + 1 == g.mcus_y) o.emit(my);
-    }
-
-    fn emit(o: *Output, my: u32) void {
-        const g = o.d.geo;
-        const per = @as(u32, g.vmax) * g.min_ss;
-        const y0 = my * per;
-        const y1 = @min(y0 + per, g.out_h);
-        var y = y0;
-        while (y < y1) : (y += 1) o.row(y);
-    }
-
-    fn planeRow(o: *const Output, c: *const Component, r: u32) []const u8 {
-        const i = r % c.ring;
-        return o.w.planes[c.plane + i * c.stride ..][0..c.stride];
-    }
-
-    fn row(o: *Output, y: u32) void {
-        const d = o.d;
-        const g = d.geo;
-        var rows: [4][]const u8 = undefined;
-        for (d.comps[0..d.ncomp], 0..) |*c, i| {
-            const buf = o.w.rows[c.row..];
-            rows[i] = switch (c.up) {
-                .full => o.planeRow(c, y),
-                .h2v1 => blk: {
-                    sample.h2v1(u8, buf, o.planeRow(c, y), c.w);
-                    break :blk buf;
-                },
-                .h1v2, .h2v2 => blk: {
-                    const k = y / 2;
-                    const far = if (y % 2 == 0) k -| 1 else @min(k + 1, c.ht - 1);
-                    if (c.up == .h1v2) {
-                        sample.h1v2(u8, buf, o.planeRow(c, k), o.planeRow(c, far), c.w, if (y % 2 == 0) 1 else 2);
-                    } else {
-                        sample.h2v2(u8, buf, o.planeRow(c, k), o.planeRow(c, far), c.w);
-                    }
-                    break :blk buf;
-                },
-                .box => |b| blk: {
-                    sample.box(u8, buf, o.planeRow(c, y / b.v), c.w, b.h);
-                    break :blk buf;
-                },
+        fn init(d: *Decoder, dst: PixelBuffer, w: Work) Self {
+            const native = d.geo.native;
+            return .{
+                .d = d,
+                .dst = dst,
+                .w = w,
+                .conv = if (dst.format == native) null else Converter.init(dst.format, native),
             };
         }
-        const n = g.out_w;
-        const target = if (o.conv == null) o.dst.row(y) else o.w.native_row;
-        switch (g.color) {
-            .gray => @memcpy(target[0..n], rows[0][0..n]),
-            .ycc => sample.yccToRgb(target, rows[0], rows[1], rows[2], n),
-            .rgb => for (0..n) |x| {
-                target[3 * x ..][0..3].* = .{ rows[0][x], rows[1][x], rows[2][x] };
-            },
-            .cmyk, .ycck => for (0..n) |x| {
-                var p: [4]u8 = .{ rows[0][x], rows[1][x], rows[2][x], rows[3][x] };
-                if (g.color == .ycck) {
-                    // YCC to RGB, inverted, as the inks.
-                    const rgb = sample.ycc(8, p[0], p[1], p[2]);
-                    p[0..3].* = .{ @intCast(255 - rgb[0]), @intCast(255 - rgb[1]), @intCast(255 - rgb[2]) };
-                }
-                if (d.options.cmyk == .raw) {
-                    target[4 * x ..][0..4].* = p;
-                } else {
-                    target[3 * x ..][0..3].* = .{
-                        @intCast(sample.cmyk(8, p[0], p[3])),
-                        @intCast(sample.cmyk(8, p[1], p[3])),
-                        @intCast(sample.cmyk(8, p[2], p[3])),
-                    };
-                }
-            },
+
+        /// Called once iMCU row `my` is in the component rows: writes the
+        /// rows that are complete.
+        fn rowDecoded(o: *Self, my: u32) void {
+            const g = o.d.geo;
+            if (!g.context) return o.emit(my);
+            if (my > 0) o.emit(my - 1);
+            if (my + 1 == g.mcus_y) o.emit(my);
         }
-        if (o.conv) |conv| conv.run(o.dst.row(y), o.w.native_row, n);
-    }
-};
+
+        fn emit(o: *Self, my: u32) void {
+            const g = o.d.geo;
+            const per = @as(u32, g.vmax) * g.min_ss;
+            const y0 = my * per;
+            const y1 = @min(y0 + per, g.out_h);
+            var y = y0;
+            while (y < y1) : (y += 1) o.row(y);
+        }
+
+        fn planeRow(o: *const Self, c: *const Component, r: u32) []const S {
+            const i = r % c.ring;
+            const p: []const S = @alignCast(std.mem.bytesAsSlice(S, o.w.planes[c.plane..]));
+            return p[i * c.stride ..][0..c.stride];
+        }
+
+        fn row(o: *Self, y: u32) void {
+            const d = o.d;
+            const g = d.geo;
+            var rows: [4][]const S = undefined;
+            for (d.comps[0..d.ncomp], 0..) |*c, i| {
+                const buf: []S = @alignCast(std.mem.bytesAsSlice(S, o.w.rows[c.row..]));
+                rows[i] = switch (c.up) {
+                    .full => o.planeRow(c, y),
+                    .h2v1 => blk: {
+                        sample.h2v1(S, buf, o.planeRow(c, y), c.w);
+                        break :blk buf;
+                    },
+                    .h1v2, .h2v2 => blk: {
+                        const k = y / 2;
+                        const far = if (y % 2 == 0) k -| 1 else @min(k + 1, c.ht - 1);
+                        if (c.up == .h1v2) {
+                            sample.h1v2(S, buf, o.planeRow(c, k), o.planeRow(c, far), c.w, if (y % 2 == 0) 1 else 2);
+                        } else {
+                            sample.h2v2(S, buf, o.planeRow(c, k), o.planeRow(c, far), c.w);
+                        }
+                        break :blk buf;
+                    },
+                    .box => |b| blk: {
+                        sample.box(S, buf, o.planeRow(c, y / b.v), c.w, b.h);
+                        break :blk buf;
+                    },
+                };
+            }
+            const n = g.out_w;
+            const target = if (o.conv == null) o.dst.row(y) else o.w.native_row;
+            if (S != u8 or d.precision != 8) {
+                o.scaled(target, rows, n);
+            } else switch (g.color) {
+                .gray => @memcpy(target[0..n], rows[0][0..n]),
+                .ycc => sample.yccToRgb(target, rows[0], rows[1], rows[2], n),
+                .rgb => for (0..n) |x| {
+                    target[3 * x ..][0..3].* = .{ rows[0][x], rows[1][x], rows[2][x] };
+                },
+                .cmyk, .ycck => for (0..n) |x| {
+                    var p: [4]u8 = .{ rows[0][x], rows[1][x], rows[2][x], rows[3][x] };
+                    if (g.color == .ycck) {
+                        // YCC to RGB, inverted, as the inks.
+                        const rgb = sample.ycc(8, p[0], p[1], p[2]);
+                        p[0..3].* = .{ @intCast(255 - rgb[0]), @intCast(255 - rgb[1]), @intCast(255 - rgb[2]) };
+                    }
+                    if (d.options.cmyk == .raw) {
+                        target[4 * x ..][0..4].* = p;
+                    } else {
+                        target[3 * x ..][0..3].* = .{
+                            @intCast(sample.cmyk(8, p[0], p[3])),
+                            @intCast(sample.cmyk(8, p[1], p[3])),
+                            @intCast(sample.cmyk(8, p[2], p[3])),
+                        };
+                    }
+                },
+            }
+            if (o.conv) |conv| conv.run(o.dst.row(y), o.w.native_row, n);
+        }
+
+        /// Samples of other precisions than 8 bits: converted at their own
+        /// precision, as libjpeg-turbo converts them, clamped to it (which
+        /// matters only for lossless images, whose corrupt data can
+        /// reconstruct a sample past it), and scaled to the native format,
+        /// rounded: 16 bits past 8, else 8.
+        fn scaled(o: *const Self, target: []u8, rows: [4][]const S, n: usize) void {
+            const d = o.d;
+            const g = d.geo;
+            const max = (@as(u32, 1) << @intCast(d.precision)) - 1;
+            const wide = d.precision > 8;
+            const out_max: u32 = if (wide) 65535 else 255;
+            const ch = g.native.bytesPerPixel() / @as(usize, if (wide) 2 else 1);
+            for (0..n) |x| {
+                var p: [4]u32 = undefined;
+                for (rows[0..d.ncomp], 0..) |r, k| p[k] = @min(r[x], max);
+                switch (g.color) {
+                    .gray, .rgb => {},
+                    // Only the DCT has these, so only at 12 bits.
+                    .ycc => {
+                        const v = sample.ycc(12, @intCast(p[0]), @intCast(p[1]), @intCast(p[2]));
+                        p[0..3].* = .{ @intCast(v[0]), @intCast(v[1]), @intCast(v[2]) };
+                    },
+                    .cmyk, .ycck => {
+                        if (g.color == .ycck) {
+                            const v = sample.ycc(12, @intCast(p[0]), @intCast(p[1]), @intCast(p[2]));
+                            for (p[0..3], v) |*e, y| e.* = max - @as(u32, @intCast(y));
+                        }
+                        if (d.options.cmyk != .raw) {
+                            for (p[0..3]) |*v| v.* = @intCast((2 * @as(u64, v.*) * p[3] + max) / (2 * max));
+                        }
+                    },
+                }
+                for (p[0..ch], 0..) |v, k| {
+                    const q = (v * out_max + max / 2) / max;
+                    if (wide) {
+                        std.mem.writeInt(u16, target[(x * ch + k) * 2 ..][0..2], @intCast(q), .native);
+                    } else target[x * ch + k] = @intCast(q);
+                }
+            }
+        }
+    };
+}
 
 // Tests.
 

@@ -5,6 +5,7 @@ pub const Decoder = @import("Decoder.zig");
 
 test {
     _ = Decoder;
+    _ = @import("arith.zig");
     _ = @import("huffman.zig");
     _ = @import("idct.zig");
     _ = @import("sample.zig");

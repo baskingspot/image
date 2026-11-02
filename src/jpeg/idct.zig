@@ -11,8 +11,10 @@
 //! the rounding, the order of operations, and the handling of results out
 //! of range are the ones its `JDCT_ISLOW` method uses (docs/slop/jpeg.md):
 //!
-//! - Quantization values are 16-bit signed multipliers, so a value past
-//!   32767 is negative.
+//! - Quantization values are 16-bit signed multipliers for 8-bit samples,
+//!   so a value past 32767 is negative, and unsigned for 12-bit ones: its
+//!   12-bit code is built without SIMD, where the multiplier type is `int`
+//!   rather than `short`.
 //! - The column pass's results are kept to 32 bits.
 //! - A result is wrapped to 10 bits (14 for 12-bit samples) around the
 //!   center before it is clamped, so wildly out-of-range values from
@@ -66,7 +68,7 @@ pub fn idct(
 ) void {
     if (size == 1) {
         // The DC term alone: dequantized, divided by 8, rounded.
-        const dc: i64 = @as(i32, block[0]) * q[0];
+        const dc: i64 = @as(i32, block[0]) * quant(bits, q[0]);
         store(bits, @truncate((dc + 4) >> 3), out[0..1]);
         return;
     }
@@ -87,11 +89,17 @@ pub fn dcOnly(comptime bits: u8, comptime size: u4, dc: i16, q0: i16, out: []Sam
     // The column pass makes dc·q·2^pass1 (kept to 32 bits), and the row
     // pass rounds it down by pass1 + 3 bits.
     const pass1 = if (bits == 8) 2 else 1;
-    const ws: i32 = @truncate(@as(i64, @as(i32, dc) * q0) << pass1);
+    const ws: i32 = @truncate(@as(i64, @as(i32, dc) * quant(bits, q0)) << pass1);
     const v: i32 = @truncate((@as(i64, ws) + (1 << (pass1 + 2))) >> (pass1 + 3));
     const s = limit(bits, v);
     const n: usize = size;
     for (0..n) |y| @memset(out[y * stride ..][0..n], s);
+}
+
+/// A quantization value as the reference multiplies by it: signed for
+/// 8-bit samples, unsigned for 12-bit ones.
+fn quant(comptime bits: u8, q: i16) i32 {
+    return if (bits == 8) q else @as(u16, @bitCast(q));
 }
 
 fn sumAbs(block: *const [64]i16, q: *const [64]i16) i32 {
@@ -292,7 +300,8 @@ fn kernel(
     var rows: [8]V = undefined;
     inline for (0..8) |r| {
         const coef: @Vector(8, i32) = @as(@Vector(8, i16), block[r * 8 ..][0..8].*);
-        const mult: @Vector(8, i32) = @as(@Vector(8, i16), q[r * 8 ..][0..8].*);
+        const raw: @Vector(8, i16) = q[r * 8 ..][0..8].*;
+        const mult: @Vector(8, i32) = if (bits == 8) raw else @as(@Vector(8, u16), @bitCast(raw));
         rows[r] = coef * mult;
     }
     // Column pass: lanes are columns, so row k of `rows` is frequency k of
@@ -539,7 +548,7 @@ fn keep32(comptime V: type, v: V) V {
 const reference = struct {
     fn run(comptime bits: u8, comptime size: u4, block: *const [64]i16, q: *const [64]i16, out: []Sample(bits)) void {
         if (size == 1) {
-            const dc: i64 = @as(i32, block[0]) * q[0];
+            const dc: i64 = @as(i32, block[0]) * quant(bits, q[0]);
             out[0] = limit(bits, @truncate((dc + 4) >> 3));
             return;
         }
@@ -553,7 +562,7 @@ const reference = struct {
         var ws: [8][8]i32 = @splat(@splat(0));
         for (0..8) |col| {
             var x: [8]V = undefined;
-            for (0..8) |r| x[r] = @splat(@as(i32, block[r * 8 + col]) * q[r * 8 + col]);
+            for (0..8) |r| x[r] = @splat(@as(i32, block[r * 8 + col]) * quant(bits, q[r * 8 + col]));
             const shift = const_bits - pass1 + extra;
             switch (size) {
                 8 => for (butterfly8(V, x), 0..) |o, r| {
