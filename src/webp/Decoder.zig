@@ -1,12 +1,12 @@
 //! A streaming WebP decoder: reads from a `std.Io.Reader`, writes any
 //! `PixelFormat`, and allocates nothing.
 //!
-//! Format: RFC 9649, the WebP container and the lossless bitstream. It
-//! decodes simple lossless files and extended (VP8X) still images whose
-//! bitstream is lossless; lossy (VP8) bitstreams and animations are
-//! `Unsupported` for now. ICCP, EXIF, and XMP chunks before the image are
-//! reported in `Config.metadata`, and every one goes to the blob sink as it
-//! passes; EXIF's orientation is read.
+//! Format: RFC 9649, the WebP container and the lossless bitstream, and
+//! RFC 6386 for the lossy one. It decodes simple files and extended (VP8X)
+//! still images, lossless or lossy, with a lossy image's ALPH chunk;
+//! animations are `Unsupported` for now. ICCP, EXIF, and XMP chunks before
+//! the image are reported in `Config.metadata`, and every one goes to the
+//! blob sink as it passes; EXIF's orientation is read.
 //!
 //! As libwebp reads them: a still image's bitstream must match the VP8X
 //! canvas, chunks before the image may come in any order (only the image
@@ -25,6 +25,9 @@ const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
 const exif = @import("../exif.zig");
 const lossless = @import("lossless.zig");
+const vp8 = @import("vp8.zig");
+const alpha = @import("alpha.zig");
+const yuv = @import("yuv.zig");
 
 const Decoder = @This();
 
@@ -49,6 +52,11 @@ pub const Error = decode.Error || error{
     /// transform used twice, a color cache size outside 1 to 11 bits, or a
     /// backward reference before the first pixel or past the last.
     BadLossless,
+    /// A lossy bitstream is not a shown key frame, its start code or size
+    /// is wrong, or its first partition is larger than its chunk.
+    BadVp8,
+    /// An ALPH chunk's header is malformed, or its raw plane is too short.
+    BadAlpha,
 };
 
 reader: *Io.Reader,
@@ -62,8 +70,14 @@ pos: u64 = 0,
 riff_left: u64 = 0,
 width: u32 = 0,
 height: u32 = 0,
-/// The lossless header's hint that some alpha is not 255.
+/// The lossless header's hint that some alpha is not 255, or for a lossy
+/// image, an ALPH chunk.
 alpha_hint: bool = false,
+lossy: bool = false,
+/// A lossy image's frame header, once read.
+frame: ?vp8.FrameHeader = null,
+/// An ALPH chunk whose header `decodeConfig` stopped at.
+alph: ?Chunk = null,
 /// Bytes of the image chunk after its header, and its padding byte.
 image_left: u64 = 0,
 image_pad: u64 = 0,
@@ -98,9 +112,11 @@ pub fn init(reader: *Io.Reader, options: Options) Decoder {
     return .{ .reader = reader, .options = options };
 }
 
-/// Reads the chunks before the image and the bitstream's header. The
-/// native format of a lossless image is `bgra8`, the order its pixels are
-/// decoded in. Calling it again returns the same config.
+/// Reads the chunks before the image and the bitstream's header, or a
+/// lossy image's ALPH chunk header, which comes first. The native format
+/// of a lossless image is `bgra8`, the order its pixels are decoded in; of
+/// a lossy one, `rgb8`, or `rgba8` with an ALPH chunk. Calling it again
+/// returns the same config.
 pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     if (d.err) |e| return e;
     if (d.state == .start) {
@@ -110,7 +126,7 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
     return .{
         .width = d.width,
         .height = d.height,
-        .native = .bgra8,
+        .native = d.native(),
         .frame_count = 1,
         .work_len = d.work_len,
         .is_opaque = !d.alpha_hint,
@@ -128,9 +144,17 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
     try dst.check();
     if (dst.width != d.width or dst.height != d.height) return error.SizeMismatch;
     if (work.len < d.work_len) return error.WorkTooSmall;
+    // The frame is opaque as the config says, even when an ALPH chunk
+    // turns out to sit beside a lossless image whose header says otherwise.
+    const is_opaque = !d.alpha_hint;
     d.image(dst, work) catch |e| return d.fail(e);
     d.state = .done;
-    return .{ .width = d.width, .height = d.height, .is_opaque = !d.alpha_hint };
+    return .{ .width = d.width, .height = d.height, .is_opaque = is_opaque };
+}
+
+fn native(d: *const Decoder) PixelFormat {
+    if (!d.lossy) return .bgra8;
+    return if (d.alpha_hint) .rgba8 else .rgb8;
 }
 
 fn fail(d: *Decoder, e: Error) Error {
@@ -191,7 +215,7 @@ fn readHead(d: *Decoder) Error!void {
     const first = try d.chunk(false);
     switch (first.tag) {
         tags.vp8l => try d.losslessHeader(first),
-        tags.vp8 => return error.Unsupported,
+        tags.vp8 => try d.lossyHeader(first),
         tags.vp8x => try d.extended(first),
         else => return error.BadChunk,
     }
@@ -215,7 +239,21 @@ fn extended(d: *Decoder, c: Chunk) Error!void {
                 if (d.width != w or d.height != h) return error.BadHeader;
                 return;
             },
-            tags.vp8 => return error.Unsupported,
+            tags.vp8 => {
+                try d.lossyHeader(n);
+                if (d.width != w or d.height != h) return error.BadHeader;
+                return;
+            },
+            tags.alph => {
+                // Its body needs work memory: decodeFrame reads it.
+                d.alph = n;
+                d.lossy = true;
+                d.alpha_hint = true;
+                d.width = @intCast(w);
+                d.height = @intCast(h);
+                try d.lossyWork();
+                return;
+            },
             tags.iccp, tags.exif, tags.xmp => try d.blob(n, true),
             else => try d.skip(n.size),
         }
@@ -239,6 +277,57 @@ fn losslessHeader(d: *Decoder, c: Chunk) Error!void {
     try d.options.limits.checkWork(d.work_len);
     d.image_left = c.size - 5;
     d.image_pad = c.size & 1;
+}
+
+/// A VP8 chunk's 10-byte frame header.
+fn lossyHeader(d: *Decoder, c: Chunk) Error!void {
+    if (c.size < 10) return error.BadVp8;
+    const fh = try vp8.FrameHeader.parse(try d.take(10), c.size);
+    try d.options.limits.checkSize(fh.width, fh.height);
+    d.lossy = true;
+    d.frame = fh;
+    d.width = fh.width;
+    d.height = fh.height;
+    d.image_left = c.size - 10;
+    d.image_pad = c.size & 1;
+    try d.lossyWork();
+}
+
+/// Where a lossy image's work memory goes: a row of output, the alpha
+/// plane, and then the VP8 decoder's memory, which the ALPH chunk's
+/// lossless decoder uses first.
+const LossyLayout = struct {
+    plane: usize,
+    shared: usize,
+    total: usize,
+
+    fn init(d: *const Decoder) ?LossyLayout {
+        const w: u64 = d.width;
+        // The partitions may run on past the VP8 chunk (`vp8.decode`'s
+        // `after`), so they lie in what is left of the payload: after the
+        // frame header, or after an ALPH chunk, less its padding and the
+        // VP8 chunk and frame headers.
+        const data_len: u64 = if (d.frame != null) d.image_left + d.riff_left else d.riff_left -| 19;
+        var shared: u64 = vp8.workLen(d.width, d.height, data_len) orelse return null;
+        var plane: u64 = 0;
+        if (d.alph != null) {
+            plane = std.mem.alignForward(u64, w * d.height, 8);
+            shared = @max(shared, alpha.workLen(d.width, d.height, d.options.max_prefix_groups) orelse return null);
+        }
+        // A row of pixels and two of upsampled chroma.
+        const row = std.mem.alignForward(u64, 6 * w, 8);
+        return .{
+            .plane = std.math.cast(usize, row) orelse return null,
+            .shared = std.math.cast(usize, row + plane) orelse return null,
+            .total = std.math.cast(usize, row + plane + shared) orelse return null,
+        };
+    }
+};
+
+fn lossyWork(d: *Decoder) Error!void {
+    const l = LossyLayout.init(d) orelse return error.ImageTooLarge;
+    d.work_len = l.total;
+    try d.options.limits.checkWork(d.work_len);
 }
 
 /// An ICCP, EXIF, or XMP chunk's body, passed to the blob sink and, for
@@ -299,9 +388,14 @@ const Out = struct {
 };
 
 fn image(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
+    if (d.lossy) return d.lossyImage(dst, work);
+    return d.losslessImage(dst, work);
+}
+
+fn losslessImage(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
     var out: Out = .{ .dst = dst, .to_dst = .init(dst.format, .bgra8) };
     var br: lossless.BitReader = .init(d.reader, d.image_left);
-    lossless.decode(&br, d.width, d.height, d.options.max_prefix_groups, work, .{
+    lossless.decode(&br, d.width, d.height, d.options.max_prefix_groups, false, work, .{
         .context = &out,
         .row = Out.row,
     }) catch |e| {
@@ -314,6 +408,119 @@ fn image(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
     try d.skipPad(@intCast(d.image_pad));
     try d.trailer();
 }
+
+fn lossyImage(d: *Decoder, dst: PixelBuffer, work: []u8) Error!void {
+    const l = LossyLayout.init(d).?;
+    const w: usize = d.width;
+    const plane: []u8 = if (d.alph != null) work[l.plane..][0 .. w * d.height] else &.{};
+    const shared = work[l.shared..l.total];
+    if (d.alph) |first| {
+        // The ALPH chunk, and the chunks after it up to the image. As
+        // libwebp does, the last ALPH chunk counts, and a lossless image
+        // ignores them.
+        var alpha_err = try d.alphaChunk(first, plane, shared);
+        while (true) {
+            const n = try d.chunk(true);
+            switch (n.tag) {
+                tags.alph => alpha_err = try d.alphaChunk(n, plane, shared),
+                tags.vp8 => {
+                    const fw = d.width;
+                    const fh = d.height;
+                    try d.lossyHeader(n);
+                    if (d.width != fw or d.height != fh) return error.BadHeader;
+                    break;
+                },
+                tags.vp8l => {
+                    const fw = d.width;
+                    const fh = d.height;
+                    try d.losslessHeader(n);
+                    if (d.width != fw or d.height != fh) return error.BadHeader;
+                    d.lossy = false;
+                    return d.losslessImage(dst, work);
+                },
+                tags.iccp, tags.exif, tags.xmp => try d.blob(n, false),
+                else => try d.skip(n.size),
+            }
+            try d.skipPad(n.size);
+        }
+        if (alpha_err) |e| return e;
+    }
+    var out: LossyOut = .{
+        .dst = dst,
+        .native = d.native(),
+        .to_dst = .init(dst.format, d.native()),
+        .buf = work[0 .. 4 * w],
+        .scratch = work[4 * w ..][0 .. 2 * w],
+        .plane = if (d.alph != null) plane else null,
+        .width = w,
+    };
+    const rest = try vp8.decode(d.reader, d.image_left, d.riff_left, d.frame.?, shared, .{
+        .context = &out,
+        .row = LossyOut.row,
+    });
+    d.pos += d.image_left - rest.unread;
+    try d.skip(rest.unread);
+    if (rest.over > 0) {
+        // The last partition read on past its chunk, as libwebp lets it:
+        // the chunks after it are gone, and only the rest of the payload
+        // is skipped.
+        d.pos += rest.over;
+        try d.skip(d.riff_left -| rest.over);
+        d.riff_left = 0;
+        return;
+    }
+    try d.skipPad(@intCast(d.image_pad));
+    try d.trailer();
+}
+
+/// Decodes an ALPH chunk into `plane`; returns why its data could not be
+/// used, if it could not.
+fn alphaChunk(d: *Decoder, c: Chunk, plane: []u8, work: []u8) Error!?Error {
+    const r = try alpha.decode(d.reader, c.size, d.width, d.height, d.options.max_prefix_groups, plane, work);
+    d.pos += c.size - r.unread;
+    try d.skip(r.unread);
+    try d.skipPad(c.size);
+    return r.err;
+}
+
+/// Writes a lossy image's rows: from YUV straight into an RGB or BGR
+/// destination, with or without alpha, and otherwise into `buf` in the
+/// native format and converted.
+const LossyOut = struct {
+    dst: PixelBuffer,
+    native: PixelFormat,
+    to_dst: Converter,
+    buf: []u8,
+    scratch: []u8,
+    plane: ?[]const u8,
+    width: usize,
+
+    fn row(context: *anyopaque, y: u32, luma: []const u8, near: [2][]const u8, far: [2][]const u8) void {
+        const o: *LossyOut = @ptrCast(@alignCast(context));
+        const w = o.width;
+        const alpha_row = if (o.plane) |p| p[y * w ..][0..w] else null;
+        switch (o.dst.format) {
+            inline .rgb8, .bgr8, .rgba8, .bgra8 => |f| {
+                const layout: yuv.Layout = switch (f) {
+                    .rgb8 => .rgb,
+                    .bgr8 => .bgr,
+                    .rgba8 => .rgba,
+                    else => .bgra,
+                };
+                yuv.row(layout, o.dst.row(y), luma, near, far, alpha_row, w, o.scratch);
+            },
+            else => {
+                const out = o.buf[0 .. w * o.native.bytesPerPixel()];
+                if (o.plane != null) {
+                    yuv.row(.rgba, out, luma, near, far, alpha_row, w, o.scratch);
+                } else {
+                    yuv.row(.rgb, out, luma, near, far, null, w, o.scratch);
+                }
+                o.to_dst.run(o.dst.row(y), out, w);
+            },
+        }
+    }
+};
 
 /// The chunks after the image, to the end of the RIFF payload: metadata
 /// goes to the blob sink, and the rest is skipped. A chunk that runs past

@@ -1,8 +1,9 @@
 //! The WebP fuzz target: the decoder properties in harness.zig, on mutated
-//! corpus files and generated files whose lossless bitstreams reach every
+//! corpus files and generated files: lossless bitstreams that reach every
 //! transform, prefix code form, color cache size, entropy image, and
-//! backward reference, inside simple and extended containers with
-//! metadata chunks.
+//! backward reference; lossy key frames with every header setting and
+//! random macroblock data; and ALPH chunks, raw or lossless, with each
+//! filter; inside simple and extended containers with metadata chunks.
 
 const std = @import("std");
 const image = @import("image");
@@ -292,6 +293,11 @@ fn bitstream(b: *Bits, r: std.Random, w: u32, h: u32) void {
     b.put(h - 1, 14);
     b.put(@intFromBool(alpha), 1);
     b.put(if (r.uintLessThan(u8, 64) == 0) r.int(u3) else 0, 3);
+    imageStream(b, r, w, h);
+}
+
+/// An image stream without the header: transforms, then the coded image.
+fn imageStream(b: *Bits, r: std.Random, w: u32, h: u32) void {
     var cur_w = w;
     var kinds: [4]u2 = .{ 0, 1, 2, 3 };
     r.shuffle(u2, &kinds);
@@ -429,17 +435,198 @@ const Out = struct {
 
 var bits_buf: [1 << 16]u8 = undefined;
 
+/// The boolean entropy encoder of RFC 6386 section 7.3.
+const BoolWriter = struct {
+    out: []u8,
+    len: usize = 0,
+    range: u32 = 255,
+    bottom: u32 = 0,
+    bit_count: i32 = 24,
+
+    fn carry(e: *BoolWriter) void {
+        var i = e.len;
+        while (i > 0) {
+            i -= 1;
+            if (i >= e.out.len) continue;
+            if (e.out[i] == 255) {
+                e.out[i] = 0;
+            } else {
+                e.out[i] += 1;
+                return;
+            }
+        }
+    }
+
+    fn byte(e: *BoolWriter, v: u8) void {
+        if (e.len < e.out.len) e.out[e.len] = v;
+        e.len += 1;
+    }
+
+    fn put(e: *BoolWriter, prob: u8, bit: bool) void {
+        const split = 1 + (((e.range - 1) * prob) >> 8);
+        if (bit) {
+            e.bottom +%= split;
+            e.range -= split;
+        } else e.range = split;
+        while (e.range < 128) {
+            e.range <<= 1;
+            if (e.bottom & (1 << 31) != 0) e.carry();
+            e.bottom <<= 1;
+            e.bit_count -= 1;
+            if (e.bit_count == 0) {
+                e.byte(@truncate(e.bottom >> 24));
+                e.bottom &= (1 << 24) - 1;
+                e.bit_count = 8;
+            }
+        }
+    }
+
+    fn literal(e: *BoolWriter, v: u32, n: u5) void {
+        var i = n;
+        while (i > 0) {
+            i -= 1;
+            e.put(128, (v >> i) & 1 == 1);
+        }
+    }
+
+    fn signed(e: *BoolWriter, r: std.Random, n: u5) void {
+        const present = r.boolean();
+        e.put(128, present);
+        if (!present) return;
+        e.literal(r.int(u32), n);
+        e.put(128, r.boolean());
+    }
+
+    fn flush(e: *BoolWriter) void {
+        const c: u5 = @intCast(e.bit_count);
+        var v = e.bottom;
+        if (c < 32 and v & (@as(u32, 1) << @intCast(32 - @as(u6, c))) != 0) e.carry();
+        v <<= c & 7;
+        var k = c >> 3;
+        while (k > 0) : (k -= 1) v <<= 8;
+        for (0..4) |_| {
+            e.byte(@truncate(v >> 24));
+            v <<= 8;
+        }
+    }
+
+    fn written(e: *const BoolWriter) usize {
+        return @min(e.len, e.out.len);
+    }
+};
+
+var vp8_buf: [1 << 15]u8 = undefined;
+
+/// A VP8 key frame: the frame header, a first partition whose header
+/// fields are encoded and whose probability updates, skip probability, and
+/// modes are random bytes, and random token partitions.
+fn keyFrame(r: std.Random, w: u32, h: u32) []u8 {
+    var o: Out = .{ .buf = &vp8_buf };
+    var hdr: [10]u8 = undefined;
+    var e: BoolWriter = .{ .out = vp8_buf[10..] };
+    e.literal(r.int(u2), 2); // color space, clamping
+    const segments = r.boolean();
+    e.put(128, segments);
+    if (segments) {
+        const update_map = r.boolean();
+        const update_data = r.boolean();
+        e.put(128, update_map);
+        e.put(128, update_data);
+        if (update_data) {
+            e.put(128, r.boolean());
+            for (0..4) |_| e.signed(r, 7);
+            for (0..4) |_| e.signed(r, 6);
+        }
+        if (update_map) for (0..3) |_| {
+            const set = r.boolean();
+            e.put(128, set);
+            if (set) e.literal(r.int(u8), 8);
+        };
+    }
+    e.put(128, r.boolean()); // simple filter
+    e.literal(if (r.uintLessThan(u8, 4) == 0) 0 else r.int(u6), 6);
+    e.literal(r.int(u3), 3);
+    const deltas = r.boolean();
+    e.put(128, deltas);
+    if (deltas) {
+        const update = r.boolean();
+        e.put(128, update);
+        if (update) for (0..8) |_| e.signed(r, 6);
+    }
+    const log2_parts = r.int(u2);
+    e.literal(log2_parts, 2);
+    e.literal(r.int(u7), 7);
+    for (0..5) |_| e.signed(r, 4);
+    e.put(128, r.boolean()); // refresh_entropy_probs
+    e.flush();
+    // The rest of the first partition: random, so its booleans follow
+    // their probabilities.
+    const mbs = ((w + 15) / 16) * ((h + 15) / 16);
+    const rest = r.uintLessThan(usize, 40 + 20 * mbs);
+    for (0..rest) |_| e.byte(r.int(u8));
+    const p0 = e.written();
+    const first = if (r.uintLessThan(u8, 32) == 0) r.uintLessThan(u32, @intCast(p0 + 2)) else @as(u32, @intCast(p0));
+    const tag: u32 = (first << 5) | (1 << 4) | (if (r.uintLessThan(u8, 64) == 0) @as(u32, r.int(u3)) << 1 else 0) |
+        @intFromBool(r.uintLessThan(u8, 128) == 0);
+    hdr[0] = @truncate(tag);
+    hdr[1] = @truncate(tag >> 8);
+    hdr[2] = @truncate(tag >> 16);
+    @memcpy(hdr[3..6], "\x9d\x01\x2a");
+    std.mem.writeInt(u16, hdr[6..8], @intCast(w | @as(u32, r.int(u2)) << 14), .little);
+    std.mem.writeInt(u16, hdr[8..10], @intCast(h | @as(u32, r.int(u2)) << 14), .little);
+    @memcpy(vp8_buf[0..10], &hdr);
+    o.len = 10 + p0;
+    // Token partitions: sizes, then random data, some of it too short.
+    const n: usize = @as(usize, 1) << log2_parts;
+    var lens: [8]usize = undefined;
+    for (lens[0..n]) |*l| l.* = r.uintLessThan(usize, 8 + if (r.uintLessThan(u8, 8) == 0) 4 else 300 * mbs / n);
+    for (lens[0 .. n - 1]) |l| {
+        const v: u32 = @intCast(l);
+        o.put(&.{ @truncate(v), @truncate(v >> 8), @truncate(v >> 16) });
+    }
+    for (lens[0..n]) |l| for (0..l) |_| o.put(&.{r.int(u8)});
+    return vp8_buf[0..o.len];
+}
+
+var alph_buf: [1 << 15]u8 = undefined;
+
+/// An ALPH chunk's body: raw or lossless, with any filter.
+fn alphChunk(r: std.Random, w: u32, h: u32) []u8 {
+    const method: u8 = @intFromBool(r.boolean());
+    var head: u8 = method | @as(u8, r.int(u2)) << 2 | @as(u8, @intFromBool(r.uintLessThan(u8, 8) == 0)) << 4;
+    if (r.uintLessThan(u8, 64) == 0) head |= @as(u8, r.int(u2)) << 6;
+    if (r.uintLessThan(u8, 64) == 0) head |= 2 << 4;
+    alph_buf[0] = head;
+    if (method == 0) {
+        var n: usize = @min(w * h, alph_buf.len - 1);
+        if (r.uintLessThan(u8, 16) == 0) n = r.uintLessThan(usize, n + 1);
+        r.bytes(alph_buf[1..][0..n]);
+        return alph_buf[0 .. 1 + n];
+    }
+    var b: Bits = .{ .out = alph_buf[1..] };
+    imageStream(&b, r, w, h);
+    b.flush();
+    return alph_buf[0 .. 1 + b.written()];
+}
+
 /// A WebP file: usually a valid lossless image, simple or extended with
 /// metadata chunks around it, sometimes broken.
 pub fn generate(random: std.Random, buf: []u8) []u8 {
     std.debug.assert(buf.len >= 64);
     const w = 1 + random.uintLessThan(u32, if (random.uintLessThan(u8, 8) == 0) 300 else 24);
-    const h = 1 + random.uintLessThan(u32, 24);
-    var b: Bits = .{ .out = bits_buf[0..@min(bits_buf.len, buf.len)] };
-    b.put(0x2f, 8);
-    bitstream(&b, random, w, h);
-    b.flush();
-    var stream = bits_buf[0..b.written()];
+    const h = 1 + random.uintLessThan(u32, if (random.uintLessThan(u8, 8) == 0) 70 else 24);
+    const lossy = random.boolean();
+    var stream: []u8 = undefined;
+    if (lossy) {
+        stream = keyFrame(random, w, h);
+    } else {
+        var b: Bits = .{ .out = bits_buf[0..@min(bits_buf.len, buf.len)] };
+        b.put(0x2f, 8);
+        bitstream(&b, random, w, h);
+        b.flush();
+        stream = bits_buf[0..b.written()];
+    }
+    const image_tag: *const [4]u8 = if (lossy) "VP8 " else "VP8L";
     // Now and then cut short, or with a byte changed.
     if (random.uintLessThan(u8, 32) == 0 and stream.len > 1) stream = stream[0..random.uintLessThan(usize, stream.len)];
     if (random.uintLessThan(u8, 32) == 0 and stream.len > 5) {
@@ -464,13 +651,16 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
         const exif = "II*\x00\x08\x00\x00\x00\x01\x00\x12\x01\x03\x00\x01\x00\x00\x00\x06\x00\x00\x00\x00\x00\x00\x00";
         if (random.boolean()) o.chunk(random, "ICCP", "an icc profile");
         if (random.uintLessThan(u8, 4) == 0) o.chunk(random, "EXIF", exif);
-        if (random.uintLessThan(u8, 8) == 0) o.chunk(random, "ALPH", "\x00\xff");
         if (random.uintLessThan(u8, 8) == 0) o.chunk(random, "abcd", "unknown");
-        o.chunk(random, "VP8L", stream);
+        if (lossy and random.uintLessThan(u8, 3) != 0) {
+            o.chunk(random, "ALPH", alphChunk(random, cw, ch));
+            if (random.uintLessThan(u8, 32) == 0) o.chunk(random, "ALPH", alphChunk(random, cw, ch));
+        } else if (random.uintLessThan(u8, 8) == 0) o.chunk(random, "ALPH", "\x00\xff");
+        o.chunk(random, image_tag, stream);
         if (random.boolean()) o.chunk(random, "EXIF", exif);
         if (random.boolean()) o.chunk(random, "XMP ", "<x:xmpmeta/>");
     } else {
-        o.chunk(random, "VP8L", stream);
+        o.chunk(random, image_tag, stream);
         if (random.uintLessThan(u8, 8) == 0) o.chunk(random, "abcd", "trailing");
     }
     var size: u32 = @intCast(o.len - 8);

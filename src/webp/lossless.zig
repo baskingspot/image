@@ -157,9 +157,11 @@ pub const BitReader = struct {
     pad: u64 = 0,
     /// Why the reader stopped before the chunk's end.
     failed: ?Error = null,
+    /// The chunk's bytes.
+    size: u64,
 
     pub fn init(reader: *Io.Reader, len: u64) BitReader {
-        return .{ .reader = reader, .left = len };
+        return .{ .reader = reader, .left = len, .size = len };
     }
 
     /// Bytes of the chunk not yet read into bits, which the container
@@ -584,6 +586,13 @@ const Stream = struct {
     n_transforms: u8 = 0,
     /// The largest group index the entropy image names.
     max_index: u32 = 0,
+    /// Groups read for the main image.
+    n_groups: usize = 0,
+    /// An ALPH chunk's stream, which libwebp reads in its own way when it
+    /// can (`tailRead`).
+    alpha: bool,
+    /// Whether the stream may read past its end in its last symbol.
+    tail_read: bool = false,
     sink: Sink,
 
     /// The entropy-coded pixels of a `w` by `h` image into `out` (a ring
@@ -611,6 +620,7 @@ const Stream = struct {
         }
         try s.readGroups(meta, cache_size);
         try br.check();
+        if (main) s.tail_read = s.tailRead(cache_bits);
         @memset(s.cache[0..cache_size], 0);
         try s.pixels(main, out, w, h, cache_bits, tile_bits, tiles_w);
     }
@@ -654,6 +664,19 @@ const Stream = struct {
                 at += r.len;
             }
         }
+        s.n_groups = slot;
+    }
+
+    /// libwebp decodes an alpha stream whose only transform is color
+    /// indexing, without a color cache, and whose literals are green
+    /// alone, a byte a pixel, checking for its end only between symbols
+    /// that leave pixels to decode: the last symbol may read past the end,
+    /// zeros for a literal. Other streams fail if they read past it at all.
+    fn tailRead(s: *const Stream, cache_bits: u5) bool {
+        if (!s.alpha or cache_bits != 0) return false;
+        if (s.n_transforms != 1 or s.transforms[0].kind != .color_index) return false;
+        for (s.groups[0..s.n_groups]) |g| if (!g.trivial) return false;
+        return true;
     }
 
     fn pixels(
@@ -686,12 +709,29 @@ const Stream = struct {
         var y: u32 = 0;
         var ri: u32 = 0;
         var g = &s.groups[0];
+        // libwebp's bit window is eight bytes: a stream shorter than that
+        // reads as zeros to the window's end, which this does not do.
+        const tail_read = main and s.tail_read and br.size >= 8;
         while (p < total) {
+            // The real bits left, for a last literal that reads past them.
+            var real: i64 = 0;
+            if (tail_read) {
+                if (hot.count < br.pad) return br.failed orelse error.Truncated;
+                real = @as(i64, hot.count) - @as(i64, @intCast(br.pad)) + 8 * @as(i64, @intCast(br.win.len + br.left));
+            }
             if (x & tile_mask == 0) {
                 if (tile_bits != 31) g = &s.groups[s.entropy[(y >> tile_bits) * tiles_w + (x >> tile_bits)]];
             }
             const sym = hot.symbol(br, tables, g.table[0], g.root[0]);
             if (sym < 256) {
+                if (tail_read and hot.count < br.pad) {
+                    // libwebp looks the code up in its last eight bytes
+                    // with zeros above, 8 bits and then the rest; a lookup
+                    // that starts at or past their end wraps around to
+                    // their start instead.
+                    const len = real + @as(i64, @intCast(br.pad)) - hot.count;
+                    if (real == 0 or (len > 8 and real <= 8)) return br.failed orelse error.Truncated;
+                }
                 var c: u32 = undefined;
                 if (g.trivial) {
                     c = g.literal | @as(u32, sym) << 8;
@@ -710,6 +750,9 @@ const Stream = struct {
                 const len = hot.prefix(br, sym - 256);
                 const dsym = hot.symbol(br, tables, g.table[4], g.root[4]);
                 const dist = distance(hot.prefix(br, dsym), w);
+                // libwebp reads a backward reference's code past the end
+                // in its own way: only a last literal may read zeros.
+                if (tail_read and hot.count < br.pad) return br.failed orelse error.Truncated;
                 if (dist > p or len > total - p) return error.BadLossless;
                 var left = len;
                 while (true) {
@@ -765,13 +808,14 @@ const Stream = struct {
             }
         }
         hot.store(br);
-        try br.check();
+        if (!tail_read) return br.check();
+        if (br.count < br.pad) if (br.failed) |f| return f;
     }
 
     /// Row `y` of the entropy-coded image is whole: undo the transforms
     /// and hand the row to the sink.
     fn rowDone(s: *Stream, y: u32, coded: []const u32) Error!void {
-        try s.br.check();
+        if (!s.tail_read) try s.br.check();
         const row = s.rows[0..s.width];
         const prev = s.rows[s.width..];
         @memcpy(row[0..coded.len], coded);
@@ -996,8 +1040,17 @@ fn indexRow(t: *const Transform, row: []u32) void {
 /// Decodes an image stream, the part of a VP8L stream after its header
 /// and all of a lossless ALPH chunk's: a `width` by `height` image (at
 /// most 2^14 on a side), handing each row to `sink`. `work` holds at least
-/// `workLen(width, height, max_groups)` bytes.
-pub fn decode(br: *BitReader, width: u32, height: u32, max_groups: u32, work: []u8, sink: Sink) Error!void {
+/// `workLen(width, height, max_groups)` bytes. `alpha` says it is an ALPH
+/// chunk's.
+pub fn decode(
+    br: *BitReader,
+    width: u32,
+    height: u32,
+    max_groups: u32,
+    alpha: bool,
+    work: []u8,
+    sink: Sink,
+) Error!void {
     const l = Layout.init(width, height, max_groups).?;
     std.debug.assert(work.len >= l.total);
     const base = std.mem.alignForward(usize, @intFromPtr(work.ptr), 8) - @intFromPtr(work.ptr);
@@ -1019,6 +1072,7 @@ pub fn decode(br: *BitReader, width: u32, height: u32, max_groups: u32, work: []
         .rank = u32s(mem, l.rank, 1024),
         .groups = @as([*]Group, @ptrCast(@alignCast(mem[l.desc..].ptr)))[0 .. l.groups + 1],
         .tables = @as([*]u16, @ptrCast(@alignCast(mem[l.tables..].ptr)))[0 .. (l.groups + 1) * group_entries],
+        .alpha = alpha,
         .sink = sink,
     };
     var cur_w = width;

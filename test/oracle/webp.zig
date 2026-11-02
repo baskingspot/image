@@ -1,8 +1,8 @@
 //! WebP against libwebp, the bar, and Wuffs (test/oracle/webp.c), in
 //! RGBA8, BGRA8 (the native format of a lossless image), and RGB8.
 //!
-//! Lossy (VP8) bitstreams and animations are not decoded yet: inputs whose
-//! container has them (`notYet`) are left out for every oracle.
+//! Animations are not decoded yet: inputs whose VP8X chunk announces one
+//! (`notYet`) are left out for every oracle.
 //!
 //! The libraries disagree, and the expected splits are:
 //!
@@ -23,6 +23,16 @@
 //!   as the specification says to, and read the chunks that are there.
 //!   Wuffs accepts some streams cut short that libwebp and this package
 //!   reject.
+//! - Lossy: libwebp, Wuffs, and this package let a still image's
+//!   partitions run past the VP8 chunk to the end of the input, but this
+//!   package keeps the partitions before the last only up to the RIFF
+//!   payload's end (its work memory is sized by the payload), so one that
+//!   runs past it is `Truncated` here (docs/slop/webp.md).
+//! - Lossy with alpha: Wuffs's colors under an alpha of 0 differ from
+//!   libwebp's in places; this package matches libwebp's. A lossless
+//!   alpha stream whose last symbol reads past its end decodes in libwebp
+//!   from its bit window wrapped around (docs/slop/webp.md); this package
+//!   rejects it, as Wuffs does.
 
 const std = @import("std");
 const image = @import("image");
@@ -39,22 +49,11 @@ pub fn comparable(op: []const u8, format: image.PixelFormat, input: []const u8) 
     return true;
 }
 
-/// Whether `input`'s first image chunk is lossy (VP8), or its VP8X chunk
-/// sets the animation flag: what this package does not decode yet.
+/// Whether `input`'s VP8X chunk sets the animation flag: what this
+/// package does not decode yet.
 fn notYet(input: []const u8) bool {
     if (input.len < 21 or !std.mem.eql(u8, input[0..4], "RIFF")) return false;
-    if (std.mem.eql(u8, input[12..16], "VP8 ")) return true;
-    if (!std.mem.eql(u8, input[12..16], "VP8X")) return false;
-    if (input[20] & 0x02 != 0) return true;
-    var at: usize = 30;
-    while (input.len >= at + 8) {
-        const tag = input[at..][0..4];
-        if (std.mem.eql(u8, tag, "VP8 ")) return true;
-        if (std.mem.eql(u8, tag, "VP8L")) return false;
-        const size = std.mem.readInt(u32, input[at + 4 ..][0..4], .little);
-        at += 8 + @as(usize, size) + (size & 1);
-    }
-    return false;
+    return std.mem.eql(u8, input[12..16], "VP8X") and input[20] & 0x02 != 0;
 }
 
 pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]const u8 {
