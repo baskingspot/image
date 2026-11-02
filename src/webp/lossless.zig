@@ -829,10 +829,7 @@ const Stream = struct {
                     @memcpy(prev[0..t.width], row[0..t.width]);
                 },
                 .color => colorRow(t, y, row[0..t.width]),
-                .subtract_green => for (row[0..t.width]) |*px| {
-                    const g = (px.* >> 8) & 0xff;
-                    px.* = (px.* & 0xff00ff00) | (((px.* & 0x00ff00ff) +% (g << 16 | g)) & 0x00ff00ff);
-                },
+                .subtract_green => addGreen(row[0..t.width]),
                 .color_index => indexRow(t, row[0..t.full]),
             }
         }
@@ -966,6 +963,23 @@ fn predictAbove(comptime mode: u4, run: []u32, above: []const u32) void {
     for (i..run.len) |k| {
         const p = predict(mode, undefined, lanes(above[k]), lanes(above[k + 1]), lanes(above[k + 2]));
         run[k] = pixel(lanes(run[k]) +% p);
+    }
+}
+
+/// Undoes the subtract green transform: green is added to red and blue,
+/// eight pixels at a time.
+fn addGreen(row: []u32) void {
+    const V = @Vector(8, u32);
+    var i: usize = 0;
+    while (i + 8 <= row.len) : (i += 8) {
+        const c: V = row[i..][0..8].*;
+        const g = (c >> @splat(8)) & @as(V, @splat(0xff));
+        const rb = ((c & @as(V, @splat(0x00ff00ff))) +% (g << @splat(16) | g)) & @as(V, @splat(0x00ff00ff));
+        row[i..][0..8].* = (c & @as(V, @splat(0xff00ff00))) | rb;
+    }
+    for (row[i..]) |*px| {
+        const g = (px.* >> 8) & 0xff;
+        px.* = (px.* & 0xff00ff00) | (((px.* & 0x00ff00ff) +% (g << 16 | g)) & 0x00ff00ff);
     }
 }
 
