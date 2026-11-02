@@ -1,0 +1,28 @@
+  0.943  icon_16-actions_address_book_new-16x16.webp
+  0.944  icon_16-actions_appointment_new-16x16.webp
+  0.949  icon_16-actions_bookmark_new-16x16.webp
+  0.946  icon_16-actions_contact_new-16x16.webp
+  0.968  icon_64-actions_address_book_new-64x64.webp
+  0.945  icon_64-actions_appointment_new-64x64.webp
+  0.966  icon_64-actions_bookmark_new-64x64.webp
+  0.954  icon_64-actions_contact_new-64x64.webp
+  0.957  photo_kodak-kodim01-768x512.webp
+  0.958  photo_kodak-kodim02-768x512.webp
+  0.970  photo_kodak-kodim03-768x512.webp
+  0.968  photo_tecnick-RGB_OR_1200x1200_001-1200x1200.webp
+  0.984  photo_tecnick-RGB_OR_1200x1200_002-1200x1200.webp
+  0.959  photo_wikipedia-001-1276x850.webp
+  0.958  photo_wikipedia-002-1260x806.webp
+  0.954  photo_wikipedia-003-1436x730.webp
+  0.977  screenshot_game-20XX_Menu_picture-634x406.webp
+  0.969  screenshot_web-cnn_com-1313x5241.webp
+  0.963  test-dice-800x600.webp
+  0.964  test-kodim10-512x768.webp
+  0.955  test-kodim23-768x512.webp
+  0.964  test-testcard-256x256.webp
+  0.968  test-testcard_rgba-256x256.webp
+  0.976  test-wikipedia_008-1152x858.webp
+icon   rows=  8  B/A time geomean 0.952  (B speedup 1.050x)
+1mp    rows= 12  B/A time geomean 0.964  (B speedup 1.038x)
+large  rows=  4  B/A time geomean 0.970  (B speedup 1.031x)
+all    rows= 24  B/A time geomean 0.961  (B speedup 1.041x)

@@ -849,14 +849,21 @@ fn predictBlock(comptime n: usize, buf: []u8, at: usize, s: usize, mode: u8, has
         dc_pred => {
             var sum: u32 = 0;
             var v: u8 = 128;
+            // The sums in vectors of n bytes: a plain loop vectorizes to
+            // 512 bits (see `toRgbVec` in yuv.zig).
+            const W = @Vector(n, u16);
+            const top: W = @as(@Vector(n, u8), buf[at - s ..][0..n].*);
+            var left_px: [n]u8 = undefined;
+            inline for (0..n) |i| left_px[i] = buf[at + i * s - 1];
+            const left: W = @as(@Vector(n, u8), left_px);
             if (has_top and has_left) {
-                for (0..n) |i| sum += @as(u32, buf[at - s + i]) + buf[at + i * s - 1];
+                sum = @reduce(.Add, top + left);
                 v = @intCast((sum + n) >> (shift + 1));
             } else if (has_top) {
-                for (0..n) |i| sum += buf[at - s + i];
+                sum = @reduce(.Add, top);
                 v = @intCast((sum + n / 2) >> shift);
             } else if (has_left) {
-                for (0..n) |i| sum += buf[at + i * s - 1];
+                sum = @reduce(.Add, left);
                 v = @intCast((sum + n / 2) >> shift);
             }
             for (0..n) |r| @memset(buf[at + r * s ..][0..n], v);
@@ -864,10 +871,15 @@ fn predictBlock(comptime n: usize, buf: []u8, at: usize, s: usize, mode: u8, has
         v_pred => for (0..n) |r| @memcpy(buf[at + r * s ..][0..n], buf[at - s ..][0..n]),
         h_pred => for (0..n) |r| @memset(buf[at + r * s ..][0..n], buf[at + r * s - 1]),
         else => {
-            const p: i32 = buf[at - s - 1];
+            // In 16-bit lanes: l + top is within ±510. Wider lanes would
+            // make a 512-bit vector for n = 16 (see `toRgbVec` in yuv.zig).
+            const V = @Vector(n, i16);
+            const top: V = @as(@Vector(n, u8), buf[at - s ..][0..n].*);
+            const p: i16 = buf[at - s - 1];
             for (0..n) |r| {
-                const l: i32 = @as(i32, buf[at + r * s - 1]) - p;
-                for (0..n) |c| buf[at + r * s + c] = clamp255(l + buf[at - s + c]);
+                const l: V = @splat(@as(i16, buf[at + r * s - 1]) - p);
+                const px = @min(@max(top + l, @as(V, @splat(0))), @as(V, @splat(255)));
+                buf[at + r * s ..][0..n].* = @as(@Vector(n, u8), @intCast(px));
             }
         },
     }

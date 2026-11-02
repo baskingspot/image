@@ -1,0 +1,47 @@
+  0.960  icon_16-actions_address_book_new-16x16.webp
+  0.929  icon_16-actions_appointment_new-16x16.webp
+  0.935  icon_16-actions_bookmark_new-16x16.webp
+  0.934  icon_16-actions_contact_new-16x16.webp
+  0.932  icon_32-actions_address_book_new-32x32.webp
+  0.951  icon_32-actions_appointment_new-32x32.webp
+  0.944  icon_32-actions_bookmark_new-32x32.webp
+  0.944  icon_32-actions_contact_new-32x32.webp
+  0.837  icon_512-actions_address_book_new-512x512.webp
+  0.825  icon_512-actions_appointment_new-512x512.webp
+  0.839  icon_512-actions_bookmark_new-512x512.webp
+  0.939  icon_64-actions_address_book_new-64x64.webp
+  0.929  icon_64-actions_appointment_new-64x64.webp
+  0.927  icon_64-actions_bookmark_new-64x64.webp
+  0.928  icon_64-actions_contact_new-64x64.webp
+  0.931  photo_kodak-kodim01-768x512.webp
+  0.917  photo_kodak-kodim02-768x512.webp
+  0.913  photo_kodak-kodim03-768x512.webp
+  0.916  photo_tecnick-RGB_OR_1200x1200_001-1200x1200.webp
+  0.911  photo_tecnick-RGB_OR_1200x1200_002-1200x1200.webp
+  0.925  photo_wikipedia-001-1276x850.webp
+  0.923  photo_wikipedia-002-1260x806.webp
+  0.921  photo_wikipedia-003-1436x730.webp
+  0.858  pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.webp
+  0.848  pngimg-academy_awards_PNG9-447x1192.webp
+  0.868  pngimg-air_pump_PNG5-999x772.webp
+  0.901  screenshot_game-20XX_Menu_picture-634x406.webp
+  0.908  screenshot_game-3dbrick2-320x240.webp
+  0.884  screenshot_game-3dcursedlabyrinth_mazegame-343x480.webp
+  0.922  screenshot_web-amazon_com-1313x6097.webp
+  0.907  screenshot_web-apple_com-1313x4755.webp
+  0.915  screenshot_web-cnn_com-1313x5241.webp
+  0.893  test-dice-800x600.webp
+  0.915  test-kodim10-512x768.webp
+  0.896  test-kodim23-768x512.webp
+  0.888  test-qoi_logo-448x220.webp
+  0.914  test-testcard-256x256.webp
+  0.890  test-testcard_rgba-256x256.webp
+  0.919  test-wikipedia_008-1152x858.webp
+  0.919  textures_pk-_0mod_button1-64x64.webp
+  0.926  textures_pk-_pkf_water1-128x128.webp
+  0.901  textures_plants-plant_01-166x1022.webp
+  0.923  textures_plants-plant_02-1024x1316.webp
+icon   rows= 13  B/A time geomean 0.936  (B speedup 1.068x)
+1mp    rows= 23  B/A time geomean 0.891  (B speedup 1.122x)
+large  rows=  7  B/A time geomean 0.917  (B speedup 1.091x)
+all    rows= 43  B/A time geomean 0.909  (B speedup 1.100x)

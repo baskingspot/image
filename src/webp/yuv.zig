@@ -56,7 +56,6 @@ pub const Layout = enum {
 const lanes = 16;
 const U8s = @Vector(lanes, u8);
 const U16s = @Vector(lanes, u16);
-const I32s = @Vector(lanes, i32);
 
 /// One output row in `layout`, from a luma row and the chroma rows nearest
 /// it (`near`) and next nearest (`far`), each `[u, v]`; with four bytes a
@@ -107,17 +106,10 @@ fn upsample(out: []u8, near: []const u8, far: []const u8, width: usize) void {
         const avg = tl + t + l + c + @as(U16s, @splat(8));
         const d0 = (avg + (t + l) * @as(U16s, @splat(2))) >> @splat(3);
         const d1 = (avg + (tl + c) * @as(U16s, @splat(2))) >> @splat(3);
-        const o0: U8s = @intCast((d0 + tl) >> @splat(1));
-        const o1: U8s = @intCast((d1 + t) >> @splat(1));
-        const mask = comptime blk: {
-            var m: [2 * lanes]i32 = undefined;
-            for (0..lanes) |i| {
-                m[2 * i] = @intCast(i);
-                m[2 * i + 1] = ~@as(i32, @intCast(i));
-            }
-            break :blk m;
-        };
-        out[2 * x - 1 ..][0 .. 2 * lanes].* = @shuffle(u8, o0, o1, mask);
+        // Both bytes of each pair in one 16-bit lane, little-endian: no
+        // shuffle across lanes, which would join the halves into 512 bits.
+        const both = (d0 + tl) >> @splat(1) | ((d1 + t) >> @splat(1)) << @splat(8);
+        out[2 * x - 1 ..][0 .. 2 * lanes].* = @bitCast(std.mem.nativeToLittle(U16s, both));
     }
     while (x <= pairs) : (x += 1) {
         const p = pair(near[x - 1], near[x], far[x - 1], far[x]);
@@ -127,47 +119,62 @@ fn upsample(out: []u8, near: []const u8, far: []const u8, width: usize) void {
     if (width & 1 == 0 and width > 1) out[width - 1] = edge(near[width / 2 - 1], far[width / 2 - 1]);
 }
 
-fn toRgbVec(y8: U8s, u8s: U8s, v8: U8s) [3]U8s {
-    const y: I32s = y8;
-    const u: I32s = u8s;
-    const v: I32s = v8;
-    const yy = (y * @as(I32s, @splat(19077))) >> @splat(8);
-    const r = yy + ((v * @as(I32s, @splat(26149))) >> @splat(8)) - @as(I32s, @splat(14234));
-    const g = yy - ((u * @as(I32s, @splat(6419))) >> @splat(8)) - ((v * @as(I32s, @splat(13320))) >> @splat(8)) +
-        @as(I32s, @splat(8708));
-    const b = yy + ((u * @as(I32s, @splat(33050))) >> @splat(8)) - @as(I32s, @splat(17685));
-    return .{ clipVec(r), clipVec(g), clipVec(b) };
+/// The colors of `lanes` pixels in 16-bit lanes, 256 bits for 16 pixels:
+/// 32-bit lanes would make 512-bit vectors, and on CPUs with AVX-512 those
+/// lower the clock for a while after them (results/webp-perf-20261102.md).
+/// Each `(c * k) >> 8` is the high half of `(c << 8) * k`, exact for a byte
+/// `c` and `k` below 2^16. Red and green stay within ±2^15 (red from
+/// -14234 to 30814, green from -10953 to 27711); blue reaches 34238, so it
+/// is unsigned, saturating at 0, where its clip gives 0 anyway.
+fn toRgbVec(y8: U8s, u8s: U8s, v8: U8s) [3]U16s {
+    const I16s = @Vector(lanes, i16);
+    const y = mulHiVec(y8, 19077);
+    const r: I16s = @bitCast(y +% mulHiVec(v8, 26149) -% @as(U16s, @splat(14234)));
+    const g: I16s = @bitCast(y +% @as(U16s, @splat(8708)) -% mulHiVec(u8s, 6419) -% mulHiVec(v8, 13320));
+    const b = (y + mulHiVec(u8s, 33050)) -| @as(U16s, @splat(17685));
+    const zero: I16s = @splat(0);
+    const max: I16s = @splat(255);
+    return .{
+        @intCast(@min(@max(r >> @splat(6), zero), max)),
+        @intCast(@min(@max(g >> @splat(6), zero), max)),
+        @intCast(@min(b >> @splat(6), @as(U16s, @splat(255)))),
+    };
 }
 
-fn clipVec(v: I32s) U8s {
-    const s = v >> @splat(6);
-    return @intCast(@min(@max(s, @as(I32s, @splat(0))), @as(I32s, @splat(255))));
+/// `(c * k) >> 8` in each lane.
+inline fn mulHiVec(c: U8s, comptime k: u16) U16s {
+    const W = @Vector(lanes, u32);
+    const wide = @as(W, @as(U16s, c) << @splat(8)) * @as(W, @splat(k));
+    return @truncate(wide >> @splat(16));
 }
 
-fn interleave(comptime layout: Layout, rgb: [3]U8s, a: U8s) [lanes * layout.bpp()]u8 {
+/// Pixels from 16-bit lanes of red, green, and blue (each at most 255).
+/// With alpha, bytes pair up within 16-bit lanes and the pairs interleave
+/// into each half's eight pixels, 256 bits at a time (see `toRgbVec`).
+fn interleave(comptime layout: Layout, rgb: [3]U16s, a: U8s) [lanes * layout.bpp()]u8 {
     const first = if (layout == .bgr or layout == .bgra) rgb[2] else rgb[0];
     const third = if (layout == .bgr or layout == .bgra) rgb[0] else rgb[2];
     const bpp = comptime layout.bpp();
     var out: [lanes * bpp]u8 = undefined;
     if (bpp == 4) {
-        const pairs = comptime blk: {
-            var m: [2 * lanes]i32 = undefined;
-            for (0..lanes) |i| {
-                m[2 * i] = @intCast(i);
-                m[2 * i + 1] = ~@as(i32, @intCast(i));
-            }
-            break :blk m;
-        };
-        const rg: @Vector(2 * lanes, u8) = @shuffle(u8, first, rgb[1], pairs);
-        const ba: @Vector(2 * lanes, u8) = @shuffle(u8, third, a, pairs);
-        const rg16: @Vector(lanes, u16) = @bitCast(rg);
-        const ba16: @Vector(lanes, u16) = @bitCast(ba);
-        const quads: @Vector(2 * lanes, u16) = @shuffle(u16, rg16, ba16, pairs);
-        out = @bitCast(quads);
+        const rg = first | rgb[1] << @splat(8);
+        const ba = third | @as(U16s, a) << @splat(8);
+        inline for (0..2) |half| {
+            const quads = comptime blk: {
+                var m: [lanes]i32 = undefined;
+                for (0..lanes / 2) |i| {
+                    const k = half * lanes / 2 + i;
+                    m[2 * i ..][0..2].* = .{ k, ~@as(i32, k) };
+                }
+                break :blk m;
+            };
+            const v: U16s = std.mem.nativeToLittle(U16s, @shuffle(u16, rg, ba, quads));
+            out[half * 2 * lanes ..][0 .. 2 * lanes].* = @bitCast(v);
+        }
     } else {
-        const f: [lanes]u8 = first;
-        const g: [lanes]u8 = rgb[1];
-        const t: [lanes]u8 = third;
+        const f: [lanes]u8 = @as(U8s, @intCast(first));
+        const g: [lanes]u8 = @as(U8s, @intCast(rgb[1]));
+        const t: [lanes]u8 = @as(U8s, @intCast(third));
         for (0..lanes) |i| out[3 * i ..][0..3].* = .{ f[i], g[i], t[i] };
     }
     return out;
