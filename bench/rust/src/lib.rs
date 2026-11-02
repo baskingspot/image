@@ -23,8 +23,6 @@ mod image_qoi;
 #[cfg(feature = "image-rs")]
 mod image_tga;
 #[cfg(feature = "image-rs")]
-mod image_tiff;
-#[cfg(feature = "image-rs")]
 mod image_webp;
 #[cfg(feature = "zune")]
 mod zune_bmp;
@@ -93,8 +91,6 @@ pub extern "C" fn bench_init() {
         image_jpeg::OPS,
         #[cfg(feature = "image-rs")]
         image_webp::OPS,
-        #[cfg(feature = "image-rs")]
-        image_tiff::OPS,
         #[cfg(feature = "zune")]
         zune_bmp::OPS,
         #[cfg(feature = "zune")]

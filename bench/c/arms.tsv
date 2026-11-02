@@ -11,4 +11,3 @@ giflib	-lgif
 libjpeg-turbo	libjpeg
 magick	MagickWand
 libwebp	libwebp libwebpdemux
-libtiff	libtiff-4

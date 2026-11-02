@@ -222,7 +222,10 @@ owning the files adding-a-format.md assigns to its format plus
   peak RSS at or below libwebp in every class. Splits are in
   test/oracle/webp.zig.
 - **TIFF decode** (branch `wave3-tiff`): `src/tiff/`, with TIFF's own LZW.
-  Stage 1 landed at `e96a20e` (tiff.md, results/tiff-20261102.md): classic
+  Stage 1 landed at `e96a20e` and was reverted: on CI's corpus the oracle
+  finds IFD rules where it disagrees with libtiff (tag counts, field types,
+  per-sample Compression, codec edges). It re-lands from `wave3-tiff-fix`
+  at 0 mismatches over many seeds. Stage 1 (tiff.md, results/tiff-20261102.md): classic
   TIFF and BigTIFF; strips and tiles; chunky and planar; none, PackBits,
   LZW, Deflate, and CCITT MH/G3/G4; predictors 2 and 3; 1–32-bit integer
   and 16–64-bit float samples; gray, palette, RGB, CMYK, and subsampled
@@ -506,6 +509,9 @@ not yet made:
   it with a threadlocal buffer. Allocate work per input outside the arena,
   or one buffer per worker.
 - A per-size-class peak RSS column in `just bench-compare`.
+- Sort the corpus walk in harness.zig's loader: unsorted directory order
+  makes the mutated inputs depend on the filesystem, so a CI mismatch id
+  cannot be regenerated locally and agree counts differ by machine.
 - `PF_CMYK8` and `PF_CMYK16` in test/oracle/oracle.h and oracle.c, so
   tiff-raw and JPEG's oracle answer CMYK natively.
 - `harness.checkDecoder` passing a `Seeker.fixed` itself (TIFF's fuzz
