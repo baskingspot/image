@@ -8,6 +8,7 @@ stb	-
 libpng	libpng
 spng	spng
 giflib	-lgif
+gifski	-lgifski
 libjpeg-turbo	libjpeg
 magick	MagickWand
 libwebp	libwebp libwebpdemux

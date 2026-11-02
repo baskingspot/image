@@ -125,3 +125,147 @@ static size_t gif_decode_anim(const uint8_t *in, size_t len, uint8_t *out, size_
 
 BENCH_OP("gif-decode", gif_decode)
 BENCH_OP("gif-decode-anim", gif_decode_anim)
+
+// Encode (bench/corpus/gif_encode.sh): raw RGBA8 to a file in memory
+// through EGifOpen's write callback, the calls a giflib caller makes.
+// giflib has no quantizer of its own but GifQuantizeBuffer, a median cut
+// over RGB without dithering, which ignores alpha, so: an image with at
+// most 256 colors (alpha below 128 as one transparent color) is stored
+// exactly, with a graphic control extension for its transparent index,
+// and any other is quantized by GifQuantizeBuffer, its alpha dropped.
+// `gif-encode-anim` writes every frame whole, 10 hundredths of a second
+// each, looping forever, each disposed to background when it has
+// transparency; giflib does not crop.
+struct sink {
+  uint8_t *p;
+  size_t cap, len;
+};
+
+static int write_fn(GifFileType *gif, const GifByteType *src, int n) {
+  struct sink *s = gif->UserData;
+  if ((size_t)n > s->cap - s->len) return 0;
+  memcpy(s->p + s->len, src, (size_t)n);
+  s->len += (size_t)n;
+  return n;
+}
+
+// libgif exports GifQuantizeBuffer, but giflib 6's header no longer
+// declares it; this is its declaration from giflib's quantize.c.
+int GifQuantizeBuffer(unsigned int width, unsigned int height, int *color_map_size, GifByteType *red,
+                      GifByteType *green, GifByteType *blue, GifByteType *output, GifColorType *output_color_map);
+
+// Kept between calls: the frame's indices and GifQuantizeBuffer's planes.
+static GifByteType *indices, *planes;
+static size_t indices_cap, planes_cap;
+
+// The frame's palette and indices: exact when it has at most 256 colors,
+// else GifQuantizeBuffer's. Returns the transparent index or -1, and 0 in
+// *count on failure.
+static int palette(const uint8_t *in, size_t n, GifColorType *colors, int *count) {
+  enum { slots = 1024 };
+  uint32_t keys[slots];
+  uint8_t vals[slots];
+  memset(keys, 0xff, sizeof keys);
+  int k = 0, transparent = -1;
+  *count = 0;
+  if (!grow((void **)&indices, &indices_cap, n)) return -1;
+  for (size_t i = 0; i < n; i++) {
+    const uint8_t *p = in + i * 4;
+    uint32_t key = p[3] < 128 ? 0x1000000u : (uint32_t)p[0] << 16 | (uint32_t)p[1] << 8 | p[2];
+    uint32_t h = (key * 2654435761u) >> 22;
+    while (keys[h] != key && keys[h] != 0xffffffffu) h = (h + 1) & (slots - 1);
+    if (keys[h] == 0xffffffffu) {
+      if (k == 256) goto quantize;
+      keys[h] = key;
+      vals[h] = (uint8_t)k;
+      if (key == 0x1000000u) {
+        transparent = k;
+        colors[k] = (GifColorType){0, 0, 0};
+      } else {
+        colors[k] = (GifColorType){p[0], p[1], p[2]};
+      }
+      k++;
+    }
+    indices[i] = vals[h];
+  }
+  *count = k;
+  return transparent;
+quantize:
+  if (!grow((void **)&planes, &planes_cap, n * 3)) return -1;
+  for (size_t i = 0; i < n; i++) {
+    planes[i] = in[i * 4];
+    planes[n + i] = in[i * 4 + 1];
+    planes[2 * n + i] = in[i * 4 + 2];
+  }
+  k = 256;
+  if (GifQuantizeBuffer((unsigned)n, 1, &k, planes, planes + n, planes + 2 * n, indices, colors) == GIF_ERROR)
+    return -1;
+  *count = k;
+  return -1;
+}
+
+static int put_frame(GifFileType *gif, const uint8_t *in, int w, int h, int anim, int global) {
+  GifColorType colors[256];
+  int count;
+  int transparent = palette(in, (size_t)w * h, colors, &count);
+  if (count == 0) return 0;
+  int bits = 1;
+  while ((1 << bits) < count) bits++;
+  ColorMapObject *map = GifMakeMapObject(1 << bits, NULL);
+  if (!map) return 0;
+  memcpy(map->Colors, colors, (size_t)count * sizeof colors[0]);
+  int ok = 0;
+  if (global && EGifPutScreenDesc(gif, w, h, bits, 0, map) == GIF_ERROR) goto done;
+  if (global && anim) {
+    static const uint8_t loop[3] = {1, 0, 0};
+    if (EGifPutExtensionLeader(gif, APPLICATION_EXT_FUNC_CODE) == GIF_ERROR ||
+        EGifPutExtensionBlock(gif, 11, "NETSCAPE2.0") == GIF_ERROR ||
+        EGifPutExtensionBlock(gif, 3, loop) == GIF_ERROR || EGifPutExtensionTrailer(gif) == GIF_ERROR)
+      goto done;
+  }
+  if (anim || transparent >= 0) {
+    GraphicsControlBlock gcb = {transparent >= 0 && anim ? DISPOSE_BACKGROUND : DISPOSAL_UNSPECIFIED, false,
+                                anim ? 10 : 0, transparent};
+    GifByteType ext[4];
+    EGifGCBToExtension(&gcb, ext);
+    if (EGifPutExtension(gif, GRAPHICS_EXT_FUNC_CODE, 4, ext) == GIF_ERROR) goto done;
+  }
+  if (EGifPutImageDesc(gif, 0, 0, w, h, false, global ? NULL : map) == GIF_ERROR) goto done;
+  for (int y = 0; y < h; y++)
+    if (EGifPutLine(gif, indices + (size_t)y * w, w) == GIF_ERROR) goto done;
+  ok = 1;
+done:
+  GifFreeMapObject(map);
+  return ok;
+}
+
+static size_t encode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, int anim) {
+  size_t canvas = (size_t)bench_width * bench_height * 4;
+  if (canvas == 0 || len % canvas != 0 || (!anim && len != canvas)) return 0;
+  struct sink s = {out, cap, 0};
+  int err = 0;
+  GifFileType *gif = EGifOpen(&s, write_fn, &err);
+  if (!gif) return 0;
+  EGifSetGifVersion(gif, true);
+  int ok = 1;
+  for (size_t at = 0; ok && at < len; at += canvas)
+    ok = put_frame(gif, in + at, (int)bench_width, (int)bench_height, anim, at == 0);
+  if (EGifCloseFile(gif, &err) == GIF_ERROR) ok = 0;
+  return ok ? s.len : 0;
+}
+
+static size_t gif_encode(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return encode(in, len, out, cap, 0);
+}
+
+static size_t gif_encode_anim(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return encode(in, len, out, cap, 1);
+}
+
+static size_t gif_encode_few(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return encode(in, len, out, cap, 0);
+}
+
+BENCH_OP("gif-encode", gif_encode)
+BENCH_OP("gif-encode-few", gif_encode_few)
+BENCH_OP("gif-encode-anim", gif_encode_anim)

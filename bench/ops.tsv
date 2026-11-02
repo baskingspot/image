@@ -15,6 +15,9 @@ bmp-encode-gray	BmpEncodeGray	raw/gray8	6	own
 ico-decode	IcoDecode	ico	4	same
 gif-decode	GifDecode	gif/still	4	same
 gif-decode-anim	GifDecodeAnim	gif/anim	4	same
+gif-encode	GifEncode	gif_encode/true	4	own
+gif-encode-few	GifEncodeFew	gif_encode/few	4	own
+gif-encode-anim	GifEncodeAnim	gif_encode/anim	16	own
 png-decode	PngDecode	png	4	same
 png-encode	PngEncode	tga/rgba	5	own
 png-encode-fast	PngEncodeFast	tga/rgba	5	own
