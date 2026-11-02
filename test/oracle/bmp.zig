@@ -11,7 +11,11 @@
 //!   room for more than the color table, and 24-bit files with a color
 //!   table of more than 256 entries. It accepts files that end early,
 //!   filling the rest, and rejects images over its own size limit that the
-//!   others decode (b/badwidth, g/pal8topdown).
+//!   others decode (b/badwidth, g/pal8topdown). It gives no answer for a
+//!   palette index past the entries it set (bmp.c's
+//!   `stb_reads_unset_palette`): it sizes the palette from the pixel offset
+//!   rather than biClrUsed and reads past it into stack garbage, so its
+//!   pixels there changed from run to run.
 //! - Magick widens 5- and 6-bit channels by its own scaling rather than
 //!   repeating their bits, so every 16-bit file with narrow masks gets
 //!   different pixels (g/rgb16*, q/rgba16-*). It rejects a file shorter
