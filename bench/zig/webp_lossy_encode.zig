@@ -1,5 +1,6 @@
 //! The lossy WebP encoder's rows: raw RGB8 pixels (RGBA8 for the alpha
-//! row) to a file in memory at quality 75, at each effort, with work
+//! row) to a file in memory at quality 75, at each effort (`fast` twice,
+//! against libwebp's methods 2 and 0), with work
 //! memory from a static buffer, as a caller that reuses it would. Only the
 //! pages a call touches count toward peak RSS.
 
@@ -12,6 +13,7 @@ pub const ops = .{
     .{ "webp-encode-lossy-fast", fast },
     .{ "webp-encode-lossy-best", best },
     .{ "webp-encode-lossy-rgba", rgba },
+    .{ "webp-encode-lossy-fast-m0", fast },
 };
 
 var work: [512 << 20]u8 = undefined;

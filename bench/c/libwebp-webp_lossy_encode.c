@@ -2,7 +2,7 @@
 // harness gives (`bench_width`, `bench_height`), into the output buffer:
 // quality 75 and libwebp's defaults otherwise, as `cwebp -q 75 -m M`,
 // with method 4 (cwebp's default) for the default and RGBA rows, 2 for
-// the fast row, and 6 for the best.
+// the fast row, 0 for the second fast row, and 6 for the best.
 #include <string.h>
 #include <webp/encode.h>
 
@@ -54,6 +54,10 @@ static size_t webp_lossy_fast(const uint8_t *in, size_t len, uint8_t *out, size_
   return encode(in, len, out, cap, 2);
 }
 
+static size_t webp_lossy_fast_m0(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return encode(in, len, out, cap, 0);
+}
+
 static size_t webp_lossy_best(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
   return encode(in, len, out, cap, 6);
 }
@@ -66,3 +70,4 @@ BENCH_OP("webp-encode-lossy", webp_lossy_default)
 BENCH_OP("webp-encode-lossy-fast", webp_lossy_fast)
 BENCH_OP("webp-encode-lossy-best", webp_lossy_best)
 BENCH_OP("webp-encode-lossy-rgba", webp_lossy_rgba)
+BENCH_OP("webp-encode-lossy-fast-m0", webp_lossy_fast_m0)
