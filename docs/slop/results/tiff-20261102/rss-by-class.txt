@@ -1,0 +1,16 @@
+op                     class         image  libtiff image-rs       go
+tiff-decode-none       icon(13)        2.2      5.5      3.5      3.3
+tiff-decode-none       1mp(23)         9.2     12.1     20.0     74.9
+tiff-decode-none       large(8)      338.0    340.7    675.2    819.1
+tiff-decode-lzw        icon(13)        2.3      5.6      3.5      3.9
+tiff-decode-lzw        1mp(23)         8.2     11.1     20.4     58.2
+tiff-decode-lzw        large(8)      254.9    257.9    591.9    654.4
+tiff-decode-deflate    icon(13)        2.2      5.5      3.6      3.9
+tiff-decode-deflate    1mp(23)         7.9     10.9     18.8     56.3
+tiff-decode-deflate    large(8)      253.2    256.5    590.6    697.4
+tiff-decode-packbits   icon(13)        2.2      5.6      3.4      3.6
+tiff-decode-packbits   1mp(23)         9.2     12.1     20.1     65.8
+tiff-decode-packbits   large(8)      332.5    335.4    669.5    746.0
+tiff-decode-g4         icon(13)        2.2      5.5      3.3      3.1
+tiff-decode-g4         1mp(18)         6.0      9.0     13.4     28.8
+tiff-decode-g4         large(4)       32.8     35.8     72.0    111.4
