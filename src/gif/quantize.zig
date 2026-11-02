@@ -526,10 +526,15 @@ pub const Lookup = struct {
     }
 };
 
+/// The most error a pixel passes on, per channel.
+const max_error = 16;
+
 /// Floyd-Steinberg error diffusion over rows of RGBA, serpentine: even
 /// rows left to right, odd rows right to left. A transparent pixel takes
-/// no error and passes none on. `errors` holds two rows of `width + 2`
-/// pixels' errors, in sixteenths.
+/// no error and passes none on, and a pixel passes on at most `max_error`
+/// per channel, which keeps error that builds up where the palette is
+/// sparse from reaching a far color (stray dots of it). `errors` holds two
+/// rows of `width + 2` pixels' errors, in sixteenths.
 pub const Ditherer = struct {
     cur: []i16,
     next: []i16,
@@ -572,7 +577,7 @@ pub const Ditherer = struct {
             const p = palette.colors[i];
             const ahead: isize = if (forward) 1 else -1;
             for (0..3) |ch| {
-                const err: i16 = @as(i16, c[ch]) - p[ch];
+                const err: i16 = std.math.clamp(@as(i16, c[ch]) - p[ch], -max_error, max_error);
                 d.cur[@intCast((@as(isize, @intCast(x)) + 1 + ahead) * 3 + @as(isize, @intCast(ch)))] += err * 7;
                 d.next[@intCast((@as(isize, @intCast(x)) + 1 - ahead) * 3 + @as(isize, @intCast(ch)))] += err * 3;
                 d.next[(x + 1) * 3 + ch] += err * 5;
@@ -628,4 +633,28 @@ test "Lookup finds the nearest entry to the cell's center" {
     try testing.expectEqual(2, l.find(200, 20, 0));
     // Cached: the same cell answers the same.
     try testing.expectEqual(2, l.find(201, 21, 1));
+}
+
+test "dithering never reaches a far color, however long the error builds up" {
+    const gpa = testing.allocator;
+    const l = try gpa.create(Lookup);
+    defer gpa.destroy(l);
+    // Flat gray 100 against black, gray 120, and white: unbounded error
+    // diffusion keeps the mean by mixing in black dots; bounded, every
+    // pixel stays gray.
+    var p: Palette = .{ .len = 3 };
+    p.colors[0] = .{ 0, 0, 0 };
+    p.colors[1] = .{ 120, 120, 120 };
+    p.colors[2] = .{ 255, 255, 255 };
+    l.init(&p);
+    const width = 64;
+    var errors: [2 * (width + 2) * 3]i16 = undefined;
+    var d: Ditherer = .init(&errors, width);
+    const rgba: [width * 4]u8 = @splat(100);
+    const clear: [width]bool = @splat(false);
+    var out: [width]u8 = undefined;
+    for (0..64) |_| {
+        d.row(l, &p, &rgba, &clear, 0, &out);
+        for (out) |i| try testing.expectEqual(1, i);
+    }
 }

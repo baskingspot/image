@@ -42,7 +42,7 @@ fn still(comptime options: gif.EncodeOptions, input: []const u8, choice: u64) !v
     try harness.checkEncoderWith(With(options), .{
         .max_width = max_side,
         .max_height = max_side,
-        .expect = Bound(options.dither == .none).expect,
+        .expect = Bound(options.dither != .none).expect,
     }, input, choice);
 }
 
@@ -122,10 +122,13 @@ fn colorCount(rgba: []const u8) usize {
 /// (binarized RGBA8) and the decode `got`: the same transparent pixels,
 /// every color within the source's range in each channel, with 1024
 /// opaque pixels or more a mean within 8 of the source's in each channel,
-/// and, without dithering, each pixel's color no farther from its source
-/// than any entry of the color table, plus twice the distance a 6-bit
-/// cell's center can be from its colors (quantize.zig's `Lookup`).
-fn bounded(want: []const u8, got: []const u8, nearest: bool) bool {
+/// and each pixel's color no farther from its source than any entry of the
+/// color table, plus twice the distance a 6-bit cell's center can be from
+/// its colors (quantize.zig's `Lookup`). With dithering, a pixel maps from
+/// its color plus the error its neighbors pass on, at most 16 a channel
+/// (quantize.zig's `max_error`), and 1 for rounding, so the slack grows by
+/// twice that distance.
+fn bounded(want: []const u8, got: []const u8, dither: bool) bool {
     var lo: [3]u8 = @splat(255);
     var hi: [3]u8 = @splat(0);
     var i: usize = 0;
@@ -160,9 +163,9 @@ fn bounded(want: []const u8, got: []const u8, nearest: bool) bool {
     if (opaque_pixels >= 1024) for (0..3) |c| {
         if (@abs(sum[0][c] - sum[1][c]) > 8 * opaque_pixels) return false;
     };
-    if (!nearest) return true;
     if (table_len == 0) return false;
-    const slack = 2 * @sqrt(3.0 * 1.5 * 1.5) + 1e-9;
+    const diffused: f64 = if (dither) 2 * @sqrt(3.0 * 17 * 17) else 0;
+    const slack = 2 * @sqrt(3.0 * 1.5 * 1.5) + diffused + 1e-9;
     i = 0;
     while (i < want.len) : (i += 4) {
         if (want[i + 3] == 0) continue;
@@ -181,7 +184,7 @@ fn distance(a: *const [3]u8, b: *const [3]u8) f64 {
     return @sqrt(s);
 }
 
-fn Bound(comptime nearest: bool) type {
+fn Bound(comptime dither: bool) type {
     return struct {
         /// `want` is the source as RGBA8: binarized, it is the answer when
         /// it has at most 256 colors; otherwise the decode is accepted, by
@@ -189,7 +192,7 @@ fn Bound(comptime nearest: bool) type {
         fn expect(want: PixelBuffer, _: PixelBuffer) void {
             binarize(want.pixels);
             if (colorCount(want.pixels) <= 256) return;
-            if (captured.len == want.pixels.len and bounded(want.pixels, captured, nearest)) {
+            if (captured.len == want.pixels.len and bounded(want.pixels, captured, dither)) {
                 @memcpy(want.pixels, captured);
             }
         }
