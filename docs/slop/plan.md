@@ -324,6 +324,12 @@ orb asks for a change to them, or for text in this file, in its report.
   decision 12. `loop_count` is 1 without a loop extension, and
   `gif.Decoder.Options.ignore_too_much_data` matches Wuffs's quirk, including
   when a zero-area or interlaced frame counts as whole.
+- **GIF metadata** (landed at `5c3839d`; results/gif-meta-20261102.md): GIF
+  reports ICC (ICCRGBG1012) and XMP (XMP DataXMP) through the blob sink and
+  Metadata under decision 13. The first of each kind wins, and ones after the
+  first frame go through `applyTrailer` and `finalConfig`. The oracle hands
+  Wuffs empty NETSCAPE2.0 extensions renamed, because Wuffs reads their
+  terminator as a sub-block size (gif.md).
 - **Netpbm oracle determinism** (landed at `c94a296`): a data race, not an
   oracle library. `comparable()` cached our decode in globals shared by the
   oracle's worker threads; they are `threadlocal` now. Wrappers that keep
