@@ -241,9 +241,14 @@ owning the files adding-a-format.md assigns to its format plus
   convert-tails, png-perf, netpbm-perf, and qoi-perf (20261102). A
   `@Vector(N, bool)` bit cast puts lane 0 in the top bit on big-endian; use
   a helper that reverses it there.
-- **Performance pass 2** (branch `wave2-perf`): `src/convert.zig` (with the
-  `cmyk8` and `cmyk16` kernels, decision 15) and `src/qoi/`; then whatever
-  the full bench-compare shows below 1.
+- **Performance pass 2** (branch `wave2-perf`): `src/convert.zig` and
+  `src/qoi/`. Landed so far: the `cmyk8` and `cmyk16` kernels (decision 15),
+  and QOI decode in one loop at every size (results/qoi-icons-20261102.md):
+  INDEX, runs, and RGBA take their own branches, and DIFF, LUMA, and RGB go
+  through the 256-entry table. The 64×64 branch-per-kind loop is gone: it
+  won only on single-file icon rows, where the predictor has learned the
+  file. Rotating icons are 1.31–1.60× the qoi crate. Next: whatever the full
+  bench-compare shows below 1.
 
 Wave 1, five orbs in parallel. Each owns the files adding-a-format.md assigns
 to its formats, plus `docs/slop/<fmt>.md` for its notes and decisions, and
