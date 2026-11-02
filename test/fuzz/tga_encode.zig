@@ -42,14 +42,11 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
     return buf[0..len];
 }
 
-/// Seeds for the coverage-guided fuzzer, each with its length first (see
-/// tga.zig).
+/// Seeds for the coverage-guided fuzzer.
 pub const seeds = [_][]const u8{
-    seed("\x05\x03" ++ "\x01\x02\x03\x04" ** 8),
-    seed("\x2f\x01" ++ "\x80" ** 64 ++ "\x01\x02"),
+    "\x05\x03" ++ "\x01\x02\x03\x04" ** 8,
+    "\x2f\x01" ++ "\x80" ** 64 ++ "\x01\x02",
 };
-
-const seed = @import("tga.zig").seed;
 
 test "tga_encode on the coverage-guided fuzzer" {
     try harness.zigFuzz(@This());

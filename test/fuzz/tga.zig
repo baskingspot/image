@@ -3,7 +3,6 @@
 //! files, generated files of every image type, and the encoder's output.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const Io = std.Io;
 const image = @import("image");
 const harness = @import("harness.zig");
@@ -12,8 +11,8 @@ const tga = image.tga;
 pub const name = "tga";
 
 /// Seed directories, relative to the repository root (corpus/README.md),
-/// and the extensions of the files in them to take. Not bench/corpus-gen/tga,
-/// whose 50-megapixel files are past what test/oracle/compare.zig loads.
+/// and the extensions of the files in them to take. Not bench/corpus-gen/tga:
+/// its photos and screenshots cut inputs per second fourteenfold.
 pub const corpus = [_][]const u8{ "corpus/fetched", "corpus/vendor" };
 pub const extensions = [_][]const u8{".tga"};
 
@@ -230,35 +229,18 @@ fn encoded(random: std.Random, buf: []u8) []u8 {
 }
 
 /// Hand-written seeds for the coverage-guided fuzzer, which has no corpus
-/// on disk. `std.testing.Smith` reads an input as a 4-byte length and the
-/// bytes (then the choice, 0 when absent), so each seed carries its length.
+/// on disk.
 pub const seeds = [_][]const u8{
     // 2 by 2, 24-bit, bottom-left.
-    seed("\x00\x00\x02" ++ "\x00" ** 9 ++ "\x02\x00\x02\x00\x18\x00" ++ "\x01\x02\x03" ** 4),
+    "\x00\x00\x02" ++ "\x00" ** 9 ++ "\x02\x00\x02\x00\x18\x00" ++ "\x01\x02\x03" ** 4,
     // Run-length, color-mapped, two 32-bit entries, crossing scan lines.
-    seed("\x00\x01\x09\x00\x00\x02\x00\x20" ++ "\x00" ** 4 ++ "\x02\x00\x02\x00\x08\x28" ++
-        "\x01\x02\x03\x80\x04\x05\x06\xff" ++ "\x82\x01\x00\x00"),
+    "\x00\x01\x09\x00\x00\x02\x00\x20" ++ "\x00" ** 4 ++ "\x02\x00\x02\x00\x08\x28" ++
+        "\x01\x02\x03\x80\x04\x05\x06\xff" ++ "\x82\x01\x00\x00",
     // 16-bit gray and alpha, top-right, with a footer.
-    seed("\x00\x00\x03" ++ "\x00" ** 9 ++ "\x01\x00\x01\x00\x10\x38" ++ "\x40\x80" ++
-        "\x00" ** 8 ++ "TRUEVISION-XFILE.\x00"),
+    "\x00\x00\x03" ++ "\x00" ** 9 ++ "\x01\x00\x01\x00\x10\x38" ++ "\x40\x80" ++
+        "\x00" ** 8 ++ "TRUEVISION-XFILE.\x00",
 };
 
-/// `bytes` as a seed: its length, then itself.
-pub fn seed(comptime bytes: []const u8) []const u8 {
-    comptime {
-        var len: [4]u8 = undefined;
-        std.mem.writeInt(u32, &len, bytes.len, .little);
-        const with_len = len ++ bytes[0..bytes.len].*;
-        return &with_len;
-    }
-}
-
 test "tga on the coverage-guided fuzzer" {
-    // In Debug builds, Zig 0.16 can compare two null `?anyerror` fields read
-    // through pointers as different, which makes harness.zig's
-    // `Result.eql` report equal results as differing (FormatDiffers on
-    // these seeds). Skipped there until the harness compares copies;
-    // ReleaseSafe runs it.
-    if (builtin.mode == .Debug) return error.SkipZigTest;
     try harness.zigFuzz(@This());
 }
