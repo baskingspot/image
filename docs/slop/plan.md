@@ -729,6 +729,19 @@ orb asks for a change to them, or for text in this file, in its report.
 36. **jbrd corpus. Decided by the owner:** lossless JPEG XL transcodes of the
     fetched suites' JPEGs (860 KB) are committed under their suites'
     licenses, so CI exercises reconstruction.
+37. **ICO entries in order. Decided by the owner:** a multi-size icon with a
+    PNG entry must decode straight through without `Options.entry`: the
+    BMP/ICO orb bounds PNG work memory by the canvas size and counts bytes
+    through the PNG decoder, after the TIFF encoder.
+38. **ICO 16-bit sources. Decided by the owner:** convert to 8 bits per
+    channel before encoding a PNG entry (256 KiB more work memory, only for
+    16-bit sources).
+39. **ICO double encode. Decided by the owner:** keep measuring each PNG
+    entry with a discarding writer before writing it.
+40. **TIFF progressive JPEG. Decided by the owner:** progressive or
+    non-interleaved JPEG-in-TIFF stays `error.Unsupported`.
+41. **TIFF 12-bit JPEG. Decided by the owner:** 12-bit stays limited to gray,
+    RGB, and YCbCr pages; the samples path stays `Unsupported`.
 
 ## Harness requests
 
