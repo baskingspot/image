@@ -101,7 +101,16 @@ fn compareLax(input: []const u8) !void {
         if (lax.count < strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
         return;
     };
-    if (lax.err != strict.err or lax.count != strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
+    if (errorCode(lax.err) != errorCode(strict.err) or lax.count != strict.count or !strict.same(&lax, strict.count))
+        return error.LaxDiffers;
+}
+
+/// An optional error as an integer, 0 for none: Zig 0.16's x86_64 backend
+/// (Debug's default) miscompiles `==` on two optional errors, reading a
+/// flag byte they do not have, so equal errors can compare unequal
+/// (harness.zig's `errorCode` has the same workaround).
+fn errorCode(err: ?image.png.Decoder.Error) u16 {
+    return if (err) |e| @intFromError(e) else 0;
 }
 
 /// Rewrites the CRC of every whole chunk after the signature.
@@ -505,4 +514,20 @@ pub const seeds = [_][]const u8{
 
 test "png on the coverage-guided fuzzer" {
     try harness.zigFuzz(@This());
+}
+
+test "compareLax holds on the seeds whatever the stack holds" {
+    // A miscompiled comparison of optional errors read stale stack bytes;
+    // these patterns made it fail.
+    for (0..8) |i| {
+        dirtyStack(@truncate(i * 37));
+        for (seeds) |s| try compareLax(s);
+    }
+}
+
+/// Fills the stack below the caller with alternating `v` and `~v` pairs.
+noinline fn dirtyStack(v: u8) void {
+    var junk: [8192]u8 = undefined;
+    for (&junk, 0..) |*b, i| b.* = if (i & 2 == 0) v else ~v;
+    std.mem.doNotOptimizeAway(&junk);
 }
