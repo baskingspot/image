@@ -155,7 +155,9 @@ pub const Config = struct {
     /// The format that holds the source's pixels without loss and is
     /// cheapest to write: ask for it to skip conversion.
     native: PixelFormat,
-    /// The number of frames, or null when the header does not say.
+    /// The number of frames, or null when the header does not say, or says
+    /// more than `Limits.max_frames`, which then counts frames as they are
+    /// reached.
     frame_count: ?u32 = null,
     /// How many times an animation plays (0: forever), or null for a
     /// still image.

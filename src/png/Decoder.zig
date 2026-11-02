@@ -122,6 +122,15 @@ fctl: ?FrameControl = null,
 early_fctl: ?[26]u8 = null,
 /// Whether IDAT is the default image outside the animation, never decoded.
 skip_idat: bool = false,
+/// The next frame, once `decodeFrameConfig` has read up to its first data
+/// chunk's header and before `decodeFrame` draws it.
+pending: ?Pending = null,
+/// An eXIf after the image data, as PNG's extensions before the third
+/// edition allowed: `applyTrailer` reports it.
+late_exif: ?decode.Blob = null,
+late_orientation: ?decode.Orientation = null,
+
+const Pending = struct { fc: FrameControl, kind: u32 };
 
 const State = enum {
     start,
@@ -240,7 +249,7 @@ pub fn decodeConfig(d: *Decoder) Error!decode.Config {
         .width = d.ihdr.width,
         .height = d.ihdr.height,
         .native = d.native(),
-        .frame_count = if (d.animated) d.num_frames else 1,
+        .frame_count = if (!d.animated) 1 else if (d.num_frames <= d.options.limits.max_frames) d.num_frames else null,
         .loop_count = if (d.animated) d.num_plays else null,
         .work_len = d.work_len,
         .is_opaque = !d.hasAlpha(),
@@ -260,6 +269,27 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
     if (dst.width != d.ihdr.width or dst.height != d.ihdr.height) return error.SizeMismatch;
     if (work.len < d.work_len) return error.WorkTooSmall;
     return d.nextFrame(dst, work) catch |e| return d.fail(e);
+}
+
+/// Reads up to the next frame's pixels and returns the frame `decodeFrame`
+/// will decode next, without drawing it, or null after the last frame. A
+/// caller saves the region here for a frame whose disposal is `previous`.
+pub fn decodeFrameConfig(d: *Decoder) Error!?decode.Frame {
+    if (d.err) |e| return e;
+    if (d.state == .done) return null;
+    _ = try d.decodeConfig();
+    const p = (d.advance() catch |e| return d.fail(e)) orelse return null;
+    return d.frameOf(p.fc);
+}
+
+/// Sets in `config` an eXIf found after the image data, and the
+/// orientation it gives. `image.Decoder.finalConfig` calls it once the
+/// frames end. The other metadata chunks must come before the image data
+/// and are ignored after it.
+pub fn applyTrailer(d: *const Decoder, config: *decode.Config) void {
+    const blob = d.late_exif orelse return;
+    config.metadata.exif = blob;
+    if (d.late_orientation) |o| config.metadata.orientation = o;
 }
 
 fn fail(d: *Decoder, e: Error) Error {
@@ -449,6 +479,12 @@ fn workLen(h: Ihdr) ?usize {
 /// Metadata and unknown chunks, before or after the image data.
 fn readOther(d: *Decoder, c: Chunk) Error!void {
     var buf: [32]u8 = undefined;
+    // These must come before the image data and could not change `Config`
+    // after it, so they are skipped there, as libpng skips them.
+    if (d.state != .start) switch (c.type) {
+        types.gama, types.chrm, types.srgb, types.phys, types.bkgd, types.iccp => return d.endChunk(),
+        else => {},
+    };
     switch (c.type) {
         types.gama => if (try d.readSmall(&buf)) |b| {
             if (b.len != 4 or d.seen.gama) return;
@@ -546,7 +582,6 @@ fn readActl(d: *Decoder) Error!void {
     // A play count past 2^31 - 1 breaks the PNG integer rule but cannot
     // change the pixels, so it is reported as written, as Wuffs reads it.
     if (frames == 0 or frames > 0x7fff_ffff) return error.BadChunk;
-    try d.options.limits.checkFrames(frames);
     d.seen.actl = true;
     d.animated = true;
     d.num_frames = frames;
@@ -623,9 +658,13 @@ fn readExif(d: *Decoder) Error!void {
     try d.passData(d.left, d.options.blob_sink, blob, 0, prefix[0..n]);
     try d.endChunk();
     d.seen.exif = true;
+    const orientation = exif.orientation(prefix[0..n]);
     if (d.state == .start) {
         d.metadata.exif = blob;
-        if (exif.orientation(prefix[0..n])) |o| d.metadata.orientation = o;
+        if (orientation) |o| d.metadata.orientation = o;
+    } else {
+        d.late_exif = blob;
+        d.late_orientation = orientation;
     }
 }
 
@@ -674,13 +713,32 @@ fn parseFctl(d: *Decoder, b: *const [26]u8, default_image: bool) Error!FrameCont
 }
 
 fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
+    const p = try d.advance() orelse return null;
+    d.pending = null;
+    const f = try d.frame(dst, work, p.fc, p.kind);
+    return f;
+}
+
+/// Reads up to the next frame's first data chunk, through its header, and
+/// keeps the frame in `pending`; or reads IEND and returns null. The frame
+/// limit counts frames reached, not acTL's count, so a file whose acTL
+/// claims too many frames still gives the frames within the limit.
+fn advance(d: *Decoder) Error!?Pending {
+    if (d.pending) |p| return p;
+    if (d.state == .done) return null;
+    const p = try d.findFrame() orelse return null;
+    try d.options.limits.checkFrames(@as(u64, d.frames) + 1);
+    d.pending = p;
+    return p;
+}
+
+fn findFrame(d: *Decoder) Error!?Pending {
     if (d.state == .at_idat) {
         d.state = .between;
         if (!d.animated or d.fctl != null) {
             const fc = d.fctl orelse FrameControl{ .width = d.ihdr.width, .height = d.ihdr.height };
             d.fctl = null;
-            const f = try d.frame(dst, work, fc, types.idat);
-            return f;
+            return .{ .fc = fc, .kind = types.idat };
         }
         // The default image is not part of the animation: its IDAT
         // chunks are skipped wherever they are, as Wuffs skips them.
@@ -728,8 +786,7 @@ fn nextFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Frame {
                     continue;
                 };
                 d.fctl = null;
-                const f = try d.frame(dst, work, fc, types.fdat);
-                return f;
+                return .{ .fc = fc, .kind = types.fdat };
             },
             // acTL counts only before IDAT.
             types.actl => try d.endChunk(),
@@ -754,18 +811,23 @@ fn frame(d: *Decoder, dst: PixelBuffer, work: []u8, fc: FrameControl, kind: u32)
             while (x < row.len) : (x += bpp) @memcpy(row[x..][0..bpp], px[0..bpp]);
         }
     }
-    const over = fc.over and d.pixelAlpha();
-    try d.pixels(dst.sub(fc.x, fc.y, fc.width, fc.height), work, kind, over);
+    const f = d.frameOf(fc);
+    try d.pixels(dst.sub(fc.x, fc.y, fc.width, fc.height), work, kind, f.blend == .src_over);
     d.frames += 1;
+    return f;
+}
+
+/// The frame `fc` describes, as the next to decode.
+fn frameOf(d: *const Decoder, fc: FrameControl) decode.Frame {
     return .{
-        .index = index,
+        .index = d.frames,
         .x = fc.x,
         .y = fc.y,
         .width = fc.width,
         .height = fc.height,
         .duration = fc.duration,
         .disposal = fc.disposal,
-        .blend = if (over) .src_over else .src,
+        .blend = if (fc.over and d.pixelAlpha()) .src_over else .src,
         .is_opaque = !d.pixelAlpha(),
     };
 }
@@ -1728,11 +1790,18 @@ test "APNG frames: regions, blending, and the default image" {
             defer a.free(work);
             var canvas: [4 * 3 * 8]u8 align(2) = undefined;
             const dst = try PixelBuffer.init(canvas[0 .. 12 * format.bytesPerPixel()], format, 4, 3);
+            // In 8 bits, each frame is announced before it is drawn.
+            const announce = format == .rgba8;
+            const next0 = if (announce) try d.decodeFrameConfig() else null;
             const first = (try d.decodeFrame(dst, work)).?;
+            if (announce) try testing.expectEqual(first, next0.?);
             // The first frame's blend is src whatever fcTL says.
             const tenth = decode.flicks_per_second / 10;
             try testing.expectEqual(decode.Frame{ .index = 0, .width = 4, .height = 3, .duration = tenth }, first);
+            const next1 = if (announce) try d.decodeFrameConfig() else null;
             const second = (try d.decodeFrame(dst, work)).?;
+            if (announce) try testing.expectEqual(second, next1.?);
+            if (announce) try testing.expectEqual(null, try d.decodeFrameConfig());
             try testing.expectEqual(decode.Frame{
                 .index = 1,
                 .x = 1,
@@ -1776,6 +1845,75 @@ test "APNG frames: regions, blending, and the default image" {
         }
     }
 }
+
+test "an acTL count past the frame limit fails at the frame past it" {
+    const a = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    var px: [4]u8 = .{ 1, 2, 3, 255 };
+    var t: TestPng = .{};
+    defer t.deinit();
+    var seq: u32 = 0;
+    var fseq: u32 = 0;
+    try t.head(1, 1, 8, 6, false);
+    try t.chunk("acTL", "\x00\x00\x00\x02\x00\x00\x00\x00");
+    try t.fctl(&fseq, 1, 1, 0, 0, 0, 0);
+    try t.image("IDAT", &px, 1, 1, 32, false, random, 100, &seq);
+    try t.fctl(&fseq, 1, 1, 0, 0, 0, 0);
+    try t.image("fdAT", &px, 1, 1, 32, false, random, 100, &fseq);
+    try t.chunk("IEND", "");
+    var r: Io.Reader = .fixed(t.bytes.items);
+    var d: Decoder = .init(&r, .{ .limits = .{ .max_frames = 1 } });
+    const config = try d.decodeConfig();
+    // The count over the limit is not reported; the frames within it decode.
+    try testing.expectEqual(null, config.frame_count);
+    const work = try a.alloc(u8, config.work_len);
+    defer a.free(work);
+    var out: [4]u8 = undefined;
+    const dst = try PixelBuffer.init(&out, .rgba8, 1, 1);
+    _ = (try d.decodeFrame(dst, work)).?;
+    try testing.expectEqualSlices(u8, &px, &out);
+    try testing.expectError(error.TooManyFrames, d.decodeFrameConfig());
+    try testing.expectError(error.TooManyFrames, d.decodeFrame(dst, work));
+}
+
+test "an eXIf after the image data reaches the final config, other late chunks do not" {
+    const a = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    // Orientation 6 (right_top), big endian.
+    const exif_body = "MM\x00*\x00\x00\x00\x08" ++ "\x00\x01" ++ "\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00";
+    var raw: [3]u8 = .{ 9, 8, 7 };
+    var t: TestPng = .{};
+    defer t.deinit();
+    var seq: u32 = 0;
+    try t.head(1, 1, 8, 2, false);
+    try t.image("IDAT", &raw, 1, 1, 24, false, random, 100, &seq);
+    try t.chunk("gAMA", "\x00\x00\xb1\x8f");
+    try t.chunk("bKGD", "\x00\x01\x00\x02\x00\x03");
+    const exif_at = t.bytes.items.len + 8;
+    try t.chunk("eXIf", exif_body);
+    try t.chunk("IEND", "");
+    var r: Io.Reader = .fixed(t.bytes.items);
+    var d: ImageDecoder = try .init(.png, &r, .{});
+    const config = try d.decodeConfig();
+    try testing.expectEqual(decode.Metadata{}, config.metadata);
+    const work = try a.alloc(u8, config.work_len);
+    defer a.free(work);
+    var out: [3]u8 = undefined;
+    const dst = try PixelBuffer.init(&out, .rgb8, 1, 1);
+    while (try d.decodeFrame(dst, work)) |_| {}
+    // decodeConfig still gives the first answer; finalConfig adds the eXIf.
+    try testing.expectEqual(config, try d.decodeConfig());
+    const final = d.finalConfig().?;
+    try testing.expectEqual(decode.Metadata{
+        .orientation = .right_top,
+        .exif = .{ .kind = .exif, .offset = exif_at, .len = exif_body.len },
+    }, final.metadata);
+    try testing.expectEqual(null, final.background);
+}
+
+const ImageDecoder = @import("../Decoder.zig");
 
 test "an APNG canvas has alpha, and frame 0 clears what it does not cover" {
     const a = testing.allocator;

@@ -94,13 +94,16 @@ on the attributes type's say: it reports it, and the caller decides.
 - `workLen` is a row in the file's format plus, for RLE, its worst-case
   packets; null when a side exceeds 65535.
 
+## After the frames
+
+`applyTrailer` (plan.md decision 10) sets the extension area's gamma and
+density in `Config.metadata` and its key color in `Config.background`, so
+`image.Decoder.finalConfig` reports them; the attributes type has no place
+in `Config` and stays on `Decoder.trailer()`.
+
 ## Open questions for the owner
 
 - Gamma direction (above).
-- Metadata that follows the frames: TGA's footer, and PNG's chunks after
-  IDAT, arrive after `decodeFrame`. `Decoder.trailer()` is TGA's own answer;
-  a generic one (a `Decoder.trailingMetadata()` on `image.Decoder`, say)
-  would serve both.
 - 16-bit attribute bit: we follow the descriptor, Wuffs and stb_image never
   read it as alpha. Files from writers that set the bit and leave the
   descriptor at 0 read as opaque, which is what the specification says.

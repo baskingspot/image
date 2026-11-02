@@ -277,11 +277,13 @@ test "the next frame's config, before it is drawn" {
         try testing.expectEqualSlices(u8, &.{ 10, 20, 30, 255 }, &out);
         try testing.expectEqual(null, try d.decodeFrameConfig());
     }
-    // Netpbm's raw files do not say how many images follow, and it has no
-    // decodeFrameConfig yet.
+    // Netpbm's raw files do not say how many images follow; its own
+    // decodeFrameConfig finds out.
     if (comptime supports(.netpbm)) {
         r = .fixed("P5 1 1 255\n\x07");
         d = try .initDetect(&r, .{});
-        try testing.expectError(error.Unsupported, d.decodeFrameConfig());
+        const p = (try d.decodeFrameConfig()).?;
+        try testing.expectEqual(p, (try d.decodeFrame(try PixelBuffer.init(out[0..1], .gray8, 1, 1), &.{})).?);
+        try testing.expectEqual(null, try d.decodeFrameConfig());
     }
 }

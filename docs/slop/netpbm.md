@@ -48,7 +48,10 @@ Measurements: `results/netpbm-20261101.md`.
   (libnetpbm's reading of concatenated files). Whitespace after an image is
   skipped; then the input must end or hold the same magic, size, and native
   format, otherwise `FrameMismatch`. `frame_count` is null, because only the
-  end of the input tells. Plain files and PFM hold one image and the
+  end of the input tells. `decodeFrameConfig` (plan.md decision 11) skips
+  that whitespace and reads the next header, or finds the end, and returns
+  the frame; `decodeFrame` then reads only the raster. A short raster shows
+  only in `decodeFrame`. Plain files and PFM hold one image and the
   decoder reads nothing past it: a plain raster has no length, so a second
   plain image cannot be told from trailing text without reading on.
   Whether mismatched frames should rather be allowed (each frame its own

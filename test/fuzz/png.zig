@@ -25,6 +25,7 @@ pub fn check(input: []const u8, choice: u64) !void {
         file = fixed[0..input.len];
     }
     try compareLax(file);
+    try compareAnnounced(file);
     if (choice >> 62 & 1 == 1) return harness.checkDecoder(Lax, file, choice);
     return harness.checkDecoder(image.png.Decoder, file, choice);
 }
@@ -54,6 +55,9 @@ const Lax = struct {
 const Run = struct {
     err: ?image.png.Decoder.Error = null,
     count: usize = 0,
+    /// Whether `decodeFrameConfig`, called first, announced each frame
+    /// `decodeFrame` returned, and each error before a frame.
+    announced: bool = true,
     frames: [harness.limits.max_frames]image.Frame = undefined,
     hashes: [harness.limits.max_frames]u64 = undefined,
 
@@ -68,8 +72,9 @@ const Run = struct {
 var canvas: [harness.limits.max_pixels * 8]u8 = undefined;
 var work_memory: [1 << 20]u8 = undefined;
 
-/// Decodes every frame of `input` in its native format.
-fn run(input: []const u8, ignore_checksums: bool) Run {
+/// Decodes every frame of `input` in its native format, calling
+/// `decodeFrameConfig` before each one when `announce` is set.
+fn run(input: []const u8, ignore_checksums: bool, announce: bool) Run {
     var result: Run = .{};
     var r: std.Io.Reader = .fixed(input);
     var d: image.png.Decoder = .init(&r, .{ .limits = harness.limits, .ignore_checksums = ignore_checksums });
@@ -82,7 +87,26 @@ fn run(input: []const u8, ignore_checksums: bool) Run {
     const len = image.PixelBuffer.len(config.native, config.width, config.height).?;
     @memset(canvas[0..len], 0);
     while (result.count < result.frames.len) : (result.count += 1) {
-        const frame = d.decodeFrame(dst, work_memory[0..config.work_len]) catch |e| {
+        if (announce) {
+            const next = d.decodeFrameConfig();
+            const got = d.decodeFrame(dst, work_memory[0..config.work_len]);
+            if (next) |n| {
+                // An announced frame may still fail in its pixels.
+                if (got) |g| result.announced = std.meta.eql(n, g) else |_| {}
+            } else |e| {
+                result.announced = if (got) |_| false else |e2| e2 == e;
+            }
+            if (!result.announced) return result;
+            const frame = got catch |e| {
+                result.err = e;
+                return result;
+            } orelse return result;
+            result.frames[result.count] = frame;
+            result.hashes[result.count] = std.hash.Wyhash.hash(0, canvas[0..len]);
+            continue;
+        }
+        const got = d.decodeFrame(dst, work_memory[0..config.work_len]);
+        const frame = got catch |e| {
             result.err = e;
             return result;
         } orelse return result;
@@ -95,14 +119,24 @@ fn run(input: []const u8, ignore_checksums: bool) Run {
 /// With checksums ignored, a decode matches the strict one up to its first
 /// checksum error, and entirely when it has none.
 fn compareLax(input: []const u8) !void {
-    const strict = run(input, false);
-    const lax = run(input, true);
+    const strict = run(input, false, false);
+    const lax = run(input, true, false);
     if (strict.err) |e| if (e == error.BadCrc or e == error.BadChecksum) {
         if (lax.count < strict.count or !strict.same(&lax, strict.count)) return error.LaxDiffers;
         return;
     };
     if (errorCode(lax.err) != errorCode(strict.err) or lax.count != strict.count or !strict.same(&lax, strict.count))
         return error.LaxDiffers;
+}
+
+/// Announcing each frame with `decodeFrameConfig` changes nothing: the
+/// same frames, pixels, and error, and each frame is the one announced.
+fn compareAnnounced(input: []const u8) !void {
+    const plain = run(input, false, false);
+    const announced = run(input, false, true);
+    if (!announced.announced) return error.FrameConfigDiffers;
+    if (errorCode(plain.err) != errorCode(announced.err) or plain.count != announced.count or
+        !plain.same(&announced, plain.count)) return error.FrameConfigDiffers;
 }
 
 /// An optional error as an integer, 0 for none: Zig 0.16's x86_64 backend

@@ -91,8 +91,14 @@ records what it does where the specification leaves room, and why. Results:
   fuzzed inputs. Disposal is the caller's job, before the next
   call; frame 0's dispose-previous is reported as background (there is
   nothing to revert to). fcTL and fdAT sequence numbers must count up from 0
-  (`BadChunk`), the frame count must match acTL's at IEND (`BadChunk`), and
-  more frames than `Limits.max_frames` is `TooManyFrames` at acTL. A frame
+  (`BadChunk`), and the frame count must match acTL's at IEND (`BadChunk`).
+  `Limits.max_frames` counts frames as they are reached: the frame past it
+  is `TooManyFrames` from the call that reaches it, and an acTL count over
+  the limit makes `Config.frame_count` null rather than a number the
+  caller's limit forbids. It was checked at acTL until the PNG encoder's
+  oracle run found a file with a mutated acTL count whose first frame all
+  three references decode; frames take no memory of their own, so the
+  early check bought no safety. A frame
   count of 0 or past 2^31 − 1 is `BadChunk`; a play count past 2^31 − 1
   cannot change the pixels and is reported as written, as Wuffs reads it.
 - **Chunk order and contents.** Chunks that shape the pixels (IHDR, PLTE,
@@ -114,8 +120,18 @@ records what it does where the specification leaves room, and why. Results:
   offset just after the name and method byte); eXIf's is the whole chunk,
   and the orientation is read from its first 4 KiB. Both are passed to the
   blob sink as they stream past. Only chunks before the first IDAT count
-  toward `Config.metadata`; an eXIf after it still goes to the sink but
-  cannot change a config already returned.
+  toward `Config.metadata`, and `decodeConfig` gives the same answer after
+  the frames. The third edition puts every one of these chunks before IDAT;
+  after it, gAMA, cHRM, sRGB, pHYs, bKGD, and iCCP are skipped unread, as
+  libpng skips them. eXIf is the exception, since PNG's extensions before
+  the third edition allowed it after the image data and writers still put
+  it there: it goes to the sink, and `applyTrailer` (plan.md decision 10)
+  sets it and its orientation in `image.Decoder.finalConfig`. tIME and the
+  text chunks, the only chunks allowed there, have no place in `Config`.
+- **`decodeFrameConfig`** (decision 11) reads up to the next frame's first
+  data chunk (IDAT or fdAT, through its header) and returns its `Frame`;
+  the frame stays pending, and `decodeFrame` draws it without reading those
+  chunks again.
 - **When a frame ends.** `decodeFrame` returns once the frame's last data
   chunk's CRC is read and it has seen that the next chunk is of another
   kind; it does not read that chunk. A still image's IEND is read by the

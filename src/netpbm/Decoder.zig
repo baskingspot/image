@@ -207,20 +207,41 @@ pub fn decodeFrame(d: *Decoder, dst: PixelBuffer, work: []u8) Error!?decode.Fram
     _ = try d.decodeConfig();
     try dst.check();
     if (dst.width != d.first.width or dst.height != d.first.height) return error.SizeMismatch;
-    if (d.state == .more) {
-        const more = d.next() catch |e| return d.fail(e);
-        if (!more) {
-            d.state = .done;
-            return null;
-        }
-        d.state = .config;
-    }
+    if (!(d.advance() catch |e| return d.fail(e))) return null;
     raster(d.reader, d.header, dst) catch |e| return d.fail(e);
-    const index = d.frames;
+    const f = d.frameOf();
     d.frames += 1;
     d.state = if (d.header.magic.isSequence()) .more else .done;
+    return f;
+}
+
+/// Reads the next image's header and returns the frame `decodeFrame` will
+/// decode next, without decoding it, or null once there are no more: in a
+/// raw file, only the end of the input tells.
+pub fn decodeFrameConfig(d: *Decoder) Error!?decode.Frame {
+    if (d.err) |e| return e;
+    if (d.state == .done) return null;
+    _ = try d.decodeConfig();
+    if (!(d.advance() catch |e| return d.fail(e))) return null;
+    return d.frameOf();
+}
+
+/// After an image of a sequence, reads the next one's header, or reaches
+/// the end; returns whether an image's raster is next.
+fn advance(d: *Decoder) Error!bool {
+    if (d.state != .more) return true;
+    if (!try d.next()) {
+        d.state = .done;
+        return false;
+    }
+    d.state = .config;
+    return true;
+}
+
+/// The next image's frame.
+fn frameOf(d: *const Decoder) decode.Frame {
     return .{
-        .index = index,
+        .index = d.frames,
         .width = d.first.width,
         .height = d.first.height,
         .is_opaque = !d.first.native().hasAlpha(),
@@ -1199,6 +1220,17 @@ test "image sequences" {
     try testing.expectEqual(1, (try d.decodeFrame(dst, &.{})).?.index);
     try testing.expectEqualSlices(u8, &.{ 255, 0 }, &out);
     try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
+    // decodeFrameConfig announces each image, and the end, before decodeFrame.
+    r = .fixed(two ++ " \n");
+    d = .init(&r, .{});
+    for (0..2) |i| {
+        const announced = (try d.decodeFrameConfig()).?;
+        try testing.expectEqual(announced, (try d.decodeFrameConfig()).?);
+        try testing.expectEqual(i, announced.index);
+        try testing.expectEqual(announced, (try d.decodeFrame(dst, &.{})).?);
+    }
+    try testing.expectEqual(null, try d.decodeFrameConfig());
+    try testing.expectEqual(null, try d.decodeFrame(dst, &.{}));
 
     for ([_]struct { []const u8, Error }{
         .{ one ++ "P5 1 2 255\n\x00\x00", error.FrameMismatch },
@@ -1210,7 +1242,10 @@ test "image sequences" {
         r = .fixed(case[0]);
         d = .init(&r, .{});
         _ = try d.decodeFrame(dst, &.{});
-        try testing.expectError(case[1], d.decodeFrame(dst, &.{}));
+        // A header error shows before the image; a short raster only in it.
+        if (case[1] == error.Truncated) {
+            _ = (try d.decodeFrameConfig()).?;
+        } else try testing.expectError(case[1], d.decodeFrameConfig());
         try testing.expectError(case[1], d.decodeFrame(dst, &.{}));
     }
     // The frame limit applies as frames appear.

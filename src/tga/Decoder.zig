@@ -201,6 +201,17 @@ pub fn trailer(d: *const Decoder) ?Trailer {
     return if (d.state == .done and d.err == null) d.trailer_found else null;
 }
 
+/// Sets in `config` what the extension area gives: the gamma and the pixel
+/// aspect ratio in its metadata, and the key color as its background.
+/// `image.Decoder.finalConfig` calls it once the frames end; the attributes
+/// type is only in `trailer`.
+pub fn applyTrailer(d: *const Decoder, config: *decode.Config) void {
+    const e = (d.trailer() orelse return).extension orelse return;
+    if (e.metadata.gamma) |g| config.metadata.gamma = g;
+    if (e.metadata.density) |x| config.metadata.density = x;
+    if (e.background) |b| config.background = b;
+}
+
 fn fail(d: *Decoder, e: Error) Error {
     d.err = e;
     return e;
@@ -916,6 +927,17 @@ test "the footer and extension area" {
     try testing.expectEqual(decode.Density{ .x = 1, .y = 2, .unit = .none }, e.metadata.density.?);
     try testing.expectEqual(45455, e.metadata.gamma.?);
     try testing.expectEqual(Extension.Alpha.premultiplied, e.alpha.?);
+    // Through image.Decoder, the extension area reaches the final config.
+    var ar: Io.Reader = .fixed(after);
+    var ad: ImageDecoder = try .init(.tga, &ar, .{});
+    const config = try ad.decodeConfig();
+    const dst = try PixelBuffer.init(&out, .gray8, 1, 1);
+    while (try ad.decodeFrame(dst, &.{})) |_| {}
+    const final = ad.finalConfig().?;
+    try testing.expectEqual(e.background, final.background);
+    try testing.expectEqual(e.metadata.gamma, final.metadata.gamma);
+    try testing.expectEqual(e.metadata.density, final.metadata.density);
+    try testing.expectEqual(null, config.background);
     // Right before the footer, after a scan-line table; and through a
     // reader that hands over 3 bytes at a time.
     const before = image ++ "\x00" ** 4 ++ ext ++ testFooter(image.len + 4);
@@ -940,6 +962,8 @@ test "the footer and extension area" {
     _, t = try testDecode(unset, .gray8, &out);
     try testing.expectEqual(Extension{}, t.extension.?);
 }
+
+const ImageDecoder = @import("../Decoder.zig");
 
 /// A reader that hands over at most 3 bytes per read.
 const Trickle = struct {
