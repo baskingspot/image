@@ -136,6 +136,18 @@ height)` saying how much work memory to pass, and `image.EncodeError` as
 
 ## Benchmarks
 
+Encode and conversion rows take raw pixels with no header; the harness sets
+`bench_width`/`bench_height` from the input's `-WxH` (bench/c/arm.h;
+`bench/zig/input.zig`, `input_size()` in Rust, `inWidth`/`inHeight` in Go).
+A `rotate=<op>` row cycles through one size's distinct files so a tiny
+input's branches cannot be learned; `png-decode-icons` and
+`qoi-decode-icons` rotate 64 icons, and QOI icon numbers cite them
+(results/icon-rotation-20261102.md). The oracle protocol has an encode op
+(`.encode`; the request is u32 width, u32 height, pixels; the response is
+the file), used by qoi_encode, and oracle modules must be thread-safe.
+`harness.checkEncoderWith` takes an `expect` hook and sides past 64 for
+quantizing and lossy encoders.
+
 Megapixels per second and peak RSS, decode and encode, per format, against
 the bar library and the comparison arms in AGENTS.md, using utf's harness
 design: each arm a pinned server, rows timed back to back in rotating order,
@@ -311,12 +323,11 @@ orb asks for a change to them, or for text in this file, in its report.
 - **PNG LaxDiffers fix** (landed at `33cca5f`): the fuzz check compared
   `?anyerror` values, the Zig 0.16 Debug miscompile again; it compares error
   codes now. Compare optional errors only through `errorCode`.
-- **Harness pass 2** (branch `wave2-harness2`, the harness orb): the
-  harness cores, `build.zig`, the justfile, `bench/c/arm.c`,
-  adding-a-format.md, and `test/fuzz/wbmp_encode.zig` and
-  `test/oracle/qoi_encode.zig`, for the encoder hook, the oracle encode op,
-  the bench encode-input convention, oracle-build's rename, and a rotating
-  icon bench row.
+- **Harness pass 2** (landed at `f86574e`): `harness.checkEncoderWith` with
+  an `expect` hook and sides past 64; an encode op in the oracle protocol;
+  `just oracle N SEED FORMAT...`; raw encode inputs sized from their names;
+  oracle-build renaming into place; rotating icon rows
+  (results/icon-rotation-20261102.md).
 - **Decoder contract** (landed at `5b7b9f4`): `image.Decoder.finalConfig`
   with an optional `applyTrailer` (decision 10); `decodeFrameConfig`
   (decision 11), forwarded when a format has one, synthesized for formats of
@@ -435,18 +446,8 @@ not yet made:
 
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
-- `harness.checkEncoder`: a hook mapping the source to its expected decode
-  (quantizing and lossy encoders: WBMP now, GIF and JPEG later), a public
-  `Drip`, and sides above 64; then wbmp_encode drops its private copy.
 - `src/encode.zig`: take the source as a const pixel view.
-- An encode op in the oracle protocol (qoi_encode passes its file as a
-  one-row gray8 image), and adding-a-format.md saying oracle modules must be
-  thread-safe.
-- One convention for bench encode inputs' size (BMP assumes square; QOI and
-  WBMP read a 12-byte header of little-endian u32 width, height, channels).
-- `just oracle-build` writing `zig-out/bin/image-oracle` in place, which
-  fails a running `just oracle` with ETXTBSY; write and rename.
-- A bench row rotating through many distinct icons, so the branch predictor
-  cannot memorize one tiny file.
+- `just ci`'s oracle pass is about 270 s of 419 s (wbmp 64 s, jpeg 60 s,
+  qoi 59 s); profile wbmp and qoi.
 - `cmyk8` and `cmyk16` pixel formats with their `image.convert` kernels
   (decision 15), once the performance pass lands.
