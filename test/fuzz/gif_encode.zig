@@ -47,12 +47,11 @@ fn still(comptime options: gif.EncodeOptions, input: []const u8, choice: u64) !v
 }
 
 /// The encoder with `options` whatever it is passed, under the names
-/// `checkEncoderWith` looks for, and our decoder, remembering the pixels
-/// it decodes for `Bound`.
+/// `checkEncoderWith` looks for.
 fn With(comptime options: gif.EncodeOptions) type {
     return struct {
         pub const EncodeOptions = gif.EncodeOptions;
-        pub const Decoder = Capture;
+        pub const Decoder = gif.Decoder;
         pub fn workLen(_: EncodeOptions, width: u32, height: u32) ?usize {
             return gif.workLen(options, width, height);
         }
@@ -62,37 +61,14 @@ fn With(comptime options: gif.EncodeOptions) type {
     };
 }
 
-/// The pixels the last decode wrote, and its file's global color table,
-/// every entry of which is one of the image's colors.
-var captured: []const u8 = &.{};
-var table: [256][3]u8 = undefined;
-var table_len: usize = 0;
-
-const Capture = struct {
-    d: gif.Decoder,
-
-    pub fn init(r: *Io.Reader, options: image.DecodeOptions) Capture {
-        const file = r.buffered();
-        table_len = 0;
-        if (file.len >= 13 and file[10] & 0x80 != 0) {
-            const n = @as(usize, 2) << @intCast(file[10] & 7);
-            if (file.len >= 13 + n * 3) {
-                for (0..n) |i| table[i] = file[13 + i * 3 ..][0..3].*;
-                table_len = n;
-            }
-        }
-        return .{ .d = .init(r, .{ .limits = options.limits }) };
-    }
-
-    pub fn decodeConfig(c: *Capture) gif.Decoder.Error!image.Config {
-        return c.d.decodeConfig();
-    }
-
-    pub fn decodeFrame(c: *Capture, dst: PixelBuffer, work: []u8) gif.Decoder.Error!?image.Frame {
-        captured = dst.pixels[0 .. @as(usize, dst.width) * dst.height * 4];
-        return c.d.decodeFrame(dst, work);
-    }
-};
+/// A file's global color table, every entry of which is one of the
+/// image's colors; empty when it has none.
+fn globalTable(file: []const u8) []const [3]u8 {
+    if (file.len < 13 or file[10] & 0x80 == 0) return &.{};
+    const n = @as(usize, 2) << @intCast(file[10] & 7);
+    if (file.len < 13 + n * 3) return &.{};
+    return @ptrCast(file[13..][0 .. n * 3]);
+}
 
 /// RGBA8 as GIF stores it.
 fn binarize(rgba: []u8) void {
@@ -128,7 +104,7 @@ fn colorCount(rgba: []const u8) usize {
 /// its color plus the error its neighbors pass on, at most 16 a channel
 /// (quantize.zig's `max_error`), and 1 for rounding, so the slack grows by
 /// twice that distance.
-fn bounded(want: []const u8, got: []const u8, dither: bool) bool {
+fn bounded(want: []const u8, got: []const u8, table: []const [3]u8, dither: bool) bool {
     var lo: [3]u8 = @splat(255);
     var hi: [3]u8 = @splat(0);
     var i: usize = 0;
@@ -163,14 +139,14 @@ fn bounded(want: []const u8, got: []const u8, dither: bool) bool {
     if (opaque_pixels >= 1024) for (0..3) |c| {
         if (@abs(sum[0][c] - sum[1][c]) > 8 * opaque_pixels) return false;
     };
-    if (table_len == 0) return false;
+    if (table.len == 0) return false;
     const diffused: f64 = if (dither) 2 * @sqrt(3.0 * 17 * 17) else 0;
     const slack = 2 * @sqrt(3.0 * 1.5 * 1.5) + diffused + 1e-9;
     i = 0;
     while (i < want.len) : (i += 4) {
         if (want[i + 3] == 0) continue;
         const d = distance(want[i..][0..3], got[i..][0..3]);
-        for (table[0..table_len]) |p| if (d > distance(want[i..][0..3], &p) + slack) return false;
+        for (table) |*p| if (d > distance(want[i..][0..3], p) + slack) return false;
     }
     return true;
 }
@@ -189,11 +165,11 @@ fn Bound(comptime dither: bool) type {
         /// `want` is the source as RGBA8: binarized, it is the answer when
         /// it has at most 256 colors; otherwise the decode is accepted, by
         /// becoming the answer, when it is within the bound.
-        fn expect(want: PixelBuffer, _: PixelBuffer) void {
+        fn expect(want: PixelBuffer, trip: harness.RoundTrip) void {
             binarize(want.pixels);
             if (colorCount(want.pixels) <= 256) return;
-            if (captured.len == want.pixels.len and bounded(want.pixels, captured, dither)) {
-                @memcpy(want.pixels, captured);
+            if (bounded(want.pixels, trip.got.pixels, globalTable(trip.file), dither)) {
+                @memcpy(want.pixels, trip.got.pixels);
             }
         }
     };

@@ -124,7 +124,10 @@ bytes, and that our decoder reads back the source converted to the file's
 native format. A quantizing or lossy encoder calls
 `harness.checkEncoderWith(F, .{ .expect = ... }, input, choice)` instead,
 whose `expect` turns that converted source into what the file must decode to
-(test/fuzz/wbmp_encode.zig thresholds it); `max_width` and `max_height`
+(test/fuzz/wbmp_encode.zig thresholds it). It also gets the round trip,
+`harness.RoundTrip`: the source, what our decoder read, and the file, so a
+bounded encoder accepts a decode by copying `trip.got` into `want`
+(test/fuzz/gif_encode.zig); `max_width` and `max_height`
 make larger images than the default 48 by 48. `harness.Drip` is the
 few-bytes-at-a-time writer, for a target's own checks.
 

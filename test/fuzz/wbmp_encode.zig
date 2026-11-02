@@ -42,7 +42,7 @@ pub fn check(input: []const u8, choice: u64) !void {
 }
 
 /// Gray at 128 and above is white, the rest black.
-fn threshold(want: PixelBuffer, _: PixelBuffer) void {
+fn threshold(want: PixelBuffer, _: harness.RoundTrip) void {
     for (want.pixels) |*v| v.* = if (v.* >= 128) 255 else 0;
 }
 

@@ -655,9 +655,20 @@ pub const EncoderCheck = struct {
     /// What the file must decode to, for an encoder that quantizes (WBMP's
     /// threshold, a palette) or loses detail: called with `want`, the
     /// source converted to the file's native format by `image.convert`,
-    /// to change in place, and the source itself. Null expects `want`
-    /// unchanged, a lossless round trip.
-    expect: ?*const fn (want: PixelBuffer, src: PixelBuffer) void = null,
+    /// to change in place, and the round trip it came from. A hook that
+    /// accepts a decode within a bound copies `trip.got` into `want`. Null
+    /// expects `want` unchanged, a lossless round trip.
+    expect: ?*const fn (want: PixelBuffer, trip: RoundTrip) void = null,
+};
+
+/// What `EncoderCheck.expect` sees of a round trip, to read only.
+pub const RoundTrip = struct {
+    /// The source, in its own pixel format.
+    src: PixelBuffer,
+    /// What our decoder read from the file, in its native format.
+    got: PixelBuffer,
+    /// The encoded file.
+    file: []const u8,
 };
 
 /// `checkEncoderWith` with the defaults: images up to 48 by 48, and a
@@ -726,7 +737,7 @@ pub fn checkEncoderWith(comptime F: type, comptime check: EncoderCheck, input: [
     _ = d.decodeFrame(got, work_buffer[0..config.work_len]) catch return error.RoundTripDiffers;
     const want = PixelBuffer.init(buffers[1][0..native_len], config.native, width, height) catch unreachable;
     image.convert.convertBuffer(want, src) catch unreachable;
-    if (check.expect) |expect| expect(want, src);
+    if (check.expect) |expect| expect(want, .{ .src = src, .got = got, .file = file });
     if (!std.mem.eql(u8, got.pixels, want.pixels)) return error.RoundTripDiffers;
 }
 
@@ -857,8 +868,12 @@ const ToyThreshold = struct {
     fn threshold(gray: []u8) void {
         for (gray) |*v| v.* = if (v.* >= 128) 255 else 0;
     }
-    fn expect(want: PixelBuffer, _: PixelBuffer) void {
+    fn expect(want: PixelBuffer, _: RoundTrip) void {
         threshold(want.pixels);
+    }
+    /// Accepts the decode, when it is the file's pixels.
+    fn accept(want: PixelBuffer, trip: RoundTrip) void {
+        if (std.mem.eql(u8, trip.file[6..], trip.got.pixels)) @memcpy(want.pixels, trip.got.pixels);
     }
     const Decoder = struct {
         r: *Io.Reader,
@@ -889,6 +904,9 @@ test checkEncoderWith {
         // Sides past 256, and the threshold expected.
         const check: EncoderCheck = .{ .max_width = 300, .max_height = 200, .expect = ToyThreshold.expect };
         try checkEncoderWith(ToyThreshold, check, in, i);
+        // A hook that accepts what was decoded from the file.
+        const accepting: EncoderCheck = .{ .max_width = 300, .max_height = 200, .expect = ToyThreshold.accept };
+        try checkEncoderWith(ToyThreshold, accepting, in, i);
         // Without `expect`, a thresholded file does not round-trip.
         checkEncoderWith(ToyThreshold, .{ .max_width = 300, .max_height = 200 }, in, i) catch |e| {
             if (e != error.RoundTripDiffers) return e;
