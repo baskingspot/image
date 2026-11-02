@@ -1,7 +1,9 @@
 //! The WebP lossless encoder's output against libwebp and Wuffs: every
 //! input is a file `image.webp.encode` wrote from pixels the encoder's fuzz
 //! target generates, in a random pixel format, at an effort (and with
-//! metadata or not) that its size picks. The oracles must decode it as this
+//! metadata or not) that its size picks; or, for a quarter of them, an
+//! alpha plane `image.webp.encodeAlpha` wrote at that effort, behind a VP8L
+//! header (the fuzz target's `alphaFile`). The oracles must decode it as this
 //! package does, and the fuzz target (test/fuzz/webp_encode.zig) checks
 //! that this package decodes it to the source converted to `bgra8`, so the
 //! oracles decode it to that too. The harness mutates a quarter of the
@@ -9,8 +11,9 @@
 //! expected splits apply), so `comparable` leaves out every answer for a
 //! file that is not as the encoder wrote it: one that this package's
 //! decoder rejects, or whose pixels encode, with the options its size
-//! picks, to other bytes. The encoder's output depends only on the pixels
-//! as `bgra8` and the options, so that test is exact.
+//! picks, to other bytes, as an image or as an alpha plane in green. The
+//! encoder's output depends only on the pixels as `bgra8` and the options,
+//! so that test is exact.
 //!
 //! Wuffs (v0.4.0-alpha.12) decodes no VP8L image inside VP8X: libwebp's
 //! own lossless files with metadata added by webpmux fail with "bad
@@ -71,6 +74,7 @@ threadlocal var last: struct { hash: u64 = 0, len: usize = 0, intact: bool = fal
 threadlocal var check_pixels: [side * side * 4]u8 = undefined;
 threadlocal var check_file: [1 << 16]u8 = undefined;
 threadlocal var check_work: [8 << 20]u8 = undefined;
+threadlocal var check_plane: [side * side]u8 = undefined;
 
 /// Whether `input` is a file the encoder writes: our decoder reads it as
 /// at most `side` by `side` pixels that encode to it again.
@@ -95,7 +99,18 @@ fn reencodes(input: []const u8) bool {
     if (work_len > check_work.len) return false;
     var w: std.Io.Writer = .fixed(&check_file);
     image.webp.encode(&w, px, options, check_work[0..work_len]) catch return false;
-    return std.mem.eql(u8, w.buffered(), input);
+    if (std.mem.eql(u8, w.buffered(), input)) return true;
+    // An alpha plane in green, red and blue 0, alpha opaque.
+    const n = len / 4;
+    for (check_plane[0..n], 0..) |*a, k| {
+        const p = check_pixels[k * 4 ..][0..4];
+        if (p[0] != 0 or p[2] != 0 or p[3] != 0xff) return false;
+        a.* = p[1];
+    }
+    const plane = check_plane[0..n];
+    const file = target.alphaFile(&check_file, plane, config.width, config.height, options.effort, &check_work) catch
+        return false;
+    return std.mem.eql(u8, file, input);
 }
 
 pub const fuzz = struct {
@@ -118,8 +133,14 @@ pub const fuzz = struct {
             const floats: []align(1) f32 = @ptrCast(px);
             for (floats, 0..) |*v, k| v.* = @as(f32, @floatFromInt(body[k % body.len])) / 255;
         }
-        const src = image.PixelBuffer.init(px, format, width, height) catch unreachable;
         const options = variant(width, height);
+        if (random.uintLessThan(u8, 4) == 0) {
+            const plane = pixels[0 .. width * height];
+            for (plane, 0..) |*b, k| b.* = body[k % body.len];
+            return target.alphaFile(buf, plane, width, height, options.effort, &work) catch |e|
+                std.debug.panic("webp_encode oracle: alpha encode failed: {t}", .{e});
+        }
+        const src = image.PixelBuffer.init(px, format, width, height) catch unreachable;
         const work_len = image.webp.workLen(options, width, height).?;
         var w: std.Io.Writer = .fixed(buf);
         image.webp.encode(&w, src, options, work[0..work_len]) catch |e|

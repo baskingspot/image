@@ -1,5 +1,7 @@
 //! The WebP lossless encoder's fuzz target: `harness.checkEncoder` at each
-//! effort, and with metadata, which moves the file to VP8X. `generate`
+//! effort, and with metadata, which moves the file to VP8X; and
+//! `encodeAlpha`, whose stream behind a VP8L header must decode to the
+//! plane in green. `generate`
 //! builds pixels from a few colors or from runs, repeats, and small steps,
 //! so that color indexing, bundling, the predictor and color transforms,
 //! backward references, and the color cache all come up. Decoding in
@@ -37,12 +39,65 @@ const variants = [_]webp.EncodeOptions{
 const sizes: harness.EncoderCheck = .{ .max_width = 96, .max_height = 96 };
 
 pub fn check(input: []const u8, choice: u64) !void {
-    switch (choice % variants.len) {
+    switch (choice % (variants.len + 1)) {
         inline 0...variants.len - 1 => |i| {
-            try harness.checkEncoderWith(As(variants[i]), sizes, input, choice / variants.len);
+            try harness.checkEncoderWith(As(variants[i]), sizes, input, choice / (variants.len + 1));
         },
+        variants.len => try checkAlpha(input, choice / (variants.len + 1)),
         else => unreachable,
     }
+}
+
+const max_alpha = sizes.max_width * sizes.max_height;
+var plane: [max_alpha]u8 = undefined;
+var alpha_file: [max_alpha * 5 + 1024]u8 = undefined;
+var alpha_work: [8 << 20]u8 = undefined;
+var alpha_pixels: [max_alpha * 4]u8 = undefined;
+
+/// `encodeAlpha` at an effort from `choice`: its stream, behind a VP8L
+/// header, decodes to the plane in green, with red and blue 0 and alpha
+/// opaque.
+fn checkAlpha(input: []const u8, choice: u64) !void {
+    if (input.len < 3) return;
+    const width = 1 + @as(u32, input[0]) % sizes.max_width;
+    const height = 1 + @as(u32, input[1]) % sizes.max_height;
+    const n = width * height;
+    const body = input[2..];
+    for (plane[0..n], 0..) |*b, i| b.* = body[i % body.len];
+    const file = alphaFile(&alpha_file, plane[0..n], width, height, @intCast(choice % 10), &alpha_work) catch
+        return error.EncodeFailed;
+    var r: std.Io.Reader = .fixed(file);
+    var d = webp.Decoder.init(&r, .{ .limits = harness.limits });
+    const config = d.decodeConfig() catch return error.RoundTripDiffers;
+    if (config.width != width or config.height != height) return error.RoundTripDiffers;
+    if (config.work_len > alpha_work.len) return error.RoundTripDiffers;
+    const got = PixelBuffer.init(alpha_pixels[0 .. n * 4], .bgra8, width, height) catch unreachable;
+    _ = d.decodeFrame(got, alpha_work[0..config.work_len]) catch return error.RoundTripDiffers;
+    for (plane[0..n], 0..) |a, i| {
+        const px = alpha_pixels[i * 4 ..][0..4];
+        if (px[0] != 0 or px[1] != a or px[2] != 0 or px[3] != 0xff) return error.RoundTripDiffers;
+    }
+}
+
+/// `plane` as `encodeAlpha` writes it at `effort`, made a lossless WebP
+/// file in `out`: the stream is a VP8L image's after its 40-bit header,
+/// so a header in front makes it one, with the plane in green.
+pub fn alphaFile(out: []u8, alpha: []const u8, width: u32, height: u32, effort: u4, work: []u8) ![]u8 {
+    const work_len = webp.workLen(.{ .effort = effort }, width, height) orelse return error.ImageTooLarge;
+    if (work_len > work.len) return error.WorkTooSmall;
+    const head = 12 + 8 + 5;
+    var w: std.Io.Writer = .fixed(out[head..]);
+    try webp.encodeAlpha(&w, alpha, width, height, effort, work[0..work_len]);
+    const chunk_len: u32 = @intCast(5 + w.end);
+    const file_len = 12 + 8 + chunk_len + (chunk_len & 1);
+    if (chunk_len & 1 != 0) try w.writeByte(0);
+    @memcpy(out[0..4], "RIFF");
+    std.mem.writeInt(u32, out[4..8], file_len - 8, .little);
+    @memcpy(out[8..16], "WEBPVP8L");
+    std.mem.writeInt(u32, out[16..20], chunk_len, .little);
+    out[20] = 0x2f;
+    std.mem.writeInt(u32, out[21..25], (width - 1) | (height - 1) << 14, .little);
+    return out[0..file_len];
 }
 
 /// image.webp with `options` as the default.

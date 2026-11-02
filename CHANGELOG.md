@@ -62,6 +62,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.webp.encodeAlpha` writes alpha planes 5–9% smaller and faster at every effort (at effort 1, 8.8% smaller in 18% less time), and effort 9 is now its smallest; the output is a different, still lossless stream.
 - `image.gif.encode` quantizes small images faster with `Quantizer.wu`: 1.16× on 32×32 and 64×64 icons and icon animations, with the same palettes.
 - `image.gif.Dither.floyd_steinberg` passes on no error from a pixel within 1 a channel of its palette entry: 1.3% smaller files on photos and screenshots (up to 14% on graphics), with PSNR +0.36 dB and SSIM +0.003.
 - `image.gif.encode` stores an image of at most 256 colors 1.14–1.25× faster, reading its pixels once instead of twice up to about 2.4 megapixels, with the same bytes and work memory.
