@@ -1,0 +1,35 @@
+image/arm, geomean              rows image MP/s    wuffs     ±   <1    ~   slowest vs wuffs
+BmpDecode/icon                    39     1834.8     1.29    1%    0    5   1.00 [0.87, 1.07] 32-icon_16-actions_address_book_new-16x16.bmp
+BmpDecode/1mp                     69     3620.2     1.00    1%   31   26   0.90 [0.83, 0.96] 24-textures_plants-plant_01-166x1022.bmp
+BmpDecode/large                   24     2255.2     0.97    2%    8   16   0.91 [0.85, 0.96] 32-photo_wikipedia-001-1276x850.bmp
+BmpDecodeBGRA/icon                39     2225.8     1.50    2%    0    1   1.22 [1.21, 1.37] 8-icon_64-actions_contact_new-64x64.bmp
+BmpDecodeBGRA/1mp                 69     3852.7     1.03    1%    6   45   0.90 [0.85, 0.90] 24-pngimg-academy_awards_PNG9-447x1192.bmp
+BmpDecodeBGRA/large               24     2336.6     1.00    2%    1   22   0.96 [0.92, 1.11] 32-photo_tecnick-RGB_OR_1200x1200_001-1200x1200.bmp
+ConvertRGBA8ToBGRA8/icon           2    13771.3     2.07   10%    0    0   1.80 [1.61, 1.97] alpha-16x16.raw
+ConvertRGBA8ToBGRA8/1mp            2     6397.2     1.23    3%    1    0   0.97 [0.97, 0.99] alpha-1024x1024.raw
+ConvertRGBA8ToBGRA8/large          1     1411.3     0.95    3%    1    0   0.95 [0.93, 0.98] alpha-4096x4096.raw
+ConvertRGB8ToRGBA8/icon            2     7707.1     1.40   15%    0    2   1.28 [0.74, 1.44] photo-16x16.raw
+ConvertRGB8ToRGBA8/1mp             2     5632.2     1.14    7%    0    1   1.02 [0.99, 1.03] photo-1024x1024.raw
+ConvertRGB8ToRGBA8/large           1     1604.4     0.99    4%    0    1   0.99 [0.96, 1.03] photo-4096x4096.raw
+ConvertRGBA8ToRGB8/icon            2     9497.3     7.28    5%    0    0   5.97 [4.82, 6.15] alpha-16x16.raw
+ConvertRGBA8ToRGB8/1mp             2     6425.9     4.80    4%    0    0   3.22 [3.01, 3.45] alpha-1024x1024.raw
+ConvertRGBA8ToRGB8/large           1     1637.7     1.42    2%    0    0   1.42 [1.39, 1.45] alpha-4096x4096.raw
+ConvertRGBA8ToPremul/icon          2     2293.2     1.40    1%    0    0   1.37 [1.33, 1.40] alpha-16x16.raw
+ConvertRGBA8ToPremul/1mp           2     2387.7     1.42    3%    0    0   1.42 [1.38, 1.49] alpha-1024x1024.raw
+ConvertRGBA8ToPremul/large         1     1360.5     1.09    8%    0    0   1.09 [1.06, 1.23] alpha-4096x4096.raw
+ConvertGray8ToRGBA8/icon           2     9677.1     1.55    2%    0    0   1.31 [1.29, 1.35] photo-16x16.raw
+ConvertGray8ToRGBA8/1mp            2     8223.9     1.29    2%    0    1   1.01 [0.96, 1.03] photo-1024x1024.raw
+ConvertGray8ToRGBA8/large          1     2068.6     0.98    2%    0    1   0.98 [0.96, 1.01] photo-4096x4096.raw
+ConvertRGBA16ToRGBA8/icon          2     7615.7     2.12    2%    0    0   2.03 [2.00, 2.14] alpha-16x16.raw
+ConvertRGBA16ToRGBA8/1mp           2     4421.1     1.48    2%    0    0   1.07 [1.05, 1.17] alpha-1024x1024.raw
+ConvertRGBA16ToRGBA8/large         1      902.9     0.98    3%    0    1   0.98 [0.97, 1.03] alpha-4096x4096.raw
+TgaDecode/icon                    13     2912.9     1.70    2%    0    0   1.50 [1.49, 1.51] icon_16-actions_appointment_new-16x16.tga
+TgaDecode/1mp                     23     4357.8     1.16    1%    9    1   0.90 [0.89, 0.94] pngimg-academy_awards_PNG9-447x1192.tga
+TgaDecode/large                    8     2335.9     0.98    3%    2    4   0.74 [0.70, 0.80] photo_mosaic-50mp-8192x6144.tga
+TgaDecodeBGRA/icon                13     3067.4     1.54    2%    0    0   1.39 [1.29, 1.47] icon_32-actions_address_book_new-32x32.tga
+TgaDecodeBGRA/1mp                 23     4661.7     1.06    1%    0   15   0.99 [0.91, 1.08] photo_wikipedia-002-1260x806.tga
+TgaDecodeBGRA/large                8     2501.5     1.00    2%    0    8   0.98 [0.91, 1.01] photo_wikipedia-001-1276x850.tga
+NetpbmDecodePPMRGBA/icon          13     4069.2     2.37    3%    0    0   1.99 [1.78, 2.19] icon_16-actions_address_book_new-16x16.ppm
+NetpbmDecodePPMRGBA/1mp           23     4990.0     1.15    3%    0    8   1.00 [0.92, 1.01] test-kodim23-768x512.ppm
+NetpbmDecodePPMRGBA/large          7     2905.0     1.01    1%    0    7   0.97 [0.91, 1.05] screenshot_web-apple_com-1313x4755.ppm
+all                              425     3222.2     1.19         59  165

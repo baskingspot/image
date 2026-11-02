@@ -28,3 +28,7 @@ All notable changes to image are recorded here. The format follows
 - The package depends on `compress` at commit fd03d72 (after 0.2.0, for its faster inflate), which brings `fastmem`.
 - `image.wbmp`: WBMP type 0, a streaming `wbmp.Decoder` that writes any pixel format, and `wbmp.encode`, which stores gray of at least 128 as white.
 - `image.qoi.encode`, `qoi.workLen`, and `qoi.EncodeOptions`: a QOI encoder that writes the same bytes as the reference encoder (qoi.h) and needs no work memory.
+
+### Changed
+
+- `image.convert` runs a row's last pixels through its SIMD kernels instead of the per-pixel path, and RGB↔BGR stores whole cache lines: narrow rows convert up to twice as fast, so 24- and 32-bit BMP and TGA decodes of narrow images gain up to 25%; `convert.Converter.run` may convert in place between formats of one pixel size.

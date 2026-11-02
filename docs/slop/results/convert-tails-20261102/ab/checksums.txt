@@ -1,0 +1,2 @@
+before     425 rows, 0 differ from image
+wuffs      425 rows, 5 differ from image

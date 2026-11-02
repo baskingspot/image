@@ -1,0 +1,12 @@
+peak RSS (MiB)            image   before    wuffs
+bmp-decode                386.0    386.0    386.8
+bmp-decode-bgra           386.1    386.0    386.8
+tga-decode                338.0    338.1    338.7
+tga-decode-bgra           338.0    338.1    338.7
+netpbm-decode-ppm-rgba    338.0    338.1    338.7
+convert-rgba8-bgra8       130.1    130.1    130.9
+convert-rgb8-rgba8        114.1    114.1    114.9
+convert-rgba8-rgb8        114.1    114.1    114.9
+convert-rgba8-premul      130.1    130.1    130.9
+convert-gray8-rgba8        82.1     82.1     82.9
+convert-rgba16-rgba8      194.1    194.1    194.9
