@@ -261,6 +261,11 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
+- **After-frames metadata hook** (branch `wave2-metadata-hook`, the BMP/ICO
+  orb): the generic hook on `image.Decoder` under Harness requests, in
+  `src/decode.zig` and `src/Decoder.zig`. Wiring TGA's footer and PNG's
+  late chunks waits for the performance pass to release `src/tga/` and
+  `src/png/`.
 - **Seeker** (landed at `6ee1d9f`): `image.Seeker` in `src/decode.zig`,
   `DecodeOptions.seeker`, passed through by `image.Decoder` to formats whose
   `Options` have the field.
