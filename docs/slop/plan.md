@@ -693,6 +693,17 @@ orb asks for a change to them, or for text in this file, in its report.
     `transfer` null with `gamma` set means that power law, so a PNG with
     sRGB and gAMA keeps both.
 
+34. **jbrd syntax. Decided by the owner:** the jbrd box's field order and U32
+    distributions come from libjxl 0.12's `JPEGData::VisitFields`, read as a
+    table with no code copied, because 18181-2's jbrd clause is not public;
+    jxl-jbrd.md states the provenance.
+35. **JpegReconstructor seeking. Decided by the owner:** it needs
+    `Options.seeker` (`error.NeedsSeeker` without one) and reads the box
+    twice, since a valid box can declare far more payload than its length.
+36. **jbrd corpus. Decided by the owner:** lossless JPEG XL transcodes of the
+    fetched suites' JPEGs (860 KB) are committed under their suites'
+    licenses, so CI exercises reconstruction.
+
 ## Harness requests
 
 Changes the format orbs asked for in files the orchestrating thread owns,
