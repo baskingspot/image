@@ -604,6 +604,10 @@ const Transform = struct {
     data: []const u32 = &.{},
 };
 
+/// What a pixel loop handles: a color cache, an entropy image, and a
+/// last symbol that may read past the end (`Stream.tailRead`).
+const Shape = struct { cache: bool, meta: bool, tail: bool };
+
 /// The state of one stream's decode, over the caller's work memory.
 const Stream = struct {
     br: *BitReader,
@@ -661,7 +665,21 @@ const Stream = struct {
         try br.check();
         if (main) s.tail_read = s.tailRead(cache_bits);
         @memset(s.cache[0..cache_size], 0);
-        try s.pixels(main, out, w, h, cache_bits, tile_bits, tiles_w);
+        // One loop for each shape of stream, so each holds only the state
+        // it uses: the pixel loop is short of registers.
+        const cache: u3 = @intFromBool(cache_bits != 0);
+        const tail: u3 = @intFromBool(main and s.tail_read and br.size >= 8);
+        switch (cache << 2 | @as(u3, @intFromBool(meta)) << 1 | tail) {
+            inline else => |k| {
+                const shape: Shape = .{ .cache = k & 4 != 0, .meta = k & 2 != 0, .tail = k & 1 != 0 };
+                // A tail read has no color cache (`tailRead`), and only the
+                // main image has an entropy image or a tail read.
+                if (comptime (shape.cache and shape.tail) or (!main and (shape.meta or shape.tail))) {
+                    return error.BadLossless;
+                }
+                try s.pixels(main, shape, out, w, h, cache_bits, tile_bits, tiles_w);
+            },
+        }
     }
 
     /// Replaces each entropy image pixel by the slot of its group among
@@ -721,6 +739,7 @@ const Stream = struct {
     fn pixels(
         s: *Stream,
         comptime main: bool,
+        comptime shape: Shape,
         out: []u32,
         w: u32,
         h: u32,
@@ -741,17 +760,16 @@ const Stream = struct {
         const ring = out[0..ring_len];
         const cache = s.cache;
         const shift: u5 = if (cache_bits == 0) 0 else @intCast(32 - @as(u32, cache_bits));
-        const use_cache = cache_bits != 0;
-        const tile_mask: u32 = if (tile_bits == 31) std.math.maxInt(u32) else (@as(u32, 1) << tile_bits) - 1;
-        var p: u32 = 0;
+        const use_cache = shape.cache;
+        const tile_mask: u32 = if (!shape.meta) std.math.maxInt(u32) else (@as(u32, 1) << tile_bits) - 1;
         var x: u32 = 0;
         var y: u32 = 0;
         var ri: u32 = 0;
         var g = &s.groups[0];
         // libwebp's bit window is eight bytes: a stream shorter than that
         // reads as zeros to the window's end, which this does not do.
-        const tail_read = main and s.tail_read and br.size >= 8;
-        while (p < total) {
+        const tail_read = shape.tail;
+        while (y < h) {
             // The real bits left, for a last literal that reads past them.
             var real: i64 = 0;
             if (tail_read) {
@@ -759,7 +777,7 @@ const Stream = struct {
                 real = @as(i64, hot.count) - @as(i64, @intCast(br.pad)) + 8 * @as(i64, @intCast(br.win.len + br.left));
             }
             if (x & tile_mask == 0) {
-                if (tile_bits != 31) g = &s.groups[s.entropy[(y >> tile_bits) * tiles_w + (x >> tile_bits)]];
+                if (shape.meta) g = &s.groups[s.entropy[(y >> tile_bits) * tiles_w + (x >> tile_bits)]];
             }
             const sym = hot.symbol(br, tables, g.table[0], g.root[0]);
             if (sym < 256) {
@@ -782,7 +800,6 @@ const Stream = struct {
                 }
                 ring[ri] = c;
                 if (use_cache) cache[(0x1e35a7bd *% c) >> shift] = c;
-                p += 1;
                 x += 1;
                 ri += 1;
             } else if (sym < green_base) {
@@ -792,6 +809,9 @@ const Stream = struct {
                 // libwebp reads a backward reference's code past the end
                 // in its own way: only a last literal may read zeros.
                 if (tail_read and hot.count < br.pad) return br.failed orelse error.Truncated;
+                // The pixels decoded so far: not kept in the loop, which is
+                // short of registers.
+                const p = y * w + x;
                 if (dist > p or len > total - p) return error.BadLossless;
                 var left = len;
                 while (true) {
@@ -811,7 +831,6 @@ const Stream = struct {
                     if (use_cache) for (dst) |c| {
                         cache[(0x1e35a7bd *% c) >> shift] = c;
                     };
-                    p += n;
                     x += n;
                     ri += n;
                     left -= n;
@@ -825,14 +844,15 @@ const Stream = struct {
                     y += 1;
                     if (ri == ring_len) ri = 0;
                 }
-                if (x & tile_mask != 0 and tile_bits != 31) {
+                if (shape.meta and x & tile_mask != 0) {
                     g = &s.groups[s.entropy[(y >> tile_bits) * tiles_w + (x >> tile_bits)]];
                 }
             } else {
+                // Without a cache the alphabet ends at `green_base`.
+                if (!use_cache) return error.BadLossless;
                 const c = cache[sym - green_base];
                 ring[ri] = c;
                 cache[(0x1e35a7bd *% c) >> shift] = c;
-                p += 1;
                 x += 1;
                 ri += 1;
             }
