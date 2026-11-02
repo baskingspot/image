@@ -567,9 +567,11 @@ orb asks for a change to them, or for text in this file, in its report.
     (libwebp's encoder maximum); the lossless work memory is stated as a worst
     case for now; lossless data past its chunk is `Truncated`, as in Wuffs;
     of several ALPH chunks the last wins; an animation's `frame_count` is
-    null; a frame whose alpha size differs from its image matches libwebp;
-    the ANIM background is reported, never applied; data past the container
-    is `Truncated`.
+    null; a frame whose alpha size differs from its image matches libwebp
+    given `Options.seeker` (`AlphaBehind` without one); the ANIM background
+    is reported, never applied; a lossy partition before the last that runs
+    past the container is `Truncated`, and the last reads to the input's
+    end, as in libwebp.
 22. **QOI. Decided by the owner:** keep the one-loop decoder; rotating icons
     are the honest icon numbers, and a repeated 16–32 px file at 0.66–0.97×
     is accepted.
