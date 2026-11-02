@@ -244,7 +244,9 @@ pub const Expand = struct {
             .native = native,
             .max = if (bits >= 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(bits)) - 1,
             .scale8 = undefined,
-            .ycc = .init(p),
+            // Its tables cost more than decoding an icon, and only YCbCr
+            // reads them.
+            .ycc = if (p.model() == .ycbcr) .init(p) else undefined,
         };
         if (bits < 8) {
             for (0..@as(usize, 1) << @intCast(bits)) |v| e.scale8[v] = @intCast((v * 255 + e.max / 2) / e.max);
