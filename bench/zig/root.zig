@@ -15,6 +15,7 @@ pub const qoi = @import("qoi.zig");
 pub const tga = @import("tga.zig");
 pub const netpbm = @import("netpbm.zig");
 pub const wbmp = @import("wbmp.zig");
+pub const webp = @import("webp.zig");
 
 const Self = @This();
 

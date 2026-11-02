@@ -3,7 +3,7 @@
 `src/webp/` is a streaming WebP decoder written from RFC 9649 (the container
 and the lossless bitstream) and, for lossy, RFC 6386. This file records what
 it does where the specifications leave room, and why. Results:
-`results/webp-20261101.md`.
+`results/webp-20261102.md`.
 
 Stage 1 (this branch's first push) decodes lossless (VP8L) files, simple and
 extended. Lossy (VP8, with ALPH) and animation (ANIM/ANMF) are `Unsupported`
@@ -108,8 +108,10 @@ wants less lowers `max_prefix_groups`.
 
 ## Speed
 
-`results/webp-20261101.md` has the numbers. Against libwebp 1.6.0 on one
-core: icons 1.2–1.6× faster (no per-call allocation), photographs and
-graphics 0.8–1.2×. What is left: the predictor transform on photographs
-(mode-by-mode SIMD only for the above-only modes), and the per-symbol table
-lookups for groups that are not trivial.
+`results/webp-20261102.md` has the numbers. Against libwebp 1.6.0 on one
+core, lossless: icons 1.46× faster (no per-call allocation), 0.88× to a
+megapixel, 0.91× over one, 0.97× on the 50-megapixel mosaic, at about half
+libwebp's peak RSS. What is left: color-indexed images with flat areas
+(0.54–0.80×, libwebp's palette fast paths), the predictor transform on
+photographs (mode-by-mode SIMD only for the above-only modes), and the
+per-symbol table lookups for groups that are not trivial.

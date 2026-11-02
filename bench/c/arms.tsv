@@ -10,3 +10,4 @@ spng	spng
 giflib	-lgif
 libjpeg-turbo	libjpeg
 magick	MagickWand
+libwebp	libwebp
