@@ -1,0 +1,13 @@
+jpeg: 309 corpus files (1 of 64 MiB or more left out) and 20000 fuzzed inputs, 20309 comparisons against jpeg-turbo jpeg-wuffs
+  PROFILE take 3295 ms, requests 4 ms, oracle 162348 ms, ours+stats 137555 ms, batches 383
+qoi: 64 corpus files and 20000 fuzzed inputs, 20064 comparisons against qoi-wuffs qoi-qoih
+  PROFILE take 12700 ms, requests 9 ms, oracle 155011 ms, ours+stats 60673 ms, batches 364
+wbmp: 46 corpus files and 20000 fuzzed inputs, 20046 comparisons against wbmp-wuffs wbmp-magick
+  PROFILE take 2176 ms, requests 2 ms, oracle 210382 ms, ours+stats 36725 ms, batches 304
+
+jpeg-turbo 86.3 s, 5052 Mpx, 81236 calls, 379 procs
+qoi-qoih 28.2 s, 5381 Mpx, 60192 calls, 360 procs
+qoi-wuffs 47.9 s, 964 Mpx, 60192 calls, 360 procs
+jpeg-wuffs 36.7 s, 1509 Mpx, 81236 calls, 379 procs
+wbmp-wuffs 41.5 s, 5260 Mpx, 60138 calls, 300 procs
+wbmp-magick 123.7 s, 5259 Mpx, 60138 calls, 300 procs

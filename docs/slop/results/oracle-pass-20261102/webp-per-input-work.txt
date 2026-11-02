@@ -1,0 +1,6 @@
+webp: 87 corpus files and 20000 fuzzed inputs, 20087 comparisons against webp-libwebp webp-wuffs
+  11933 agree with every oracle, 0 mismatches, in 71.2 s
+  split-0: oracles disagree, ours accepts, webp-wuffs differ: 3372
+  split-1: oracles disagree, ours rejects, webp-wuffs differ: 89
+  split-2: oracles disagree, ours rejects, webp-libwebp differ: 141
+exit 0 peak tree RSS 1249 MiB in 71 s

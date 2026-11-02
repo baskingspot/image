@@ -149,7 +149,9 @@ few-bytes-at-a-time writer, for a target's own checks.
   thread-safe: keep per-input state in locals or `threadlocal`, never in a
   shared global or static (a cached decode or a saved canvas). compare.zig
   gives our decoder its work memory per input and frees it, so a module need
-  not manage work memory itself. `just oracle
+  not manage work memory itself. Fuzzed inputs mutate corpus files of at most
+  2^18 pixels, and one time in 16 any corpus file, so large files in
+  `corpus` cost the corpus pass, not every mutation. `just oracle
 100000` runs every format, and `just oracle 20000 1 <fmt>` one; the gate is
   0 mismatches.
 - **MagickWand.** An oracle that reads through ImageMagick calls

@@ -1,0 +1,2 @@
+KILLED at 5311860 KiB
+exit 143 peak tree RSS 5187 MiB in 10 s

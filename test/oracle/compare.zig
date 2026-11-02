@@ -46,6 +46,15 @@ const batch_bytes = 64 << 20;
 /// The most batches compared at once, one per core.
 const max_workers = 8;
 const saved_per_kind = 5;
+/// Fuzzed inputs mutate a corpus file: one of at most this many pixels (or
+/// whose header our decoder rejects), but one time in `big_base_odds` any
+/// corpus file. Every corpus file is still compared whole; a mutation of a
+/// large one mostly lands in pixel data and decodes megapixels for each
+/// format and decider, which was most of the oracle pass's time, while
+/// header mutations of small files reach large sizes too
+/// (docs/slop/results/oracle-pass-20261102.md).
+const max_base_pixels = 1 << 18;
+const big_base_odds = 16;
 /// Corpus files this large or larger are left out.
 const max_corpus_len = 64 << 20;
 
@@ -169,7 +178,21 @@ fn compareFormat(comptime F: type, oracle: Oracle, n: usize, seed: u64) !usize {
     const loaded = try fuzz.harness.loadCorpus(gpa, io, &T.corpus, &T.extensions, max_corpus_len);
     const dir = "zig-out/oracle/" ++ F.name;
     try std.Io.Dir.cwd().createDirPath(io, dir);
-    var run: Run(F) = .{ .oracle = oracle, .corpus = loaded.files, .total = loaded.files.len + n, .prng = .init(seed) };
+    var bases: std.ArrayList([]const u8) = .empty;
+    defer bases.deinit(gpa);
+    for (loaded.files) |file| {
+        var rd: std.Io.Reader = .fixed(file);
+        var d = F.Decoder.init(&rd, .{ .limits = .{ .max_pixels = max_pixels } });
+        const ok = if (d.decodeConfig()) |c| @as(u64, c.width) * c.height <= max_base_pixels else |_| true;
+        if (ok) try bases.append(gpa, file);
+    }
+    var run: Run(F) = .{
+        .oracle = oracle,
+        .corpus = loaded.files,
+        .bases = bases.items,
+        .total = loaded.files.len + n,
+        .prng = .init(seed),
+    };
     // Batches run on every core; each worker takes the next batch, its
     // inputs made in order under the lock, so the inputs are the same
     // however many workers there are.
@@ -192,6 +215,8 @@ fn Run(comptime F: type) type {
 
         oracle: Oracle,
         corpus: []const []const u8,
+        /// The corpus files to mutate, most of the time (`max_base_pixels`).
+        bases: []const []const u8,
         total: usize,
         /// The rest is under `mutex`.
         mutex: std.Io.Mutex = .init,
@@ -314,7 +339,9 @@ fn Run(comptime F: type) type {
                 const buf = try arena.alloc(u8, 1 << 16);
                 var len: usize = 0;
                 if (r.corpus.len > 0 and random.boolean()) {
-                    const base = r.corpus[random.uintLessThan(usize, r.corpus.len)];
+                    const any = r.bases.len == 0 or random.uintLessThan(u8, big_base_odds) == 0;
+                    const pool = if (any) r.corpus else r.bases;
+                    const base = pool[random.uintLessThan(usize, pool.len)];
                     const big = try arena.alloc(u8, base.len + 4096);
                     @memcpy(big[0..base.len], base);
                     len = fuzz.harness.mutate(random, big, base.len);

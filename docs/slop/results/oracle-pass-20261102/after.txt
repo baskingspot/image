@@ -1,0 +1,67 @@
+bmp: 91 corpus files and 20000 fuzzed inputs, 20091 comparisons against bmp-wuffs bmp-stb bmp-magick
+  8279 agree with every oracle, 0 mismatches, in 1.7 s
+  split-0: oracles disagree, ours accepts, bmp-stb differ (corpus): 8
+  split-1: oracles disagree, ours accepts, bmp-magick differ (corpus): 13
+  split-2: oracles disagree, ours accepts, bmp-stb bmp-magick differ (corpus): 21
+  split-3: oracles disagree, ours rejects, bmp-magick differ (corpus): 11
+  split-4: oracles disagree, ours rejects, bmp-stb differ (corpus): 1
+  split-5: oracles disagree, ours accepts, bmp-magick differ: 2866
+  split-6: oracles disagree, ours rejects, bmp-magick differ: 832
+  split-7: oracles disagree, ours accepts, bmp-stb bmp-magick differ: 4698
+  split-8: oracles disagree, ours accepts, bmp-stb differ: 1329
+  split-9: oracles disagree, ours rejects, bmp-stb differ: 1999
+  split-10: oracles disagree, ours rejects, bmp-stb bmp-magick differ: 34
+ico: 22 corpus files and 20000 fuzzed inputs, 20022 comparisons against ico-magick
+  17606 agree with every oracle, 0 mismatches, in 4.8 s
+gif: 52 corpus files and 20000 fuzzed inputs, 20052 comparisons against gif-wuffs gif-giflib
+  15753 agree with every oracle, 0 mismatches, in 16.8 s
+  split-0: oracles disagree, ours rejects, gif-giflib differ: 891
+  split-1: oracles disagree, ours accepts, gif-giflib differ: 3408
+png: 236 corpus files and 20000 fuzzed inputs, 20236 comparisons against png-wuffs png-libpng png-spng
+  19026 agree with every oracle, 0 mismatches, in 8.2 s
+  split-0: oracles disagree, ours rejects, png-spng differ: 172
+  split-1: oracles disagree, ours rejects, png-libpng png-spng differ: 278
+  split-2: oracles disagree, ours accepts, png-wuffs differ: 115
+  split-3: oracles disagree, ours accepts, png-libpng differ: 204
+  split-4: oracles disagree, ours accepts, png-spng differ: 35
+  split-5: oracles disagree, ours rejects, png-libpng differ: 100
+  split-6: oracles disagree, ours accepts, png-wuffs png-spng differ: 4
+  split-7: oracles disagree, ours accepts, png-wuffs png-libpng differ: 5
+  split-8: oracles disagree, ours rejects, png-spng differ (corpus): 1
+  split-9: oracles disagree, ours accepts, png-libpng png-spng differ: 5
+  split-10: oracles disagree, ours rejects, png-wuffs png-spng differ: 1
+jpeg: 309 corpus files (1 of 64 MiB or more left out) and 20000 fuzzed inputs, 20309 comparisons against jpeg-turbo jpeg-wuffs
+  16537 agree with every oracle, 0 mismatches, in 21.6 s
+  split-0: oracles disagree, ours accepts, jpeg-wuffs differ: 3057
+  split-1: oracles disagree, ours rejects, jpeg-wuffs differ: 715
+qoi: 64 corpus files and 20000 fuzzed inputs, 20064 comparisons against qoi-wuffs qoi-qoih
+  5858 agree with every oracle, 0 mismatches, in 23.6 s
+  split-0: oracles disagree, ours rejects, qoi-qoih differ: 10180
+  split-1: oracles disagree, ours accepts, qoi-wuffs differ: 3574
+  split-2: oracles disagree, ours accepts, qoi-qoih differ: 421
+  split-3: oracles disagree, ours accepts, qoi-wuffs differ (corpus): 31
+qoi_encode: 64 corpus files and 20000 fuzzed inputs, 20064 comparisons against qoi-qoih-encode
+  6749 agree with every oracle, 0 mismatches, in 16.9 s
+tga: 30 corpus files and 20000 fuzzed inputs, 20030 comparisons against tga-wuffs tga-stb tga-magick
+  9728 agree with every oracle, 0 mismatches, in 2.8 s
+  split-0: oracles disagree, ours accepts, tga-magick differ: 2036
+  split-1: oracles disagree, ours accepts, tga-wuffs tga-magick differ: 1029
+  split-2: oracles disagree, ours rejects, tga-stb tga-magick differ: 1942
+  split-3: oracles disagree, ours rejects, tga-stb differ: 4341
+  split-4: oracles disagree, ours accepts, tga-wuffs differ: 238
+  split-5: oracles disagree, ours accepts, tga-wuffs tga-magick differ (corpus): 3
+  split-6: oracles disagree, ours rejects, tga-magick differ: 14
+  split-7: oracles disagree, ours rejects, tga-wuffs tga-stb differ: 2
+netpbm: 29 corpus files and 20000 fuzzed inputs, 20029 comparisons against netpbm-wuffs netpbm-stb netpbm-magick
+  8568 agree with every oracle, 0 mismatches, in 5.2 s
+wbmp: 46 corpus files and 20000 fuzzed inputs, 20046 comparisons against wbmp-wuffs wbmp-magick
+  18308 agree with every oracle, 0 mismatches, in 16.5 s
+  split-0: oracles disagree, ours accepts, wbmp-magick differ: 1737
+  split-1: oracles disagree, ours rejects, wbmp-wuffs differ: 1
+webp: 0 corpus files and 20000 fuzzed inputs, 20000 comparisons against webp-libwebp webp-wuffs
+  13095 agree with every oracle, 0 mismatches, in 4.8 s
+  split-0: oracles disagree, ours accepts, webp-wuffs differ: 6574
+  split-1: oracles disagree, ours rejects, webp-wuffs differ: 146
+  split-2: oracles disagree, ours rejects, webp-libwebp differ: 11
+wall 123.08 s, peak RSS 1837792 KiB
+exit 0
