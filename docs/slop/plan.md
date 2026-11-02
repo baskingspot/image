@@ -251,7 +251,7 @@ orb asks for a change to them, or for text in this file, in its report.
   applied), 3 and 4 are previous (4 as Wuffs and Chromium read it), and frame
   0's previous is reported as background. `gif.Decoder.decodeFrameConfig`
   returns the next frame before it is drawn. Native format is RGBA8 and
-  `is_opaque` is false. `frame_count` is null, and `loop_count` is null
+  `is_opaque` is false. `frame_count` is null, and `loop_count` is 1
   without a loop extension before the first frame. Where Wuffs and giflib
   disagree it follows Wuffs: the canvas grows to hold the first frame and
   later frames are clipped; LZW data must hold exactly the frame
@@ -282,11 +282,15 @@ orb asks for a change to them, or for text in this file, in its report.
 - **WBMP, decode and encode, and QOI encode** (branch `wave1-wbmp-qoi`):
   `src/wbmp/`, the QOI encoder, and their harness files; it also owns
   `src/qoi/` for the decoder follow-ups wave 0 measured.
-- **After-frames metadata hook** (branch `wave2-metadata-hook`, the BMP/ICO
-  orb): the generic hook on `image.Decoder` under Harness requests, in
-  `src/decode.zig` and `src/Decoder.zig`. Wiring TGA's footer and PNG's
-  late chunks waits for the performance pass to release `src/tga/` and
-  `src/png/`.
+- **Decoder contract** (branch `wave2-metadata-hook`, the BMP/ICO orb):
+  `finalConfig` (decision 10) and `decodeFrameConfig` (decision 11) in
+  `src/decode.zig`, `src/Decoder.zig`, and adding-a-format.md. Wiring TGA's
+  footer and PNG's late chunks waits for the performance pass to release
+  `src/tga/` and `src/png/`.
+- **GIF follow-ups** (branch `wave2-gif-options`, the GIF orb): `src/gif/`
+  for decision 12.
+- **Netpbm oracle determinism** (branch `wave2-netpbm-oracle`, the Netpbm
+  orb): `test/oracle/netpbm.c` and `netpbm.zig`.
 - **Seeker** (landed at `6ee1d9f`): `image.Seeker` in `src/decode.zig`,
   `DecodeOptions.seeker`, passed through by `image.Decoder` to formats whose
   `Options` have the field.
@@ -342,6 +346,21 @@ orb asks for a change to them, or for text in this file, in its report.
 9. **PNG strictness. Decided by the owner:** an `ignore_checksums` option,
    off by default, as Wuffs's IGNORE_CHECKSUM quirk; and one-row interlaced
    images with extra data are accepted, as Wuffs does.
+10. **Metadata after the frames. Decided by the owner:**
+    `image.Decoder.finalConfig() ?Config`, the `Config` from `decodeConfig`
+    updated with what followed the frames, available once `decodeFrame` has
+    returned null. A format opts in with an optional `applyTrailer(d, config)`
+    that overwrites only the fields it found late. `frame_count` is not
+    filled from the frames decoded.
+11. **The next frame before it is drawn. Decided by the owner:**
+    `decodeFrameConfig() !?Frame` joins the generic decoder contract, as
+    Wuffs's `decode_frame_config`; GIF and APNG need it to save the region a
+    restore-to-previous frame brings back.
+12. **GIF. Decided by the owner:** without a loop extension, `loop_count`
+    is 1, as browsers play the file once; too much LZW data is
+    `TooMuchData` unless an off-by-default option (as Wuffs's
+    IGNORE_TOO_MUCH_PIXEL_DATA quirk) accepts it; disposal 4 is previous,
+    as Wuffs and Chromium read it.
 
 ## Harness requests
 
@@ -353,6 +372,5 @@ not yet made:
   (performance pass).
 - compress exporting CRC-32, so `src/png/crc32.zig` can go (a
   baskingspot/compress change).
-- A generic hook on `image.Decoder` for metadata that follows the frames
-  (TGA's footer, PNG's chunks after IDAT); unblocked now `image.Seeker` has
-  landed.
+- A blob sink that takes a blob whose length is known only at its end
+  (GIF's XMP and ICC extensions), in `src/decode.zig`.
