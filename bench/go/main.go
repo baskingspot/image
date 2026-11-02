@@ -89,6 +89,20 @@ func envInt(name string, def int) int {
 	return def
 }
 
+// The mappings mapBuf made for the loaded row, unmapped when the next row
+// loads: the garbage collector does not free them, and a serve run's rows
+// would otherwise keep every input and output they ever mapped.
+var mapped [][]byte
+
+func unmapAll() {
+	for _, m := range mapped {
+		if err := syscall.Munmap(m); err != nil {
+			fail(err)
+		}
+	}
+	mapped = nil
+}
+
 // An anonymous mapping of its own, every page written, with the buffer
 // offset bytes into its first page, as arm.c places them.
 func mapBuf(n, offset int) []byte {
@@ -103,6 +117,7 @@ func mapBuf(n, offset int) []byte {
 	for i := range m {
 		m[i] = 0x55
 	}
+	mapped = append(mapped, m)
 	return m[offset : offset+n]
 }
 
@@ -162,7 +177,8 @@ func load(o *opLine, input string) {
 			}
 		}
 	}
-	ins = nil
+	ins, out = nil, nil
+	unmapAll()
 	for _, name := range names {
 		data, err := os.ReadFile(filepath.Join("bench/corpus-gen", o.dir, name))
 		if err != nil {
