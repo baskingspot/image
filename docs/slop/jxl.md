@@ -138,6 +138,19 @@ the canvas instead of whole planes.
   offset 0 with its decoded length. `Config.metadata.icc` names it only
   after that call. Profiles are not applied: pixels stay in the encoded
   color space, as libjxl returns them without a CMS.
+- **Colour metadata** (plan.md decision 29). Without an ICC profile the
+  colour encoding fills `Metadata.transfer` (sRGB, linear, BT.709, DCI,
+  PQ, HLG) or `gamma`, and for RGB `primaries`: the named primaries and
+  white points as the specification gives their xy (sRGB, BT.2100 =
+  BT.2020, P3; D65, E, DCI) or the stored custom xy. Grey has no
+  primaries. `intensity_target` is the tone mapping header's, 255 by
+  default. An XYB image's pixels are in that encoding, which `color.zig`
+  converts to (it supports sRGB primaries and D65). An XYB image with an
+  ICC profile is written in linear sRGB, as libjxl writes it without a
+  CMS, so `transfer` is linear and `primaries` sRGB's; the profile is
+  still delivered and describes the original image's space, not the
+  pixels' (decision 46). Other images with a profile are in its space and
+  these fields are null.
 - **Spot colors** are extra channels and are not rendered into the color
   channels, as libjxl does with `JxlDecoderSetRenderSpotcolors(false)`; the
   shared pixel formats have nowhere to put extra channels yet.
