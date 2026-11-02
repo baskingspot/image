@@ -367,7 +367,16 @@ owning the files adding-a-format.md assigns to its format plus
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
   only its export lines to `src/tiff/root.zig`; the rest of `src/tiff/`
-  stays with the TIFF orb (the compressed-path speedup).
+  stays with the TIFF orb (the compressed-path speedup). Landed
+  (results/tiff-encode-20261102.md): classic little-endian TIFF,
+  `tiff.encode` and `encodePages`; none, PackBits, LZW, and Deflate with
+  Predictor 2; libtiff's 8 KiB strips; gray, gray and alpha, RGB, RGBA,
+  palette when smaller, and CMYK at 8 or 16 bits; density tags. IFD-first
+  layout that reads forward. A page is compressed once when the writer's
+  buffer holds it and twice otherwise (1.92–2.01× two passes). Uncompressed,
+  PackBits, and LZW strips are byte-identical to libtiff's. Against libtiff:
+  PackBits 1.5–2.8×, LZW 1.25–1.70×, Deflate 0.60–0.73× (compress against
+  zlib), uncompressed 0.95–13.8×; peak RSS about 3 MiB under libtiff.
 - **Harness pass 4** (landed; results/oracle-memory-20261102.md): the oracle
   streams each batch behind its length, sends a decoder's requests op by op
   (adapting each input once per op), and reads corpus files from disk as
