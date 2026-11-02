@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s  libtiff     ±   <1    ~   slowest vs libtiff
+TiffEncodeDeflate/icon            13       12.6     0.89    3%   10    3   0.73 [0.72, 0.91] textures_pk-_0mod_button1-64x64.raw
+TiffEncodeDeflate/1mp             23       24.2     0.81    2%   20    1   0.63 [0.62, 0.64] photo_kodak-kodim01-768x512.raw
+TiffEncodeDeflate/large            8       21.8     0.92    2%    5    1   0.67 [0.57, 0.69] screenshot_web-amazon_com-1313x6097.raw
+all                               44       19.6     0.85         35    5

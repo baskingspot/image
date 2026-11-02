@@ -53,6 +53,7 @@ const max_side = 40;
 const max_pages = 3;
 var page_bytes: [max_pages][max_side * max_side * 16]u8 = undefined;
 var file_buffer: [1 << 20]u8 = undefined;
+var copy_buffer: [1 << 20]u8 = undefined;
 var work_buffer: [2 << 20]u8 = undefined;
 var canvas_buffer: [max_side * max_side * 16]u8 = undefined;
 var want_buffer: [max_side * max_side * 16]u8 = undefined;
@@ -84,6 +85,16 @@ fn checkPages(input: []const u8, choice: u64) !void {
     var w: Io.Writer = .fixed(&file_buffer);
     tiff.encodePages(&w, pages[0..count], options, work_buffer[0..work_len]) catch return error.EncodeFailed;
     const file = w.buffered();
+
+    // Through a writer whose buffer has room for some strips or none, the
+    // encoder compresses the rest twice; the file must be the same.
+    var small_buffer: [512]u8 = undefined;
+    var copy: Io.Writer = .fixed(&copy_buffer);
+    const small_len = 1 + choice / 8 % small_buffer.len;
+    var small: Io.Writer.Hashed(std.hash.Crc32) = .initHasher(&copy, .init(), small_buffer[0..small_len]);
+    tiff.encodePages(&small.writer, pages[0..count], options, work_buffer[0..work_len]) catch return error.EncodeFailed;
+    small.writer.flush() catch return error.EncodeFailed;
+    if (!std.mem.eql(u8, file, copy.buffered())) return error.RoundTripDiffers;
 
     var r: Io.Reader = .fixed(file);
     var d = tiff.Decoder.init(&r, .{ .limits = harness.limits, .seeker = .fixed(&r) });

@@ -18,8 +18,11 @@
 //! - The layout reads forward: the header, then each page's IFD, the
 //!   values it points to, and its strips, the next IFD after them. A
 //!   writer cannot go back to fill in offsets, so the IFD comes first and
-//!   needs the strips' byte counts before them: compressed pages are
-//!   compressed twice, once to count and once to write.
+//!   needs the strips' byte counts before them. A compressed page is
+//!   compressed once when its strips fit in the writer's free buffer (a
+//!   fixed writer with room for the file), where they wait for the IFD to
+//!   go in front of them; otherwise its strips are compressed twice, once
+//!   to count and once to write.
 //!
 //! Nothing is allocated. The work memory is a strip of stored rows, its
 //! compressed form, the codec's state, the palette, and a byte count per
@@ -192,7 +195,9 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
 }
 
 /// Writes `pages` as one TIFF file, a page each, in order. `work` holds at
-/// least `workLen` for the widest and the tallest page.
+/// least `workLen` for the widest and the tallest page. A compressed page
+/// is compressed once when `w`'s free buffer holds it, and twice, the
+/// first time only to count its bytes, when it does not.
 pub fn encodePages(w: *Io.Writer, pages: []const PixelBuffer, options: EncodeOptions, work: []u8) EncodeError!void {
     if (pages.len == 0) return error.EmptyImage;
     for (pages) |p| {
@@ -361,16 +366,6 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
     const m: Memory = .carve(work, options, lens);
     const p = makePlan(src, options, m);
 
-    // The strips' byte counts, compressing each once to count.
-    var total: u64 = 0;
-    if (options.compression == .none) {
-        total = @as(u64, p.row_len) * src.height;
-    } else for (0..p.strips) |s| {
-        const n = pack(&p, options, m, s).len;
-        m.sizes[s] = @intCast(n);
-        total += n;
-    }
-
     var entries: [17]Entry = undefined;
     var n: usize = 0;
     const add = struct {
@@ -445,6 +440,29 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
         at += entries[i].outside;
     }
     const data_at = at;
+    if (data_at > max_offset) return error.ImageTooLarge;
+    const head_len: usize = @intCast(data_at - ifd_at);
+
+    // The strips' byte counts. A compressed strip is compressed once to
+    // count it; it also goes straight after the room for the IFD in the
+    // writer's buffer while that has room, and when every strip fits
+    // there, the IFD is filled in before them and nothing is compressed
+    // again.
+    var total: u64 = 0;
+    var room = out.w.unusedCapacitySlice();
+    var direct = options.compression != .none and room.len >= head_len;
+    if (options.compression == .none) {
+        total = @as(u64, p.row_len) * src.height;
+    } else for (0..p.strips) |s| {
+        const bytes = pack(&p, options, m, s);
+        m.sizes[s] = @intCast(bytes.len);
+        if (direct) {
+            const to = head_len + total;
+            if (room.len - to >= bytes.len) @memcpy(room[to..][0..bytes.len], bytes) else direct = false;
+        }
+        total += bytes.len;
+    }
+
     const end = data_at + total;
     if (end > max_offset) return error.ImageTooLarge;
     if (strips == 1) {
@@ -458,25 +476,59 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
     const next: u64 = if (more) std.mem.alignForward(u64, end, 2) else 0;
     if (next > max_offset) return error.ImageTooLarge;
 
-    try out.int(u16, @intCast(n));
-    for (entries[0..n]) |e| {
+    if (direct) {
+        // The strips are in the buffer: the IFD goes in the room before
+        // them, and the writer takes both at once.
+        room = room[0..head_len];
+        var fixed: Io.Writer = .fixed(room);
+        var head: Out = .{ .w = &fixed, .pos = ifd_at };
+        writeHead(&head, &p, options, m, entries[0..n], order[0..outside], data_at, next) catch unreachable;
+        out.w.advance(@intCast(head_len + total));
+        out.pos = end;
+    } else {
+        try writeHead(out, &p, options, m, entries[0..n], order[0..outside], data_at, next);
+        for (0..p.strips) |s| {
+            const bytes = pack(&p, options, m, s);
+            std.debug.assert(bytes.len == stripLen(&p, options, m, s));
+            try out.bytes(bytes);
+        }
+    }
+    if (more and out.pos % 2 == 1) try out.bytes("\x00");
+}
+
+/// Writes the IFD whose entries are laid out, and the values outside it in
+/// `order`, ending at `data_at`, where the strips go.
+fn writeHead(
+    out: *Out,
+    p: *const Plan,
+    options: EncodeOptions,
+    m: Memory,
+    entries: []const Entry,
+    order: []const usize,
+    data_at: u64,
+    next: u64,
+) EncodeError!void {
+    try out.int(u16, @intCast(entries.len));
+    for (entries) |e| {
         try out.int(u16, e.tag);
         try out.int(u16, e.kind);
         try out.int(u32, e.count);
         try out.int(u32, e.value);
     }
     try out.int(u32, @intCast(next));
-    for (order[0..outside]) |i| switch (entries[i].tag) {
+    const short_counts = shortCounts(p, options.compression);
+    const density = options.density;
+    for (order) |i| switch (entries[i].tag) {
         258 => for (0..p.spp) |_| try out.int(u16, p.bits),
         273 => {
             var o: u64 = data_at;
             for (0..p.strips) |s| {
                 try out.int(u32, @intCast(o));
-                o += stripLen(&p, options, m, s);
+                o += stripLen(p, options, m, s);
             }
         },
         279 => for (0..p.strips) |s| {
-            const len = stripLen(&p, options, m, s);
+            const len = stripLen(p, options, m, s);
             if (short_counts) try out.int(u16, @intCast(len)) else try out.int(u32, @intCast(len));
         },
         282, 283 => {
@@ -491,13 +543,6 @@ fn writePage(out: *Out, src: PixelBuffer, options: EncodeOptions, work: []u8, mo
         else => unreachable,
     };
     std.debug.assert(out.pos == data_at);
-
-    for (0..p.strips) |s| {
-        const bytes = pack(&p, options, m, s);
-        std.debug.assert(bytes.len == stripLen(&p, options, m, s));
-        try out.bytes(bytes);
-    }
-    if (more and out.pos % 2 == 1) try out.bytes("\x00");
 }
 
 /// The IFD's field types.
@@ -665,9 +710,18 @@ fn encodeAlloc(pages: []const PixelBuffer, options: EncodeOptions) ![]u8 {
     }
     const work = try gpa.alloc(u8, workLen(options, wmax, hmax).?);
     defer gpa.free(work);
+    // An empty growing buffer has no room for the first page's strips, so
+    // they are compressed twice; a fixed buffer the file's size holds
+    // them, so they are compressed once. The files must be the same.
     var w: Io.Writer.Allocating = .init(gpa);
     errdefer w.deinit();
     try encodePages(&w.writer, pages, options, work);
+    const file = w.written();
+    const again = try gpa.alloc(u8, file.len);
+    defer gpa.free(again);
+    var fixed: Io.Writer = .fixed(again);
+    try encodePages(&fixed, pages, options, work);
+    try testing.expectEqualSlices(u8, file, fixed.buffered());
     return w.toOwnedSlice();
 }
 

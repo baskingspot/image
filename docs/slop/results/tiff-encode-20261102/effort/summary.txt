@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s     fast  libtiff     ±   <1    ~   slowest vs fast
+TiffEncodeDeflate/icon            13       10.7     0.85     0.75    3%   10    3   0.72 [0.71, 0.89] icon_64-actions_appointment_new-64x64.raw
+TiffEncodeDeflate/1mp             23       19.0     0.78     0.64    2%   22    1   0.55 [0.53, 0.69] test-wikipedia_008-1152x858.raw
+TiffEncodeDeflate/large            8       14.6     0.67     0.62    1%    5    3   0.37 [0.36, 0.37] photo_mosaic-50mp-8192x6144.raw
+all                               44       15.3     0.78     0.67         37    7

@@ -1,0 +1,2 @@
+peak RSS (MiB)            image     fast  libtiff
+tiff-encode-deflate       435.0    435.0    437.9

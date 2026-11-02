@@ -1,0 +1,2 @@
+fast        44 rows, 44 differ from image
+libtiff     44 rows, 44 differ from image

@@ -1,0 +1,5 @@
+peak RSS (MiB)            image  twopass streamed  libtiff image-rs       go
+tiff-encode-none          386.1    386.1    386.3    389.3    386.9        -
+tiff-encode-packbits      434.1    434.1    434.2    437.3    434.9        -
+tiff-encode-lzw           482.3    482.3    482.4    485.5    500.0        -
+tiff-encode-deflate       434.8    434.8    434.9    437.9    436.4        -

@@ -1,0 +1,90 @@
+TiffEncodeNone/icon_16-actions_address_book_new-16x16.raw	len=1218 fnv=2e3bc35b173b47bf
+TiffEncodeNone/icon_16-actions_appointment_new-16x16.raw	len=1218 fnv=2039f820ca2df238
+TiffEncodeNone/icon_16-actions_bookmark_new-16x16.raw	len=1218 fnv=abb546935dd6f0f0
+TiffEncodeNone/icon_16-actions_contact_new-16x16.raw	len=1218 fnv=9225f963658f3d9c
+TiffEncodeNone/icon_32-actions_address_book_new-32x32.raw	len=4290 fnv=caa69185e51fee42
+TiffEncodeNone/icon_32-actions_appointment_new-32x32.raw	len=4290 fnv=c04902796bc5a550
+TiffEncodeNone/icon_32-actions_bookmark_new-32x32.raw	len=4290 fnv=5c540a699cb1e18b
+TiffEncodeNone/icon_32-actions_contact_new-32x32.raw	len=4290 fnv=64de4daabd088bac
+TiffEncodeNone/icon_512-actions_address_book_new-512x512.raw	len=1048770 fnv=7a2fdaf4d64e3d56
+TiffEncodeNone/icon_512-actions_appointment_new-512x512.raw	len=1048770 fnv=b2476837fb89b173
+TiffEncodeNone/icon_512-actions_bookmark_new-512x512.raw	len=1048770 fnv=073ddc4214392718
+TiffEncodeNone/icon_64-actions_address_book_new-64x64.raw	len=16578 fnv=cc0808fd0e99777c
+TiffEncodeNone/icon_64-actions_appointment_new-64x64.raw	len=16578 fnv=c5df58f44d80e5f2
+TiffEncodeNone/icon_64-actions_bookmark_new-64x64.raw	len=16578 fnv=9b76ab8edd616bb7
+TiffEncodeNone/icon_64-actions_contact_new-64x64.raw	len=16578 fnv=543b4fd3e7b4f248
+# SKIP TiffEncodeNone/photo_kodak-kodim01-768x512.raw: failed
+# SKIP TiffEncodeNone/photo_kodak-kodim02-768x512.raw: failed
+# SKIP TiffEncodeNone/photo_kodak-kodim03-768x512.raw: failed
+# SKIP TiffEncodeNone/photo_mosaic-50mp-8192x6144.raw: failed
+# SKIP TiffEncodeNone/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw: failed
+# SKIP TiffEncodeNone/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw: failed
+# SKIP TiffEncodeNone/photo_wikipedia-001-1276x850.raw: failed
+# SKIP TiffEncodeNone/photo_wikipedia-002-1260x806.raw: failed
+# SKIP TiffEncodeNone/photo_wikipedia-003-1436x730.raw: failed
+TiffEncodeNone/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw	len=1440194 fnv=883e87f18ad054d5
+TiffEncodeNone/pngimg-academy_awards_PNG9-447x1192.raw	len=2131490 fnv=785c6ddac60413ef
+TiffEncodeNone/pngimg-air_pump_PNG5-999x772.raw	len=3085106 fnv=0a8ee83c2d72fb99
+TiffEncodeNone/screenshot_game-20XX_Menu_picture-634x406.raw	len=1029810 fnv=2e46d461e303d219
+# SKIP TiffEncodeNone/screenshot_game-3dbrick2-320x240.raw: failed
+# SKIP TiffEncodeNone/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw: failed
+TiffEncodeNone/screenshot_web-amazon_com-1313x6097.raw	len=32021638 fnv=be7f3da786c46f66
+TiffEncodeNone/screenshot_web-apple_com-1313x4755.raw	len=24973454 fnv=7abcbb5d19e0cdb2
+TiffEncodeNone/screenshot_web-cnn_com-1313x5241.raw	len=27525926 fnv=e4deafbe0e388d4f
+TiffEncodeNone/test-dice-800x600.raw	len=1920194 fnv=0c6954bd1132e041
+# SKIP TiffEncodeNone/test-kodim10-512x768.raw: failed
+# SKIP TiffEncodeNone/test-kodim23-768x512.raw: failed
+TiffEncodeNone/test-qoi_logo-448x220.raw	len=394434 fnv=bee74b63c6888554
+TiffEncodeNone/test-testcard-256x256.raw	len=262338 fnv=72fe34b861bc36e3
+TiffEncodeNone/test-testcard_rgba-256x256.raw	len=262338 fnv=4e4f0d8620669fd4
+# SKIP TiffEncodeNone/test-wikipedia_008-1152x858.raw: failed
+# SKIP TiffEncodeNone/textures_pk-_0mod_button1-64x64.raw: failed
+# SKIP TiffEncodeNone/textures_pk-_pkf_water1-128x128.raw: failed
+TiffEncodeNone/textures_plants-plant_01-166x1022.raw	len=678802 fnv=8fa66f20fc18b579
+TiffEncodeNone/textures_plants-plant_02-1024x1316.raw	len=5390530 fnv=4c10907171cff8d7
+# SKIP BenchmarkTiffEncodePackBits: no function in this arm
+# SKIP BenchmarkTiffEncodeLZW: no function in this arm
+TiffEncodeDeflate/icon_16-actions_address_book_new-16x16.raw	len=977 fnv=843a375745ac3045
+TiffEncodeDeflate/icon_16-actions_appointment_new-16x16.raw	len=1051 fnv=53e4171aa7d7bdac
+TiffEncodeDeflate/icon_16-actions_bookmark_new-16x16.raw	len=858 fnv=6e88bbc5d9c2b577
+TiffEncodeDeflate/icon_16-actions_contact_new-16x16.raw	len=778 fnv=77c59df31fa0e21a
+TiffEncodeDeflate/icon_32-actions_address_book_new-32x32.raw	len=2324 fnv=864839614afa8eb0
+TiffEncodeDeflate/icon_32-actions_appointment_new-32x32.raw	len=2721 fnv=85995e493230e5b6
+TiffEncodeDeflate/icon_32-actions_bookmark_new-32x32.raw	len=1922 fnv=066cbf986f4a6fb1
+TiffEncodeDeflate/icon_32-actions_contact_new-32x32.raw	len=1760 fnv=672fd0f65c0cdbfe
+TiffEncodeDeflate/icon_512-actions_address_book_new-512x512.raw	len=96210 fnv=9fead16f6b33353f
+TiffEncodeDeflate/icon_512-actions_appointment_new-512x512.raw	len=116737 fnv=37c7e54a03137435
+TiffEncodeDeflate/icon_512-actions_bookmark_new-512x512.raw	len=73912 fnv=744f265e7695d176
+TiffEncodeDeflate/icon_64-actions_address_book_new-64x64.raw	len=5862 fnv=c9e4b97d04ff89ba
+TiffEncodeDeflate/icon_64-actions_appointment_new-64x64.raw	len=7715 fnv=4fc1324ece17182e
+TiffEncodeDeflate/icon_64-actions_bookmark_new-64x64.raw	len=4722 fnv=5557f3531e644cc5
+TiffEncodeDeflate/icon_64-actions_contact_new-64x64.raw	len=4387 fnv=627a37356e3df8e4
+# SKIP TiffEncodeDeflate/photo_kodak-kodim01-768x512.raw: failed
+# SKIP TiffEncodeDeflate/photo_kodak-kodim02-768x512.raw: failed
+# SKIP TiffEncodeDeflate/photo_kodak-kodim03-768x512.raw: failed
+# SKIP TiffEncodeDeflate/photo_mosaic-50mp-8192x6144.raw: failed
+# SKIP TiffEncodeDeflate/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw: failed
+# SKIP TiffEncodeDeflate/photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw: failed
+# SKIP TiffEncodeDeflate/photo_wikipedia-001-1276x850.raw: failed
+# SKIP TiffEncodeDeflate/photo_wikipedia-002-1260x806.raw: failed
+# SKIP TiffEncodeDeflate/photo_wikipedia-003-1436x730.raw: failed
+TiffEncodeDeflate/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw	len=24619 fnv=7ab99b99e2f60c68
+TiffEncodeDeflate/pngimg-academy_awards_PNG9-447x1192.raw	len=579798 fnv=261412168bcc7169
+TiffEncodeDeflate/pngimg-air_pump_PNG5-999x772.raw	len=462210 fnv=1230d905878aef70
+TiffEncodeDeflate/screenshot_game-20XX_Menu_picture-634x406.raw	len=193511 fnv=9e9f98b661c7feb0
+# SKIP TiffEncodeDeflate/screenshot_game-3dbrick2-320x240.raw: failed
+# SKIP TiffEncodeDeflate/screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw: failed
+TiffEncodeDeflate/screenshot_web-amazon_com-1313x6097.raw	len=6041444 fnv=3b47322f00c150a4
+TiffEncodeDeflate/screenshot_web-apple_com-1313x4755.raw	len=2201658 fnv=17fc60ffa400d3b8
+TiffEncodeDeflate/screenshot_web-cnn_com-1313x5241.raw	len=2556783 fnv=b2c17fb683a0e4b0
+TiffEncodeDeflate/test-dice-800x600.raw	len=396741 fnv=8e8ac6fb7bfa3fae
+# SKIP TiffEncodeDeflate/test-kodim10-512x768.raw: failed
+# SKIP TiffEncodeDeflate/test-kodim23-768x512.raw: failed
+TiffEncodeDeflate/test-qoi_logo-448x220.raw	len=13585 fnv=1fb1c6e61fb5d4bf
+TiffEncodeDeflate/test-testcard-256x256.raw	len=12657 fnv=81bb9f11504cee35
+TiffEncodeDeflate/test-testcard_rgba-256x256.raw	len=15665 fnv=0af988e55abb5f05
+# SKIP TiffEncodeDeflate/test-wikipedia_008-1152x858.raw: failed
+# SKIP TiffEncodeDeflate/textures_pk-_0mod_button1-64x64.raw: failed
+# SKIP TiffEncodeDeflate/textures_pk-_pkf_water1-128x128.raw: failed
+TiffEncodeDeflate/textures_plants-plant_01-166x1022.raw	len=68051 fnv=8c1ce7b4013db115
+TiffEncodeDeflate/textures_plants-plant_02-1024x1316.raw	len=1109625 fnv=1af561076fce2a8f
