@@ -48,3 +48,6 @@ netpbm-encode-plain	NetpbmEncodePlain	netpbm/raw-rgb8	13	own
 jpeg-decode	JpegDecode	jpeg/baseline	3	own
 jpeg-decode-progressive	JpegDecodeProgressive	jpeg/progressive	3	own
 jpeg-decode-444	JpegDecode444	jpeg/444	3	own
+jpeg-decode-arith	JpegDecodeArith	jpeg/arith	3	own
+jpeg-decode-12bit	JpegDecode12bit	jpeg/12bit	6	own
+jpeg-decode-lossless	JpegDecodeLossless	jpeg/lossless	3	own

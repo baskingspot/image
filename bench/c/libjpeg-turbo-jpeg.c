@@ -1,7 +1,9 @@
 // libjpeg-turbo through the libjpeg API, from memory, to RGB8 with its
 // default settings (the accurate integer IDCT and fancy upsampling, with
 // its SIMD), scanlines straight into the caller's buffer. CMYK and YCCK
-// files are not converted, so they fail. Errors longjmp out.
+// files are not converted, so they fail. Errors longjmp out. 12-bit files
+// decode to its 12-bit samples, six bytes a pixel, unscaled (this package
+// scales them to 16 bits), so that operation's checksums differ.
 #include <setjmp.h>
 #include <stdio.h>
 
@@ -20,7 +22,7 @@ static void quiet(j_common_ptr cinfo, int level) {
   (void)level;
 }
 
-static size_t jpeg_decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+static size_t decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap, int wide) {
   struct jpeg_decompress_struct cinfo;
   struct fail err;
   volatile size_t result = 0;
@@ -33,22 +35,32 @@ static size_t jpeg_decode(const uint8_t *in, size_t len, uint8_t *out, size_t ca
   jpeg_read_header(&cinfo, TRUE);
   cinfo.out_color_space = JCS_RGB;
   jpeg_start_decompress(&cinfo);
-  size_t stride = (size_t)cinfo.output_width * 3;
+  size_t stride = (size_t)cinfo.output_width * (wide ? 6 : 3);
   if (cinfo.output_components != 3 || stride * cinfo.output_height > cap) goto done;
   while (cinfo.output_scanline < cinfo.output_height) {
     JSAMPROW rows[16];
+    J12SAMPROW rows12[16];
     int n = 0;
     while (n < 16 && cinfo.output_scanline + n < cinfo.output_height) {
       rows[n] = out + (cinfo.output_scanline + n) * stride;
+      rows12[n] = (J12SAMPROW)(void *)rows[n];
       n++;
     }
-    jpeg_read_scanlines(&cinfo, rows, n);
+    if (wide) {
+      jpeg12_read_scanlines(&cinfo, rows12, n);
+    } else {
+      jpeg_read_scanlines(&cinfo, rows, n);
+    }
   }
   jpeg_finish_decompress(&cinfo);
   result = stride * cinfo.output_height;
 done:
   jpeg_destroy_decompress(&cinfo);
   return result;
+}
+
+static size_t jpeg_decode(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return decode(in, len, out, cap, 0);
 }
 
 // The same call on every row; BENCH_OP needs a function per registration.
@@ -59,6 +71,19 @@ static size_t jpeg_444(const uint8_t *in, size_t len, uint8_t *out, size_t cap) 
   return jpeg_decode(in, len, out, cap);
 }
 
+static size_t jpeg_arith(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return jpeg_decode(in, len, out, cap);
+}
+static size_t jpeg_lossless(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return jpeg_decode(in, len, out, cap);
+}
+static size_t jpeg_12bit(const uint8_t *in, size_t len, uint8_t *out, size_t cap) {
+  return decode(in, len, out, cap, 1);
+}
+
 BENCH_OP("jpeg-decode", jpeg_decode)
 BENCH_OP("jpeg-decode-progressive", jpeg_progressive)
 BENCH_OP("jpeg-decode-444", jpeg_444)
+BENCH_OP("jpeg-decode-arith", jpeg_arith)
+BENCH_OP("jpeg-decode-12bit", jpeg_12bit)
+BENCH_OP("jpeg-decode-lossless", jpeg_lossless)

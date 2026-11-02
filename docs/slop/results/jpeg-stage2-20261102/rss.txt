@@ -1,0 +1,4 @@
+peak RSS (MiB)            image    wuffs     qoih      stb   libpng     spng   gifliblibjpeg-turbo   magick image-rs     zune       go
+jpeg-decode-arith         151.4        -        -        -        -        -        -    151.8        -        -        -        -
+jpeg-decode-12bit         311.3        -        -        -        -        -        -    311.5        -        -        -        -
+jpeg-decode-lossless      213.0        -        -        -        -        -        -    213.7        -        -        -        -
