@@ -33,6 +33,10 @@
 //! Metadata is reported in `Config` and never applied: JFIF density, the
 //! EXIF orientation, and the ICC profile (reassembled from its APP2
 //! segments), EXIF, and XMP blobs, which go to the blob sink as they pass.
+//! `Metadata.gain_map` flags an HDR gain map (Ultra HDR, Adobe's, or ISO
+//! 21496-1): an MPF APP2 segment, which locates the second image, and
+//! either the gain map namespace in the XMP or ISO 21496-1's APP2
+//! segment. The gain map image after EOI is never read.
 
 const std = @import("std");
 const testing = std.testing;
@@ -200,6 +204,11 @@ jfif: bool = false,
 adobe: ?u8 = null,
 metadata: decode.Metadata = .{},
 icc: Icc = .{},
+/// What `Metadata.gain_map` needs: an MPF segment, and the gain map's
+/// namespace in the XMP or an ISO 21496-1 segment.
+mpf: bool = false,
+gain_map_xmp: Find = .{},
+gain_map_iso: bool = false,
 
 /// The scan whose header was read last.
 scan: Scan = undefined,
@@ -292,6 +301,37 @@ const Geometry = struct {
     native_row: usize,
     inks: usize,
     work_len: usize,
+};
+
+/// Ultra HDR's and Adobe's gain map XMP namespace.
+const hdrgm_namespace = "http://ns.adobe.com/hdr-gain-map/1.0/";
+
+/// Finds `hdrgm_namespace` in bytes that come in pieces: each piece is
+/// searched, and so is its start joined to the end of the piece before.
+const Find = struct {
+    const n = hdrgm_namespace.len;
+    found: bool = false,
+    /// The last bytes seen, up to `n - 1` of them.
+    tail: [n - 1]u8 = undefined,
+    tail_len: usize = 0,
+
+    fn feed(f: *Find, bytes: []const u8) void {
+        if (f.found) return;
+        var join: [2 * (n - 1)]u8 = undefined;
+        const head = bytes[0..@min(bytes.len, n - 1)];
+        @memcpy(join[0..f.tail_len], f.tail[0..f.tail_len]);
+        @memcpy(join[f.tail_len..][0..head.len], head);
+        const joined = join[0 .. f.tail_len + head.len];
+        if (std.mem.find(u8, joined, hdrgm_namespace) != null or std.mem.find(u8, bytes, hdrgm_namespace) != null) {
+            f.found = true;
+            return;
+        }
+        const keep = @min(joined.len, n - 1);
+        if (bytes.len >= n - 1) {
+            @memcpy(&f.tail, bytes[bytes.len - (n - 1) ..]);
+        } else @memcpy(f.tail[0..keep], joined[joined.len - keep ..]);
+        f.tail_len = keep;
+    }
 };
 
 const Icc = struct {
@@ -504,8 +544,8 @@ fn skip(d: *Decoder, n: usize) Error!void {
 }
 
 /// Hands the next `n` bytes to the blob sink as `blob` from offset `at`,
-/// keeping the first of them in `prefix`.
-fn pass(d: *Decoder, n: usize, blob: decode.Blob, at: u64, prefix: []u8) Error!void {
+/// keeping the first of them in `prefix` and showing them to `find`.
+fn pass(d: *Decoder, n: usize, blob: decode.Blob, at: u64, prefix: []u8, find: ?*Find) Error!void {
     var done: usize = 0;
     while (done < n) {
         const got = d.reader.peekGreedy(1) catch |e| return mapRead(e);
@@ -516,6 +556,7 @@ fn pass(d: *Decoder, n: usize, blob: decode.Blob, at: u64, prefix: []u8) Error!v
             const m = @min(prefix.len - done, k);
             @memcpy(prefix[done..][0..m], bytes[0..m]);
         }
+        if (find) |f| f.feed(bytes);
         d.reader.toss(k);
         d.pos += k;
         done += k;
@@ -568,6 +609,7 @@ fn readHeader(d: *Decoder) Error!void {
         try d.readMarker(m, true);
     }
     if (!d.saw_sof) return error.BadMarker;
+    d.metadata.gain_map = d.mpf and (d.gain_map_xmp.found or d.gain_map_iso);
     try d.readSos();
     try d.setup();
 }
@@ -789,7 +831,7 @@ fn readApp(d: *Decoder, m: u8) Error!void {
                 const blob: decode.Blob = .{ .kind = .exif, .offset = d.pos, .len = n - k };
                 var prefix: [4096]u8 = undefined;
                 const p = @min(n - k, prefix.len);
-                try d.pass(n - k, blob, 0, prefix[0..p]);
+                try d.pass(n - k, blob, 0, prefix[0..p], null);
                 d.metadata.exif = blob;
                 if (exif.orientation(prefix[0..p])) |o| d.metadata.orientation = o;
                 return;
@@ -798,7 +840,7 @@ fn readApp(d: *Decoder, m: u8) Error!void {
             try d.readInto(head[k..k2]);
             if (k2 == xmp_id.len and std.mem.eql(u8, head[0..k2], xmp_id) and d.metadata.xmp == null) {
                 const blob: decode.Blob = .{ .kind = .xmp, .offset = d.pos, .len = n - k2 };
-                try d.pass(n - k2, blob, 0, &.{});
+                try d.pass(n - k2, blob, 0, &.{}, &d.gain_map_xmp);
                 d.metadata.xmp = blob;
                 return;
             }
@@ -806,12 +848,17 @@ fn readApp(d: *Decoder, m: u8) Error!void {
         },
         markers.app2 => {
             const id = "ICC_PROFILE\x00";
+            const iso_id = "urn:iso:std:iso:ts:21496:-1\x00";
             const k = @min(n, id.len + 2);
             try d.readInto(head[0..k]);
             if (k == id.len + 2 and std.mem.eql(u8, head[0..id.len], id)) {
                 return d.readIcc(head[id.len], head[id.len + 1], n - k);
             }
-            return d.skip(n - k);
+            if (k >= 4 and std.mem.eql(u8, head[0..4], "MPF\x00")) d.mpf = true;
+            const k2 = @min(n, iso_id.len);
+            try d.readInto(head[k..k2]);
+            if (k2 == iso_id.len and std.mem.eql(u8, head[0..k2], iso_id)) d.gain_map_iso = true;
+            return d.skip(n - k2);
         },
         else => return d.skip(n),
     }
@@ -850,7 +897,7 @@ fn readIcc(d: *Decoder, seq: u8, count: u8, len: usize) Error!void {
         icc.state = .bad;
         return d.skip(len);
     }
-    try d.pass(len, icc.blob, icc.at, &.{});
+    try d.pass(len, icc.blob, icc.at, &.{}, null);
     icc.at += len;
     icc.next +%= 1;
     if (seq == count) {
@@ -1870,6 +1917,56 @@ test "a tiny baseline file" {
         const work = try testing.allocator.alloc(u8, c.work_len);
         defer testing.allocator.free(work);
         try testing.expectError(error.Truncated, d.decodeFrame(try PixelBuffer.init(&out, .gray8, 8, 8), work));
+    }
+}
+
+test "a gain map is flagged by MPF with its XMP namespace or ISO 21496-1" {
+    const a = testing.allocator;
+    const tiny = "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
+        "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++ "\x28\xff\xd9";
+    const mpf = "\xff\xe2\x00\x0aMPF\x00MM\x00\x2a";
+    const iso = "\xff\xe2\x00\x22urn:iso:std:iso:ts:21496:-1\x00\x00\x00\x00\x00";
+    const xmp_id = "http://ns.adobe.com/xap/1.0/\x00";
+    const other = "\xff\xe1\x00\x23" ++ xmp_id ++ "<x/>";
+    const Case = struct { segments: []const []const u8, want: bool };
+    // An XMP packet with the namespace after `pad` spaces: the reader's
+    // 64-byte buffer splits it at some of them.
+    const packet = "<rdf:Description xmlns:hdrgm=\"" ++ hdrgm_namespace ++ "\" hdrgm:Version=\"1.0\"/>";
+    for (0..64) |pad| {
+        var head: [4]u8 = .{ 0xff, 0xe1, 0, 0 };
+        std.mem.writeInt(u16, head[2..4], @intCast(2 + xmp_id.len + pad + packet.len), .big);
+        const spaces = " " ** 64;
+        const xmp = [_][]const u8{ &head, xmp_id, spaces[0..pad], packet };
+        const cases = [_]Case{
+            .{ .segments = &(xmp ++ [_][]const u8{mpf}), .want = true },
+            .{ .segments = &.{ iso, mpf }, .want = true },
+            .{ .segments = &.{ mpf, "\xff\xe2\x00\x1eurn:iso:std:iso:ts:21496:-1\x00" }, .want = true },
+            // A camera's MPF preview, a lone namespace or ISO segment, and a
+            // namespace in a second XMP packet, which is not read, are not.
+            .{ .segments = &.{ mpf, other }, .want = false },
+            .{ .segments = &xmp, .want = false },
+            .{ .segments = &.{iso}, .want = false },
+            .{ .segments = &([_][]const u8{other} ++ xmp ++ [_][]const u8{mpf}), .want = false },
+            // An ICC profile piece is not mistaken for either.
+            .{ .segments = &.{ mpf, "\xff\xe2\x00\x10ICC_PROFILE\x00\x01\x01" }, .want = false },
+        };
+        for (cases) |c| {
+            var parts: [8][]const u8 = undefined;
+            parts[0] = "\xff\xd8";
+            @memcpy(parts[1..][0..c.segments.len], c.segments);
+            parts[1 + c.segments.len] = tiny;
+            const file = try std.mem.concat(a, u8, parts[0 .. c.segments.len + 2]);
+            defer a.free(file);
+            var buffer: [decode.min_buffer_len]u8 = undefined;
+            var src: Io.Reader = .fixed(file);
+            var r = src.limited(.unlimited, &buffer);
+            var d: Decoder = .init(&r.interface, .{});
+            try testing.expectEqual(c.want, (try d.decodeConfig()).metadata.gain_map);
+            var out: [64]u8 = undefined;
+            _ = try testDecode(file, .gray8, .{}, &out);
+            for (out) |v| try testing.expectEqual(128, v);
+        }
     }
 }
 

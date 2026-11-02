@@ -266,7 +266,7 @@ const Gen = struct {
         const o = g.o;
         o.marker(0xd8);
         // Metadata segments in a random order and mix.
-        for (0..g.random.uintAtMost(u8, 3)) |_| switch (g.random.uintLessThan(u8, 6)) {
+        for (0..g.random.uintAtMost(u8, 3)) |_| switch (g.random.uintLessThan(u8, 9)) {
             0 => g.segment(0xe0, "JFIF\x00\x01\x02\x01\x00\x48\x00\x48\x00\x00"),
             1 => g.segment(0xee, "Adobe\x00\x64\x00\x00\x00\x00" ++ [_]u8{g.random.uintLessThan(u8, 3)}),
             2 => g.segment(0xe1, "Exif\x00\x00MM\x00*\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01" ++
@@ -282,6 +282,12 @@ const Gen = struct {
                 }
             },
             4 => g.segment(0xfe, "a comment"),
+            // What flags a gain map: MPF, and the gain map's XMP namespace or
+            // ISO 21496-1's segment.
+            5 => g.segment(0xe2, "MPF\x00MM\x00\x2a\x00\x00\x00\x08"),
+            6 => g.segment(0xe1, "http://ns.adobe.com/xap/1.0/\x00<x:xmpmeta xmlns:hdrgm=\"" ++
+                "http://ns.adobe.com/hdr-gain-map/1.0/\" hdrgm:Version=\"1.0\"/>"),
+            7 => g.segment(0xe2, "urn:iso:std:iso:ts:21496:-1\x00\x00\x00\x00\x00"),
             else => g.segment(0xe1, "http://ns.adobe.com/xap/1.0/\x00<x/>"),
         };
         // Quantization tables, 8- or 16-bit.

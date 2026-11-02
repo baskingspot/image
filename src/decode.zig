@@ -242,6 +242,10 @@ pub const Metadata = struct {
     /// The file carries a JPEG XL `jbrd` box: the original JPEG can be
     /// rebuilt with `image.jxl.JpegReconstructor`.
     jpeg_reconstruction: bool = false,
+    /// The JPEG carries an HDR gain map as a second image (Ultra HDR,
+    /// Adobe's gain map, or ISO 21496-1), which is neither decoded nor
+    /// applied: the pixels are the base image's.
+    gain_map: bool = false,
     density: ?Density = null,
     icc: ?Blob = null,
     exif: ?Blob = null,

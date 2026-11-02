@@ -96,3 +96,8 @@ tj cmyk-lossless 1 -lossless "$tmp/odd8.ppm"
 tj cmyk-lossless-p6 2 -lossless -precision 6 "$tmp/odd16.ppm"
 tj cmyk-lossless-p12 4 -lossless -precision 12 "$tmp/odd16.ppm"
 tj cmyk-lossless-p16 7 -lossless -precision 16 "$tmp/odd16.ppm"
+
+# An Ultra HDR file from libultrahdr, through ImageMagick: an ISO 21496-1
+# gain map in a second image after the base image's EOI, which MPF locates.
+im "$src/basn2c16.png" -define uhdr:hdr-color-transfer=hlg -define uhdr:hdr-color-gamut=bt2100 \
+  "uhdr:$out/jpeg/ultrahdr-iso.jpg"

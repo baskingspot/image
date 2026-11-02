@@ -156,6 +156,24 @@ processes.
   the profile's header gives, and dropped (no error) if the segments are out
   of order, their counts disagree, or one is missing. XMP: the first XMP
   APP1 segment. Each blob goes to the blob sink as it passes.
+- **HDR gain maps** (plan.md decision 51) are flagged, never decoded or
+  applied: `Metadata.gain_map` is set when the base image's APPn segments
+  hold an MPF APP2 segment (`MPF\0`, CIPA DC-007, which locates the gain
+  map image after EOI) and either the gain map XMP namespace
+  (`http://ns.adobe.com/hdr-gain-map/1.0/`, Ultra HDR 1.0 and Adobe's gain
+  map) in the first XMP packet or ISO 21496-1's APP2 segment
+  (`urn:iso:std:iso:ts:21496:-1\0`). Both are required: a camera's MPF
+  preview has no namespace, and the gain map cannot be found without MPF.
+  The namespace is searched in the XMP bytes as they pass to the sink,
+  each piece joined to the end of the one before (`Find`); nothing past
+  EOI is read, so the gain map image's own metadata is not checked.
+  libjpeg-turbo has no notion of gain maps, so no oracle compares the flag;
+  it was checked by hand against libultrahdr 1.4's `is_uhdr_image` on two
+  Pixel Ultra HDR 1.0 photographs (XMP), four libultrahdr files (ISO
+  21496-1 only, which libultrahdr writes by default), and a plain JPEG,
+  agreeing on all seven. `corpus/gen/jpeg.sh` adds one libultrahdr file
+  (`ultrahdr-iso.jpg`), so the oracle compares a gain-map file's base
+  image with libjpeg-turbo's.
 - **Samples past 8 bits, and lossless ones below.** Native is 16-bit
   (`gray16`, `rgb16`, `cmyk16`) past 8 bits and 8-bit otherwise. Color
   conversion runs at the image's precision, as libjpeg-turbo's does, then
@@ -278,7 +296,7 @@ processes.
   arithmetic, 12-bit, and 12-bit arithmetic progressive, and lossless CMYK
   at precisions 6, 8, 12, and 16.
 - The fuzz target generates files by walking the decoder's states: metadata
-  segments, quantization and Huffman tables (flat or standard), restart
+  segments (MPF, gain map XMP, and ISO 21496-1 among them), quantization and Huffman tables (flat or standard), restart
   intervals, sequential and progressive scripts with refinement, and
   restart markers, and checks a scaled decode alongside the full one.
   Stage 2 adds 12-bit frames, arithmetic-coded frames with DAC segments and
