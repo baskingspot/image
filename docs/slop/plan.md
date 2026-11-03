@@ -434,6 +434,15 @@ owning the files adding-a-format.md assigns to its format plus
   effort 1, and effort 9 is the smallest. Effort 1 beats libwebp -m 2 by
   4.2% in less time; effort 8 is 1.7% above -m 6 at 1/25 of its time. The
   fuzz target and the oracle cover `encodeAlpha` through a VP8L header.
+  Stage 4 (`wave5-webp-encode4`, results/webp-encode-flat-20261103.md): the
+  same bytes, 1.28× main over the 210 encode rows (1.17–2.66× on 16 KP–1 MP
+  at efforts 1–9, 1.96× libwebp), and `encodeAlpha` 1.28/1.79/2.71× at
+  efforts 1/5/8. Clustering caches pair costs, match lengths carry along a
+  match, the chain skips a run's own pixels, the parse skips dominated near
+  codes, and the color cache is chosen in one pass. Left: qoi_logo
+  0.39–0.66× libwebp at efforts 1–6 (its bytes need no chain; decision 66),
+  water1 0.71–0.77× at 1, 2, and 7, and memset (the harness's shared fill:
+  21% of a 16×16 encode).
 - **TIFF encode** (branch `wave5-tiff-encode`, the BMP/ICO orb):
   `src/tiff/encode.zig` and any new `src/tiff/encode_*.zig` files, the
   tiff_encode fuzz and oracle files, and the tiff-encode bench rows. It adds
