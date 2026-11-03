@@ -351,12 +351,16 @@ pub const Shared = struct {
     planes: [3][]f32,
     ring_rows: usize = 0,
 
-    /// Takes the planes: whole, or with `ring_rows`, the ring.
+    /// Takes the planes: whole, or with `ring_rows`, the ring. They are
+    /// cleared only with subsampled channels: otherwise every block has a
+    /// strategy (`readPassGroup` refuses an unset one), and the last pass
+    /// writes all of each varblock's pixels in every channel before the
+    /// filters or a later stage read them.
     pub fn allocPlanes(s: *Shared, arena: *Arena) Error!void {
         const rows: usize = if (s.ring_rows == 0) s.bh * 8 else s.ring_rows;
         if (s.pixels()) for (&s.planes) |*p| {
             p.* = try arena.alloc(f32, s.bw * 8 * rows);
-            @memset(p.*, 0);
+            if (s.subsampled()) @memset(p.*, 0);
         };
     }
 
