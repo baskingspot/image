@@ -7,6 +7,7 @@
 //! decodes symbols from them. Tables live in the caller's `Arena`.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 
 const BitReader = @import("BitReader.zig");
@@ -398,7 +399,8 @@ pub fn initAlias(counts_in: []const u16, log_alpha: u5, table: []Alias) void {
 pub fn readContextMap(br: *BitReader, arena: *Arena, map: []u8) Error!u32 {
     if (try br.boolean()) {
         const nbits = try br.bits(2);
-        for (map) |*e| e.* = @intCast(try br.bits(@intCast(nbits)));
+        // Zero bits a context is a fill, of up to 7 KB.
+        if (nbits == 0) vfill(u8, map, 0) else for (map) |*e| e.* = @intCast(try br.bits(@intCast(nbits)));
     } else {
         const use_mtf = try br.boolean();
         const m = arena.mark();
