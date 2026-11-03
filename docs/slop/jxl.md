@@ -103,8 +103,10 @@ writing past it. Its terms, in `Decoder.workBound`:
 - Reference-property rows and the weighted predictor's rows.
 
 - With VarDCT: three padded planes, the coefficients kept between passes
-  when there is more than one, the block fields, each pass's orders and
-  code, and the LF frames' planes at each level when frames may use them.
+  when there is more than one, the block fields, each pass's orders (for
+  the order classes of strategies that fit the frame and a group, when
+  the frame header is known) and code, and the LF frames' planes at each
+  level when frames may use them.
 - Upsampled planes, noise's planes, and the patch and spline budgets, for
   the features the frame header turns on.
 - A 64th of all that: the arena starts each array of 4096 bytes or more on
@@ -272,9 +274,16 @@ Modular.
   other corpus file passes as a JPEG. The pass peaks at 0.9 to 6.8 MB of
   work memory. `jpegWorkLen` is the frame bound without planes: block
   fields, a pass group, the codes, and with several passes (or an ICC
-  profile hiding the frame header) the kept coefficients; the entropy
-  budget makes it 10 to 37 MB on small files and 193 MB on cafe, below the
-  pixel decoder's 700 MB.
+  profile hiding the frame header) the kept coefficients. It leaves out a
+  group's Modular channels (a JPEG's frame has none) and counts one LZ77
+  window rather than three (one stream decodes at a time); each pass's
+  orders count only the classes of strategies that fit the frame. That
+  makes it 9.2 MB on a 16×16 file (from 10.0), 25 MB on a 768×512 photo
+  (from 37), 118 MB on the 50-megapixel mosaic (from 130), and 136 MB on
+  cafe (from 193). What is left on small files is budgets that do not
+  shrink with the frame: 4 MiB for the LF group's channels and every
+  dequantization table (any of which may be stored raw, at its full size,
+  in any frame), and 1 MiB for each live entropy code's tables.
 
 ## Testing
 
@@ -326,6 +335,16 @@ on the mosaic) and streaming bring the mosaic's lossy peak RSS to 507.4
 MiB, about 120 MiB beyond the output, below libjxl's 527.0 in the run
 above; lossless and images under five group rows are unchanged.
 
+`results/jxl-speed-20261103.md`: `decodeJpeg`'s coefficients +48%
+(baseline rebuild) and +35% (progressive); VarDCT reconstruction +21%
+(the LF-to-LLF DCT made separable, coefficients kept zero, Gaborish
+vectorized and reading the rows in place, a cheaper sRGB cube root); and
+Modular +16% lossless, +9% lossy, from a two-level tree walk, the weighted
+predictor's table reads kept scalar, and inlined symbol reads. Over
+ede392a: lossy +32%, lossless +16%, baseline rebuild +54%, with peak RSS
+unchanged. On the 1200×1200 photo that is about 0.76× libjxl lossy and
+0.89× lossless, and 0.59× rebuilding the mosaic's JPEG.
+
 ## Next
 
 1. **Memory, further**: stream more frames (chroma subsampling, noise,
@@ -333,9 +352,16 @@ above; lossless and images under five group rows are unchanged.
    group rows plus the margin instead of three; and Modular, whose
    frame-sized channels (12 bytes a pixel for RGB) are the lossless peak,
    once global transforms can be undone a group row at a time.
-2. **Speed**: profile VarDCT and vectorize what is still scalar (the
-   IDCT's rows, chroma from luma, Gaborish, upsampling); specialize
-   Modular's common trees.
+2. **Speed**, after `results/jxl-speed-20261103.md`: EPF's SAD from
+   per-direction differences shared by the offsets that reuse them (about
+   a third of the work in pass 0; it changes float order and needs ring
+   rows in the bound); the XYB to sRGB transform (13% of lossy); the
+   coefficient loop specialized on the code's kind (ANS or prefix, LZ77 or
+   not); the band copies streaming makes; and Modular's common trees
+   (the weighted predictor alone, gradient with few contexts). Small
+   images' fixed setup (44 µs for a 16×16 lossy icon, and 41 µs to rebuild
+   a 16×16 JPEG, about half of it in `decodeJpeg`) has not been profiled.
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
-   `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Tightening
-   `jpegWorkLen` (entropy budgets sized from the headers) is mine.
+   `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
+   of a baseline rebuild. Shrinking `jpegWorkLen` on small files further
+   needs smaller budgets (Work memory above), an owner decision.
