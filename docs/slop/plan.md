@@ -558,7 +558,13 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   0.990 of e7, 0.983 of e8) at the same speed; amazon.com is 0.983 of e7,
   apple.com 1.043. Next: icon speed (0.58× e7 at default), prefix codes for
   small images, the apple.com gap, count subtraction in split scoring, and
-  work tables sized from the image.
+  work tables sized from the image. Stage 4 (`wave5-jxl-encode4`,
+  results/jxl-encode4-20261103.md): tree-learning counting is faster, with
+  the same files: icons 1.3–1.5×, ≤1 MP 1.06/1.22/1.39× at
+  fast/default/best; default is now 0.84/1.08/1.27× e7's speed (icons / to
+  1 MP / above). Prefix codes for small images were measured and not kept
+  (two icons gained, 6–10% of icon time). The apple.com gap is sample
+  coverage; scaling default's samples with image size is with the owner.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
