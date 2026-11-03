@@ -243,10 +243,16 @@ Running beside wave 1's tail, started early by the owner:
   Images under a megapixel don't stream (to-1-MP class 28.0 MiB against
   libjxl's 23.1), nor do subsampled, noisy, or upsampled frames or Modular.
   `decodeJpeg` rebuilds DC from LF groups with extra precision as libjxl
-  does and refuses raw tables whose denominator isn't 1/(8·255); the
-  Modular predictors, weighted predictor, and alias table are pub for the
-  encoder. Next: f32 output (decision 24), render by group row, then
-  speed.
+  does and refuses raw tables whose denominator isn't 1/(8·255) or a
+  chroma-from-luma factor other than 84; the Modular predictors, weighted
+  predictor, and alias table are pub for the encoder. `rgba_f32` and
+  `rgba_f32_premul` destinations come straight from the f32 planes
+  (`float_direct`): all 40 conformance files are within their peak bounds
+  against libjxl's floats. Open: 135 of bike's 21 M samples, blue below
+  −0.13, are less negative than libjxl's unclamped output (outside the
+  clamped reference's bounds). Next: speed (decodeJpeg and VarDCT, a
+  tighter `jpegWorkLen`), the Modular properties for the encoder, and
+  render by group row.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
@@ -331,8 +337,11 @@ owning the files adding-a-format.md assigns to its format plus
   as libtiff does. compress 364ef40 (masked table build, buffered header bits,
   add-only Adler-32; results/tiff-deflate-20261102.md) brings TIFF Deflate
   to 2.16 / 1.12 / 1.02× libtiff (icons / to 1 MP / larger) and PNG decode
-  to 1.30–1.58× Wuffs; photos stay at 0.79–0.81× libtiff, in compress's
-  fast decode loop.
+  to 1.30–1.58× Wuffs. compress e383aa8 (the fast loop reads through a
+  cursor; results/tiff-inflate-loop-20261102.md) brings TIFF Deflate to
+  2.15 / 1.16 / 1.06× libtiff, photos to 0.80–0.87×, and PNG decode to
+  1.34–1.62× Wuffs; copying a match's first 32 bytes without a loop test
+  was rejected (+6% inflate, but the test-card rows 3–4% slower in TIFF).
 - **WebP decode performance pass** (landed; results/webp-perf-20261102.md):
   WebP decode beats libwebp in every size class. Lossless is 2.14×, 1.15×,
   1.11× (icons, ≤1 MP, >1 MP) and 1.10× on the 50 MP mosaic; lossy 1.77×,
@@ -849,6 +858,7 @@ orb asks for a change to them, or for text in this file, in its report.
 24. **JPEG XL lossy precision. Decided by the owner:** native stays 16-bit,
     but an `rgba_f32` destination is written straight from the decoder's f32
     planes, with no 16-bit step, which meets the conformance bounds.
+    Landed (`wave4-jxl-f32`).
 25. **JPEG XL `decodeFrameConfig`. Decided by the owner:** the gap is
     accepted: `Unsupported` for JPEG XL animations, stills answered from
     `Config`, until a caller needs more.
