@@ -851,6 +851,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
     if (histo >= s.num_histograms) return error.BadImage;
     const code = &s.codes[pass];
     var reader: entropy.Reader = try .init(code, br, arena, 0, 3 * r.w * r.h * 64);
+    const kind = reader.kind();
     const ctx_offset = histo * s.block_ctx.numAcContexts();
     const nz = try arena.alloc(i32, 3 * r.w * r.h);
     const last = pass + 1 == s.passes.num;
@@ -895,23 +896,26 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
                 // A subsampled channel has a block only where its
                 // coordinates are a multiple of the subsampling.
                 if ((bx >> s.hs[c]) << s.hs[c] != bx or (by >> s.vs[c]) << s.vs[c] != by) continue;
-                ends[c] = try decodeBlock(
-                    br,
-                    &reader,
-                    s,
-                    code,
-                    ctx_offset,
-                    nz[c * r.w * r.h ..][0 .. r.w * r.h],
-                    r.w,
-                    bx >> s.hs[c],
-                    by >> s.vs[c],
-                    st,
-                    at,
-                    c,
-                    orders,
-                    blocks[c],
-                    shift,
-                );
+                ends[c] = switch (kind) {
+                    inline else => |k| try decodeBlock(
+                        k,
+                        br,
+                        &reader,
+                        s,
+                        code,
+                        ctx_offset,
+                        nz[c * r.w * r.h ..][0 .. r.w * r.h],
+                        r.w,
+                        bx >> s.hs[c],
+                        by >> s.vs[c],
+                        st,
+                        at,
+                        c,
+                        orders,
+                        blocks[c],
+                        shift,
+                    ),
+                };
             }
             offset += size;
             if (last) {
@@ -947,6 +951,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
 /// Adds a varblock's coefficients in channel `c` to `block`, and returns
 /// where they end in its order: every one it wrote is before that.
 fn decodeBlock(
+    comptime kind: entropy.Reader.Kind,
     br: *BitReader,
     reader: *entropy.Reader,
     s: *const Shared,
@@ -981,7 +986,7 @@ fn decodeBlock(
     const block_ctx = bc.context(s.qdc[at], s.qf[at], ord, c);
     const p: u32 = @intCast(@min(pred, 64));
     const nz_ctx = (if (p < 8) p else 4 + p / 2) * bc.num_ctxs + block_ctx + ctx_offset;
-    var nzeros: usize = try readCtx(reader, br, code, nz_ctx);
+    var nzeros: usize = try readCtx(kind, reader, br, code, nz_ctx);
     if (nzeros > size - covered) return error.BadImage;
     const per_block: i32 = @intCast((nzeros + covered - 1) >> log2c);
     for (0..st.by()) |y| {
@@ -994,7 +999,7 @@ fn decodeBlock(
         const nl = (nzeros + covered - 1) >> log2c;
         const kk = k >> log2c;
         const ctx = histo + (coeff_num_nonzero_context[@min(nl, 63)] + coeff_freq_context[kk]) * 2 + prev;
-        const u = try readCtx(reader, br, code, ctx);
+        const u = try readCtx(kind, reader, br, code, ctx);
         const mag: i32 = @bitCast(u >> 1);
         const val: i32 = if (u & 1 == 1) -%mag -% 1 else mag;
         block[order[k]] +%= val << shift;
@@ -1006,10 +1011,16 @@ fn decodeBlock(
 }
 
 /// Reads in context `ctx`, whose cluster is 0 past the map's end.
-inline fn readCtx(reader: *entropy.Reader, br: *BitReader, code: *const entropy.Code, ctx: usize) Error!u32 {
+inline fn readCtx(
+    comptime kind: entropy.Reader.Kind,
+    reader: *entropy.Reader,
+    br: *BitReader,
+    code: *const entropy.Code,
+    ctx: usize,
+) Error!u32 {
     const map = code.context_map;
     const n = map.len - @intFromBool(code.lz77.enabled);
-    return reader.readClusterInline(br, if (ctx < n) map[ctx] else 0);
+    return reader.readClusterAs(kind, br, if (ctx < n) map[ctx] else 0);
 }
 
 /// Dequantizes a block's coefficients and writes its pixels.

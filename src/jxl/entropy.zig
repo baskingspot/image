@@ -727,8 +727,12 @@ pub const Reader = struct {
     }
 
     inline fn symbol(r: *Reader, br: *BitReader, cluster: u32) Error!u32 {
+        return if (r.code.use_prefix) r.symbolAs(true, br, cluster) else r.symbolAs(false, br, cluster);
+    }
+
+    inline fn symbolAs(r: *Reader, comptime prefix: bool, br: *BitReader, cluster: u32) Error!u32 {
         const code = r.code;
-        if (code.use_prefix) {
+        if (prefix) {
             const t = code.huff[code.huff_start[cluster]..];
             const idx = try br.peek(root_bits);
             var e = t[idx];
@@ -806,6 +810,33 @@ pub const Reader = struct {
         if (code.lz77.enabled and token >= code.lz77.min_symbol) return r.match(br, token);
         const v = try code.configs[cluster].value(token, br);
         if (code.lz77.enabled) {
+            r.window[r.num_decoded & (r.window.len - 1)] = v;
+            r.num_decoded +%= 1;
+        }
+        return v;
+    }
+
+    /// What a hot loop can fix at compile time about a code: prefix or
+    /// ANS, and whether LZ77 is on.
+    pub const Kind = enum { ans, prefix, ans_lz77, prefix_lz77 };
+
+    pub fn kind(r: *const Reader) Kind {
+        const c = r.code;
+        return if (c.lz77.enabled)
+            (if (c.use_prefix) .prefix_lz77 else .ans_lz77)
+        else
+            (if (c.use_prefix) .prefix else .ans);
+    }
+
+    /// `readClusterInline` for a code of kind `k`, `r.kind()`.
+    pub inline fn readClusterAs(r: *Reader, comptime k: Kind, br: *BitReader, cluster: u32) Error!u32 {
+        const lz77 = k == .ans_lz77 or k == .prefix_lz77;
+        const code = r.code;
+        if (lz77 and r.num_to_copy > 0) return r.copy();
+        const token = try r.symbolAs(k == .prefix or k == .prefix_lz77, br, cluster);
+        if (lz77 and token >= code.lz77.min_symbol) return r.match(br, token);
+        const v = try code.configs[cluster].value(token, br);
+        if (lz77) {
             r.window[r.num_decoded & (r.window.len - 1)] = v;
             r.num_decoded +%= 1;
         }
