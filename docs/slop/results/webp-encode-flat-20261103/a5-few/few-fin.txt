@@ -1,0 +1,5 @@
+z1 ours 5052524 B 1744.2 ms | libwebp 5528586 B 1336.0 ms | size 0.914 speed 0.77x
+z3 ours 4781704 B 2204.4 ms | libwebp 4783846 B 2712.0 ms | size 1.000 speed 1.23x
+z5 ours 4697320 B 2272.6 ms | libwebp 4768478 B 3113.0 ms | size 0.985 speed 1.37x
+z7 ours 4645366 B 3905.2 ms | libwebp 4725868 B 5987.0 ms | size 0.983 speed 1.53x
+exit 0

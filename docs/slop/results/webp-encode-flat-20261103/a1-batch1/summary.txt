@@ -1,0 +1,32 @@
+image/arm, geomean              rows image MP/s   before  libwebp     ±   <1    ~   slowest vs before
+WebpEncodeZ0/icon                  6       10.7     0.99     1.50    5%    3    3   0.97 [0.78, 1.00] icon_64-actions_appointment_new-64x64.raw
+WebpEncodeZ0/1mp                  12       50.5     0.98     1.20    4%    5    5   0.91 [0.74, 0.92] textures_pk-_pkf_water1-128x128.raw
+WebpEncodeZ0/large                 3       33.5     0.96     1.50   10%    0    3   0.93 [0.76, 1.06] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ1/icon                  6        3.6     1.03     1.12    7%    1    3   0.99 [0.96, 1.00] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ1/1mp                  12       13.3     1.15     1.03    4%    0    3   1.02 [0.68, 1.03] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ1/large                 3        7.5     1.05     1.31    3%    0    2   1.01 [0.79, 1.24] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ2/icon                  6        2.8     1.02     1.15    4%    0    5   1.00 [0.99, 1.01] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ2/1mp                  12        9.3     1.23     1.14    4%    0    2   1.04 [0.98, 1.08] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ2/large                 3        5.4     1.05     1.31    5%    0    2   1.03 [1.02, 1.34] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ3/icon                  6        2.4     1.02     1.66    4%    0    4   0.98 [0.94, 1.18] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ3/1mp                  12        6.8     1.29     1.42    3%    0    4   1.02 [0.97, 1.05] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ3/large                 3        4.2     1.05     1.32    4%    0    3   1.00 [0.93, 1.06] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ4/icon                  6        2.3     1.02     1.68    4%    1    4   0.96 [0.88, 0.98] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ4/1mp                  12        6.7     1.36     1.41    4%    0    2   1.05 [0.99, 1.07] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ4/large                 3        4.3     1.06     1.39    5%    0    2   1.03 [0.88, 1.07] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ5/icon                  6        2.3     1.03     2.78    5%    0    3   0.98 [0.79, 1.30] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ5/1mp                  12        6.3     1.45     1.46    3%    0    2   1.04 [1.00, 1.07] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ5/large                 3        4.0     1.06     1.35    6%    0    2   1.02 [0.99, 1.03] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ6/icon                  6        2.2     1.02     3.08    3%    1    2   0.96 [0.85, 0.97] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ6/1mp                  12        5.5     1.55     1.48    3%    0    0   1.06 [1.04, 1.10] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ6/large                 3        3.0     1.07     1.31    5%    0    2   1.00 [0.85, 1.05] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ7/icon                  6        2.0     1.04     3.08    6%    0    4   1.00 [0.97, 1.19] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ7/1mp                  12        4.5     1.51     1.36    1%    0    0   1.07 [1.05, 1.14] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ7/large                 3        2.4     1.08     1.64    9%    0    2   1.02 [0.77, 1.20] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ8/icon                  6        2.0     1.03    10.82    5%    0    4   0.99 [0.76, 1.01] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ8/1mp                  12        3.3     2.04     3.69    2%    0    0   1.12 [1.06, 1.16] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ8/large                 3        1.8     1.20     1.51    3%    0    0   1.08 [1.06, 1.15] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ9/icon                  6        0.6     1.04    21.29    2%    0    2   0.98 [0.96, 1.00] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeZ9/1mp                  12        0.7     2.75     6.74    1%    0    0   1.18 [1.13, 1.18] textures_pk-_pkf_water1-128x128.raw
+WebpEncodeZ9/large                 3        0.5     1.38     2.84    3%    0    2   1.06 [1.00, 1.11] photo_wikipedia-001-1276x850.raw
+all                              210        4.5     1.27     1.93         11   72

@@ -1,0 +1,42 @@
+                                                                  │  before.txt  │              after.txt              │
+                                                                  │    sec/op    │   sec/op     vs base                │
+AlphaZ1/icon_512-actions_address_book_new-512x512                    13.47m ± 2%   11.47m ± 3%  -14.85% (p=0.000 n=12)
+AlphaZ1/icon_64-actions_contact_new-64x64                            300.0µ ± 3%   270.0µ ± 4%  -10.00% (p=0.000 n=12)
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600    6.880m ± 2%   5.110m ± 3%  -25.73% (p=0.000 n=12)
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                          9.445m ± 3%   6.810m ± 4%  -27.90% (p=0.000 n=12)
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                11.370m ± 1%   8.595m ± 2%  -24.41% (p=0.000 n=12)
+AlphaZ1/test-dice-800x600                                            31.75m ± 1%   26.80m ± 2%  -15.58% (p=0.000 n=12)
+AlphaZ1/test-qoi_logo-448x220                                        4.150m ± 3%   3.050m ± 2%  -26.51% (p=0.000 n=12)
+AlphaZ1/test-testcard_rgba-256x256                                   1.800m ± 2%   1.365m ± 3%  -24.17% (p=0.000 n=12)
+AlphaZ1/textures_plants-plant_01-166x1022                            5.120m ± 2%   3.610m ± 3%  -29.49% (p=0.000 n=12)
+AlphaZ1/textures_plants-plant_02-1024x1316                           33.41m ± 3%   26.65m ± 2%  -20.25% (p=0.000 n=12)
+geomean                                                              6.432m        5.009m       -22.12%
+
+                                                                  │ before.txt │             after.txt              │
+                                                                  │    MP/s    │    MP/s     vs base                │
+AlphaZ1/icon_512-actions_address_book_new-512x512                   19.46 ± 2%   22.86 ± 3%  +17.44% (p=0.000 n=12)
+AlphaZ1/icon_64-actions_contact_new-64x64                           13.65 ± 3%   15.17 ± 4%  +11.11% (p=0.000 n=12)
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   52.33 ± 2%   70.45 ± 3%  +34.64% (p=0.000 n=12)
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                         56.41 ± 3%   78.24 ± 4%  +38.69% (p=0.000 n=12)
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                67.83 ± 1%   89.73 ± 2%  +32.29% (p=0.000 n=12)
+AlphaZ1/test-dice-800x600                                           15.12 ± 1%   17.91 ± 2%  +18.45% (p=0.000 n=12)
+AlphaZ1/test-qoi_logo-448x220                                       23.75 ± 3%   32.32 ± 2%  +36.07% (p=0.000 n=12)
+AlphaZ1/test-testcard_rgba-256x256                                  36.41 ± 2%   48.02 ± 3%  +31.88% (p=0.000 n=12)
+AlphaZ1/textures_plants-plant_01-166x1022                           33.13 ± 2%   47.00 ± 3%  +41.83% (p=0.000 n=12)
+AlphaZ1/textures_plants-plant_02-1024x1316                          40.33 ± 2%   50.57 ± 2%  +25.38% (p=0.000 n=12)
+geomean                                                             31.39        40.31       +28.40%
+
+                                                                  │  before.txt  │               after.txt               │
+                                                                  │      B       │      B        vs base                 │
+AlphaZ1/icon_512-actions_address_book_new-512x512                   6.187Ki ± 0%   6.187Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/icon_64-actions_contact_new-64x64                             341.0 ± 0%     341.0 ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   3.941Ki ± 0%   3.941Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                         6.409Ki ± 0%   6.409Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                4.776Ki ± 0%   4.776Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/test-dice-800x600                                           47.52Ki ± 0%   47.52Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/test-qoi_logo-448x220                                       5.706Ki ± 0%   5.706Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/test-testcard_rgba-256x256                                  1.536Ki ± 0%   1.536Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/textures_plants-plant_01-166x1022                           8.313Ki ± 0%   8.313Ki ± 0%       ~ (p=1.000 n=12) ¹
+AlphaZ1/textures_plants-plant_02-1024x1316                          44.85Ki ± 0%   44.85Ki ± 0%       ~ (p=1.000 n=12) ¹
+geomean                                                             5.737Ki        5.737Ki       +0.00%
+¹ all samples are equal

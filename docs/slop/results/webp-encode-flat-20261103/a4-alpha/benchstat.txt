@@ -1,0 +1,102 @@
+                                                                  │   before.txt   │              after.txt              │
+                                                                  │     sec/op     │    sec/op     vs base               │
+AlphaZ1/icon_512-actions_address_book_new-512x512                    13.53m ±  10%   12.46m ± 46%        ~ (p=0.267 n=8)
+AlphaZ1/icon_64-actions_contact_new-64x64                            305.0µ ±   5%   280.0µ ± 61%        ~ (p=0.264 n=8)
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600    7.065m ±  57%   5.325m ± 81%        ~ (p=0.161 n=8)
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                         10.055m ±   6%   7.500m ± 69%        ~ (p=0.061 n=8)
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                11.985m ±  10%   9.320m ± 72%        ~ (p=0.065 n=8)
+AlphaZ1/test-dice-800x600                                            31.98m ±   1%   27.20m ± 56%        ~ (p=0.062 n=8)
+AlphaZ1/test-qoi_logo-448x220                                        4.240m ±   7%   3.120m ± 59%        ~ (p=0.060 n=8)
+AlphaZ1/test-testcard_rgba-256x256                                   1.840m ±   9%   1.385m ± 78%        ~ (p=0.059 n=8)
+AlphaZ1/textures_plants-plant_01-166x1022                            5.285m ±   6%   3.780m ± 59%        ~ (p=0.061 n=8)
+AlphaZ1/textures_plants-plant_02-1024x1316                           34.62m ±   3%   27.67m ± 63%        ~ (p=0.061 n=8)
+AlphaZ5/icon_512-actions_address_book_new-512x512                    49.76m ±   4%   37.19m ±  5%  -25.26% (p=0.007 n=8)
+AlphaZ5/icon_64-actions_contact_new-64x64                            270.0µ ±   4%   205.0µ ±  7%  -24.07% (p=0.006 n=8)
+AlphaZ5/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   20.555m ±   5%   8.980m ±  6%  -56.31% (p=0.000 n=8)
+AlphaZ5/pngimg-academy_awards_PNG9-447x1192                          34.05m ±   5%   16.35m ± 50%  -51.98% (p=0.007 n=8)
+AlphaZ5/pngimg-air_pump_PNG5-999x772                                 27.78m ±  12%   12.50m ± 26%  -55.00% (p=0.000 n=8)
+AlphaZ5/test-dice-800x600                                            91.91m ±   4%   74.62m ±  5%  -18.80% (p=0.010 n=8)
+AlphaZ5/test-qoi_logo-448x220                                       13.920m ±   3%   6.850m ±  4%  -50.79% (p=0.006 n=8)
+AlphaZ5/test-testcard_rgba-256x256                                  10.725m ±  64%   4.845m ±  1%  -54.83% (p=0.004 n=8)
+AlphaZ5/textures_plants-plant_01-166x1022                            20.76m ±   2%   10.51m ±  7%  -49.37% (p=0.007 n=8)
+AlphaZ5/textures_plants-plant_02-1024x1316                           72.86m ±   2%   45.04m ±  7%  -38.19% (p=0.010 n=8)
+AlphaZ8/icon_512-actions_address_book_new-512x512                   102.62m ±   6%   54.71m ±  2%  -46.69% (p=0.000 n=8)
+AlphaZ8/icon_64-actions_contact_new-64x64                            300.0µ ±   7%   220.0µ ±  5%  -26.67% (p=0.007 n=8)
+AlphaZ8/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600    85.06m ±  12%   18.07m ±  4%  -78.76% (p=0.000 n=8)
+AlphaZ8/pngimg-academy_awards_PNG9-447x1192                          65.60m ±  46%   20.11m ±  5%  -69.35% (p=0.000 n=8)
+AlphaZ8/pngimg-air_pump_PNG5-999x772                                 97.69m ± 136%   19.67m ± 24%  -79.87% (p=0.000 n=8)
+AlphaZ8/test-dice-800x600                                            198.4m ±  96%   110.0m ±  3%  -44.56% (p=0.000 n=8)
+AlphaZ8/test-qoi_logo-448x220                                       24.245m ±  98%   9.175m ±  2%  -62.16% (p=0.000 n=8)
+AlphaZ8/test-testcard_rgba-256x256                                  11.020m ± 123%   5.215m ± 36%  -52.68% (p=0.000 n=8)
+AlphaZ8/textures_plants-plant_01-166x1022                            59.15m ±   4%   15.56m ±  2%  -73.70% (p=0.000 n=8)
+AlphaZ8/textures_plants-plant_02-1024x1316                          181.27m ±   6%   64.15m ±  2%  -64.61% (p=0.000 n=8)
+geomean                                                              17.01m          9.313m        -45.24%
+
+                                                                  │ before.txt  │              after.txt               │
+                                                                  │    MP/s     │     MP/s      vs base                │
+AlphaZ1/icon_512-actions_address_book_new-512x512                   19.38 ± 49%    21.07 ± 46%         ~ (p=0.267 n=8)
+AlphaZ1/icon_64-actions_contact_new-64x64                           13.43 ± 45%    14.63 ± 47%         ~ (p=0.264 n=8)
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   50.96 ± 49%    67.61 ± 51%         ~ (p=0.161 n=8)
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                         52.99 ± 49%    71.05 ± 53%         ~ (p=0.061 n=8)
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                64.36 ± 48%    82.75 ± 50%         ~ (p=0.065 n=8)
+AlphaZ1/test-dice-800x600                                           15.01 ± 47%    17.65 ± 49%         ~ (p=0.062 n=8)
+AlphaZ1/test-qoi_logo-448x220                                       23.25 ± 51%    31.60 ± 51%         ~ (p=0.060 n=8)
+AlphaZ1/test-testcard_rgba-256x256                                  35.62 ± 51%    47.33 ± 51%         ~ (p=0.059 n=8)
+AlphaZ1/textures_plants-plant_01-166x1022                           32.10 ± 53%    44.88 ± 53%         ~ (p=0.061 n=8)
+AlphaZ1/textures_plants-plant_02-1024x1316                          38.93 ± 49%    48.71 ± 49%         ~ (p=0.061 n=8)
+AlphaZ5/icon_512-actions_address_book_new-512x512                   5.268 ± 49%    7.048 ± 47%   +33.80% (p=0.007 n=8)
+AlphaZ5/icon_64-actions_contact_new-64x64                           15.17 ± 46%    19.99 ± 49%   +31.79% (p=0.006 n=8)
+AlphaZ5/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   17.51 ± 55%    40.09 ± 54%  +128.90% (p=0.000 n=8)
+AlphaZ5/pngimg-academy_awards_PNG9-447x1192                         15.65 ± 55%    32.59 ± 55%  +108.23% (p=0.007 n=8)
+AlphaZ5/pngimg-air_pump_PNG5-999x772                                27.76 ± 53%    61.70 ± 53%  +122.25% (p=0.000 n=8)
+AlphaZ5/test-dice-800x600                                           5.223 ±  8%    6.433 ± 46%   +23.16% (p=0.010 n=8)
+AlphaZ5/test-qoi_logo-448x220                                       7.080 ± 10%   14.388 ± 52%  +103.21% (p=0.006 n=8)
+AlphaZ5/test-testcard_rgba-256x256                                  6.111 ± 46%   13.526 ± 56%  +121.35% (p=0.004 n=8)
+AlphaZ5/textures_plants-plant_01-166x1022                           8.172 ± 45%   16.142 ± 57%   +97.53% (p=0.007 n=8)
+AlphaZ5/textures_plants-plant_02-1024x1316                          18.50 ±  4%    29.92 ± 52%   +61.78% (p=0.010 n=8)
+AlphaZ8/icon_512-actions_address_book_new-512x512                   2.555 ±  6%    4.793 ± 46%   +87.57% (p=0.000 n=8)
+AlphaZ8/icon_64-actions_contact_new-64x64                           13.65 ±  3%    18.62 ± 45%   +36.37% (p=0.007 n=8)
+AlphaZ8/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   4.233 ± 17%   19.928 ± 54%  +370.78% (p=0.000 n=8)
+AlphaZ8/pngimg-academy_awards_PNG9-447x1192                         8.123 ± 54%   26.502 ± 56%  +226.26% (p=0.000 n=8)
+AlphaZ8/pngimg-air_pump_PNG5-999x772                                7.896 ± 59%   39.224 ± 53%  +396.79% (p=0.000 n=8)
+AlphaZ8/test-dice-800x600                                           2.420 ± 50%    4.365 ±  6%   +80.37% (p=0.000 n=8)
+AlphaZ8/test-qoi_logo-448x220                                       4.065 ± 51%   10.742 ±  5%  +164.27% (p=0.000 n=8)
+AlphaZ8/test-testcard_rgba-256x256                                  5.947 ± 57%   12.567 ± 30%  +111.32% (p=0.000 n=8)
+AlphaZ8/textures_plants-plant_01-166x1022                           2.868 ± 11%   10.907 ±  9%  +280.28% (p=0.000 n=8)
+AlphaZ8/textures_plants-plant_02-1024x1316                          7.434 ± 11%   21.009 ±  3%  +182.58% (p=0.000 n=8)
+geomean                                                             11.87          21.68         +82.63%
+
+                                                                  │  before.txt  │              after.txt               │
+                                                                  │      B       │      B        vs base                │
+AlphaZ1/icon_512-actions_address_book_new-512x512                   6.187Ki ± 0%   6.187Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/icon_64-actions_contact_new-64x64                             341.0 ± 0%     341.0 ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   3.941Ki ± 0%   3.941Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/pngimg-academy_awards_PNG9-447x1192                         6.409Ki ± 0%   6.409Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/pngimg-air_pump_PNG5-999x772                                4.776Ki ± 0%   4.776Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/test-dice-800x600                                           47.52Ki ± 0%   47.52Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/test-qoi_logo-448x220                                       5.706Ki ± 0%   5.706Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/test-testcard_rgba-256x256                                  1.536Ki ± 0%   1.536Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/textures_plants-plant_01-166x1022                           8.313Ki ± 0%   8.313Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ1/textures_plants-plant_02-1024x1316                          44.85Ki ± 0%   44.85Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/icon_512-actions_address_book_new-512x512                   6.035Ki ± 0%   6.035Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/icon_64-actions_contact_new-64x64                             427.0 ± 0%     427.0 ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   3.859Ki ± 0%   3.859Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/pngimg-academy_awards_PNG9-447x1192                         6.409Ki ± 0%   6.409Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/pngimg-air_pump_PNG5-999x772                                4.696Ki ± 0%   4.696Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/test-dice-800x600                                           44.66Ki ± 0%   44.66Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/test-qoi_logo-448x220                                       5.636Ki ± 0%   5.636Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/test-testcard_rgba-256x256                                  1.603Ki ± 0%   1.603Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/textures_plants-plant_01-166x1022                           8.285Ki ± 0%   8.285Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ5/textures_plants-plant_02-1024x1316                          43.20Ki ± 0%   43.20Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/icon_512-actions_address_book_new-512x512                   6.022Ki ± 0%   6.022Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/icon_64-actions_contact_new-64x64                             427.0 ± 0%     427.0 ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/pngimg-Number_2_PNG_images_free_download_PNG14940-600x600   3.865Ki ± 0%   3.865Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/pngimg-academy_awards_PNG9-447x1192                         6.341Ki ± 0%   6.341Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/pngimg-air_pump_PNG5-999x772                                4.525Ki ± 0%   4.525Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/test-dice-800x600                                           44.49Ki ± 0%   44.49Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/test-qoi_logo-448x220                                       5.690Ki ± 0%   5.690Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/test-testcard_rgba-256x256                                  1.603Ki ± 0%   1.603Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/textures_plants-plant_01-166x1022                           8.286Ki ± 0%   8.286Ki ± 0%       ~ (p=1.000 n=8) ¹
+AlphaZ8/textures_plants-plant_02-1024x1316                          42.90Ki ± 0%   42.90Ki ± 0%       ~ (p=1.000 n=8) ¹
+geomean                                                             5.761Ki        5.761Ki       +0.00%
+¹ all samples are equal

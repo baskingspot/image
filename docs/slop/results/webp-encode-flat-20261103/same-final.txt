@@ -1,0 +1,8 @@
+z2 corpus: 21 files, 0 differ
+z2 few: 42 files, 0 differ
+z4 corpus: 21 files, 0 differ
+z4 few: 42 files, 0 differ
+z6 corpus: 21 files, 0 differ
+z6 few: 42 files, 0 differ
+z9 corpus: 21 files, 0 differ
+z9 few: 42 files, 0 differ

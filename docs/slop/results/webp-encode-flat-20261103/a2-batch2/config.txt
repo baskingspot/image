@@ -1,0 +1,3 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.60GHz, 4 threads
+image: ReleaseFast, native; C arms: cc -O3 -march=native; go: GOAMD64=v3
+buffers: input 0 bytes past a page, output 2048; 50 ms a sample, 4 rounds

@@ -1,0 +1,11 @@
+peak RSS (MiB)            after   before  libwebp
+webp-encode-z0            109.1    109.1    157.9
+webp-encode-z1            152.4    152.4    155.5
+webp-encode-z2            152.7    152.7    214.2
+webp-encode-z3            152.7    152.9    214.0
+webp-encode-z4            152.9    152.9    213.3
+webp-encode-z5            153.5    153.5    216.9
+webp-encode-z6            153.5    153.5    212.9
+webp-encode-z7            153.4    153.4    212.7
+webp-encode-z8            154.2    154.2    212.9
+webp-encode-z9            156.0    155.7    251.2

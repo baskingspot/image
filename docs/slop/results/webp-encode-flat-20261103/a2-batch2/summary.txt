@@ -1,0 +1,32 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+WebpEncodeZ0/icon                  6       11.0     1.02    4%    0    3   0.99 [0.97, 1.15] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ0/1mp                  12       57.0     1.10    2%    0    1   1.05 [1.02, 1.06] pngimg-academy_awards_PNG9-447x1192.raw
+WebpEncodeZ0/large                 3       35.4     1.06    6%    0    1   1.04 [1.02, 1.14] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ1/icon                  6        3.6     1.01    4%    0    5   1.00 [0.98, 1.05] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ1/1mp                  12       13.6     1.00    1%    4    6   0.92 [0.90, 0.97] test-dice-800x600.raw
+WebpEncodeZ1/large                 3        8.1     1.00    1%    0    2   0.98 [0.97, 1.01] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ2/icon                  6        2.8     1.02    1%    0    4   1.01 [0.98, 1.02] icon_64-actions_appointment_new-64x64.raw
+WebpEncodeZ2/1mp                  12        9.3     1.01    3%    3    7   0.93 [0.90, 0.96] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+WebpEncodeZ2/large                 3        5.4     0.99    7%    0    3   0.96 [0.80, 1.28] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ3/icon                  6        2.5     1.01    4%    0    5   1.00 [0.98, 1.00] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ3/1mp                  12        7.2     1.01    2%    1    7   0.97 [0.96, 0.98] textures_plants-plant_01-166x1022.raw
+WebpEncodeZ3/large                 3        4.4     1.01    3%    1    1   0.99 [0.88, 0.99] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ4/icon                  6        2.5     1.01    2%    0    3   1.00 [0.99, 1.02] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ4/1mp                  12        6.9     1.01    1%    0    9   0.98 [0.88, 1.03] textures_plants-plant_01-166x1022.raw
+WebpEncodeZ4/large                 3        4.3     0.99    2%    0    3   0.98 [0.95, 1.04] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ5/icon                  6        2.3     1.01    3%    0    5   1.00 [0.99, 1.01] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ5/1mp                  12        6.3     1.01    0%    2    6   0.97 [0.94, 1.02] photo_kodak-kodim02-768x512.raw
+WebpEncodeZ5/large                 3        4.0     0.99    1%    0    3   0.99 [0.95, 1.04] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ6/icon                  6        2.3     1.00    1%    0    5   1.00 [0.94, 1.00] icon_32-actions_appointment_new-32x32.raw
+WebpEncodeZ6/1mp                  12        5.6     1.01    1%    1    7   0.98 [0.95, 1.00] test-dice-800x600.raw
+WebpEncodeZ6/large                 3        3.0     0.97    4%    2    1   0.95 [0.81, 0.98] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+WebpEncodeZ7/icon                  6        2.1     1.02    4%    0    4   1.00 [1.00, 1.02] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ7/1mp                  12        4.6     1.01    2%    0    8   0.98 [0.92, 1.03] pngimg-academy_awards_PNG9-447x1192.raw
+WebpEncodeZ7/large                 3        2.5     0.99    3%    0    3   0.99 [0.96, 1.06] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ8/icon                  6        2.0     1.00    1%    0    5   0.99 [0.99, 1.00] icon_64-actions_appointment_new-64x64.raw
+WebpEncodeZ8/1mp                  12        3.3     1.00    1%    4    7   0.98 [0.95, 0.99] icon_512-actions_address_book_new-512x512.raw
+WebpEncodeZ8/large                 3        2.0     0.98    4%    1    2   0.98 [0.90, 1.06] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ9/icon                  6        0.6     0.99    0%    0    6   0.98 [0.98, 1.00] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeZ9/1mp                  12        0.7     1.00    1%    3    7   0.97 [0.97, 0.98] screenshot_game-3dbrick2-320x240.raw
+WebpEncodeZ9/large                 3        0.5     1.01    4%    0    3   0.98 [0.94, 1.02] photo_wikipedia-001-1276x850.raw
+all                              210        4.6     1.01         22  132

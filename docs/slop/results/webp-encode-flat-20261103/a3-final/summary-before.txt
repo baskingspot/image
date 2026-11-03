@@ -1,0 +1,32 @@
+image/arm, geomean              rows image MP/s  libwebp     ±   <1    ~   slowest vs libwebp
+WebpEncodeZ0/icon                  6       10.9     1.54    7%    0    0   1.19 [1.18, 2.11] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ0/1mp                  12       52.1     1.23    4%    1    4   0.77 [0.71, 0.85] textures_plants-plant_01-166x1022.raw
+WebpEncodeZ0/large                 3       35.3     1.57    4%    0    0   1.51 [1.41, 1.60] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ1/icon                  6        3.5     1.08    9%    4    0   0.84 [0.80, 0.86] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeZ1/1mp                  12       11.6     0.89    2%    6    0   0.31 [0.27, 0.31] test-qoi_logo-448x220.raw
+WebpEncodeZ1/large                 3        7.8     1.29   10%    1    1   0.95 [0.86, 0.96] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ2/icon                  6        2.7     1.13    3%    1    1   0.94 [0.89, 0.95] icon_32-actions_appointment_new-32x32.raw
+WebpEncodeZ2/1mp                  12        7.7     0.93    4%    4    3   0.23 [0.22, 0.26] test-qoi_logo-448x220.raw
+WebpEncodeZ2/large                 3        5.4     1.30    1%    0    0   1.10 [1.04, 1.13] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ3/icon                  6        2.4     1.64    2%    0    0   1.35 [1.27, 1.40] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ3/1mp                  12        5.5     1.13    3%    4    0   0.27 [0.25, 0.28] test-qoi_logo-448x220.raw
+WebpEncodeZ3/large                 3        4.3     1.30   13%    0    1   1.14 [1.03, 1.15] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ4/icon                  6        2.3     1.68    3%    0    0   1.37 [1.21, 1.38] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ4/1mp                  12        5.0     1.04    6%    4    1   0.21 [0.21, 0.35] test-qoi_logo-448x220.raw
+WebpEncodeZ4/large                 3        4.1     1.30   12%    0    1   1.16 [1.02, 1.18] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ5/icon                  6        2.3     2.69    6%    0    1   1.28 [0.98, 1.36] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ5/1mp                  12        4.3     1.01    3%    4    1   0.27 [0.26, 0.31] test-qoi_logo-448x220.raw
+WebpEncodeZ5/large                 3        3.8     1.26    7%    0    1   1.08 [1.02, 1.16] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ6/icon                  6        2.2     3.00    2%    0    0   1.25 [1.21, 1.32] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ6/1mp                  12        3.6     0.98    5%    4    1   0.28 [0.27, 0.31] test-qoi_logo-448x220.raw
+WebpEncodeZ6/large                 3        2.8     1.22    3%    0    1   1.03 [0.99, 1.04] photo_wikipedia-001-1276x850.raw
+WebpEncodeZ7/icon                  6        1.9     2.99    2%    0    1   1.14 [0.99, 1.15] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ7/1mp                  12        3.0     0.90    1%    6    0   0.41 [0.41, 0.42] test-qoi_logo-448x220.raw
+WebpEncodeZ7/large                 3        2.3     1.53    3%    0    0   1.32 [1.31, 1.37] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ8/icon                  6        1.9    10.53    1%    0    0   4.13 [4.09, 4.15] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ8/1mp                  12        1.6     1.82    1%    2    0   0.19 [0.19, 0.20] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+WebpEncodeZ8/large                 3        1.7     1.30    3%    0    0   1.25 [1.22, 1.26] screenshot_web-apple_com-1313x4755.raw
+WebpEncodeZ9/icon                  6        0.6    20.64    1%    0    0   7.00 [6.50, 7.17] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeZ9/1mp                  12        0.3     2.51    1%    2    0   0.62 [0.51, 0.68] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+WebpEncodeZ9/large                 3        0.4     2.08    4%    1    0   0.85 [0.83, 0.88] screenshot_web-apple_com-1313x4755.raw
+all                              210        3.6     1.54         44   18

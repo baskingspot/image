@@ -1,0 +1,2 @@
+before     210 rows, 0 differ from after
+libwebp    210 rows, 210 differ from after

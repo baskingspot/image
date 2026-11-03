@@ -1,0 +1,10 @@
+z1 test-qoi_logo-448x220.raw ph_m: parse 2 +cache 24 Mcycles: fill 2 rank 42 transforms 31 find 154 greedy+cache 24 optimal 113 groups 82 emit 9
+z1 test-qoi_logo-448x220.raw ph_f: parse 3 +cache 17 Mcycles: fill 2 rank 34 transforms 13 find 87 greedy+cache 17 optimal 83 groups 39 emit 7
+z5 test-qoi_logo-448x220.raw ph_m: parse 4 +cache 26 Mcycles: fill 4 rank 43 transforms 32 find 290 greedy+cache 26 optimal 291 groups 745 emit 10
+z5 test-qoi_logo-448x220.raw ph_f: parse 3 +cache 17 Mcycles: fill 2 rank 33 transforms 13 find 104 greedy+cache 17 optimal 168 groups 196 emit 8
+z5 pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw ph_m: parse 15 +cache 58 Mcycles: fill 17 rank 58 transforms 22 find 981 greedy+cache 73 optimal 695 groups 1178 emit 19
+z5 pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw ph_f: parse 10 +cache 41 Mcycles: fill 15 rank 60 transforms 22 find 350 greedy+cache 57 optimal 504 groups 288 emit 18
+z1 photo_kodak-kodim01-768x512.raw ph_m: parse 93 +cache 1154 Mcycles: fill 16 rank 560 transforms 275 find 1293 greedy+cache 1313 optimal 1176 groups 432 emit 275
+z1 photo_kodak-kodim01-768x512.raw ph_f: parse 99 +cache 504 Mcycles: fill 16 rank 534 transforms 136 find 1478 greedy+cache 669 optimal 1261 groups 453 emit 289
+z5 photo_kodak-kodim01-768x512.raw ph_m: parse 123 +cache 950 Mcycles: fill 17 rank 280 transforms 4245 find 1633 greedy+cache 1125 optimal 900 groups 4327 emit 373
+z5 photo_kodak-kodim01-768x512.raw ph_f: parse 124 +cache 572 Mcycles: fill 17 rank 281 transforms 4232 find 1809 greedy+cache 757 optimal 976 groups 2140 emit 384
