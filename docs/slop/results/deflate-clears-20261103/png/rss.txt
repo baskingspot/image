@@ -1,0 +1,3 @@
+peak RSS (MiB)            image   before   libpng     spng
+png-encode-fast           387.8    387.8    387.1    441.0
+png-encode                387.7    387.7    387.1    433.5

@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   before  libtiff image-rs       go     ±   <1    ~   slowest vs before
+TiffEncodeDeflate/icon            13       12.3     1.05     0.83     2.04     2.32    4%    0    6   1.01 [0.97, 1.08] icon_64-actions_bookmark_new-64x64.raw
+TiffEncodeDeflate/1mp             23       21.2     1.05     0.71     1.79     1.06    3%    0   19   0.98 [0.80, 1.11] pngimg-air_pump_PNG5-999x772.raw
+TiffEncodeDeflate/large            8       16.5     1.04     0.68     1.98     0.80    4%    0    5   1.01 [0.91, 1.12] photo_wikipedia-001-1276x850.raw
+all                               44       17.3     1.05     0.74     1.90     1.43          0   30

@@ -1,0 +1,3 @@
+before      88 rows, 0 differ from image
+libpng      88 rows, 88 differ from image
+spng        88 rows, 88 differ from image
