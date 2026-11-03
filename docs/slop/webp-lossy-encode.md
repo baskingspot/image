@@ -4,7 +4,7 @@
 (RFC 9649), written from the specifications; libwebp is the oracle and the
 bar. Results: `results/webp-lossy-encode-20261102.md`, for trellis
 quantization and the speed pass, `results/webp-lossy-trellis-20261102.md`,
-and for icon speed,
+and for icon speed and `best`'s first pass,
 `results/webp-lossy-speed-20261103.md`.
 
 ## Shape
@@ -46,7 +46,8 @@ One encode:
    probabilities' costs, keeps its quantized levels in work memory (a
    count and one or two bytes per level, at most 793 bytes a macroblock),
    and counts its tokens. `best` runs the pass twice, the second with
-   costs from the probabilities the first chose.
+   costs from the probabilities the first chose; the first searches as
+   `default` does.
 4. The token probabilities are updated where the counts save more than
    the update costs; the skip flag is used when it costs less than the
    empty macroblocks' end-of-block tokens.
@@ -85,7 +86,9 @@ parts only when the source has alpha, so peak RSS stays below libwebp's.
   each 4x4 block's three best modes by SATD tried by rate and distortion
   (all ten measured 0.3% smaller on PSNR and 0.5% on SSIM), and the
   chosen modes coded again with trellis quantization. `best`: every
-  4x4 mode, trellis quantization in every choice, and two passes. Below
+  4x4 mode, trellis quantization in every choice, and two passes, the
+  first searching as `default` does (as `best`: the same size, 1.3× the
+  time; as `fast`: 0.3% larger on PSNR). Below
   `best`, a macroblock whose 16x16 choice costs under 64 bits' worth is
   not tried as 4x4: free at `fast`, 0.1% at `default`, and 4-13% faster.
 - **Trellis quantization** chooses each block's levels by dynamic

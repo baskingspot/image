@@ -53,7 +53,8 @@ pub const Effort = enum {
     default,
     /// As `default` with every 4x4 mode tried, trellis quantization in
     /// every choice, and every macroblock tried as 4x4, after a first
-    /// pass whose token statistics refine the rate estimates.
+    /// pass at `default`'s search whose token statistics refine the rate
+    /// estimates.
     best,
 };
 
@@ -1514,10 +1515,18 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     if (budget < 160 * 256) e.mode_budget = budget -| 2 * 256;
 
     e.st.costs.init(&tables.default_coeff_probs);
+    // At `best`, a first pass sets the token costs the coding pass
+    // estimates rates with. It searches as `default` does: its choices
+    // only move the costs, and at a quarter of the time they measured
+    // the same (results/webp-lossy-speed-20261103.md).
     if (options.effort == .best) {
+        e.effort = .default;
+        e.trellis = .final;
         e.run();
         e.chooseProbs();
         e.st.costs.init(&e.st.probs);
+        e.effort = .best;
+        e.trellis = .all;
     }
     e.run();
     e.chooseProbs();
