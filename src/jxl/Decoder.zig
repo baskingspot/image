@@ -1031,20 +1031,66 @@ fn packPivot(
                 const c = if (k < num_color) k else ai.?;
                 quantize(fl[c][0..n], q[k][0..n], max);
             }
-            // Interleaved a pixel at a time, with the channel count fixed.
+            // Interleaved eight pixels at a time, then a pixel at a time,
+            // with the channel count fixed.
+            var x: usize = 0;
             if (p.sample() == .u8) {
-                for (0..n) |x| inline for (0..nc) |k| {
-                    buf[x * nc + k] = @intCast(q[k][x]);
+                if (nc >= 3) while (x + 8 <= n) : (x += 8) {
+                    const v = interleave(nc, &q, x);
+                    const b: @Vector(8 * nc, u8) = @intCast(v);
+                    buf[x * nc ..][0 .. 8 * nc].* = b;
+                };
+                for (x..n) |i| inline for (0..nc) |k| {
+                    buf[i * nc + k] = @intCast(q[k][i]);
                 };
             } else {
                 const out = std.mem.bytesAsSlice(u16, buf[0 .. n * nc * 2]);
-                for (0..n) |x| inline for (0..nc) |k| {
-                    out[x * nc + k] = q[k][x];
+                if (nc >= 3) while (x + 8 <= n) : (x += 8) {
+                    const v = interleave(nc, &q, x);
+                    const o: *align(1) [8 * nc]u16 = @ptrCast(out[x * nc ..][0 .. 8 * nc]);
+                    o.* = v;
+                };
+                for (x..n) |i| inline for (0..nc) |k| {
+                    out[i * nc + k] = q[k][i];
                 };
             }
         },
         else => unreachable,
     }
+}
+
+/// Pixels `x` to `x + 8` of the `nc` (3 or 4) channels of `q`,
+/// interleaved: each pixel's samples together.
+inline fn interleave(comptime nc: usize, q: *const [4][chunk]u16, x: usize) @Vector(8 * nc, u16) {
+    const V8 = @Vector(8, u16);
+    const a: V8 = q[0][x..][0..8].*;
+    const b: V8 = q[1][x..][0..8].*;
+    const c: V8 = q[2][x..][0..8].*;
+    const d: V8 = if (nc == 4) q[3][x..][0..8].* else @splat(0);
+    // a and b paired, c and d paired, then the pairs pixel by pixel.
+    const ab = @shuffle(u16, a, b, pairMask());
+    const cd = @shuffle(u16, c, d, pairMask());
+    return @shuffle(u16, ab, cd, pixelMask(nc));
+}
+
+fn pairMask() [16]i32 {
+    var m: [16]i32 = undefined;
+    for (0..8) |i| {
+        m[2 * i] = @intCast(i);
+        m[2 * i + 1] = ~@as(i32, @intCast(i));
+    }
+    return m;
+}
+
+fn pixelMask(comptime nc: usize) [8 * nc]i32 {
+    var m: [8 * nc]i32 = undefined;
+    for (0..8) |i| {
+        m[nc * i] = @intCast(2 * i);
+        m[nc * i + 1] = @intCast(2 * i + 1);
+        m[nc * i + 2] = ~@as(i32, @intCast(2 * i));
+        if (nc == 4) m[nc * i + 3] = ~@as(i32, @intCast(2 * i + 1));
+    }
+    return m;
 }
 
 /// `toU16` (or `toU8`, for `max` 255) of each sample, eight at a time:
