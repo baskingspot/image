@@ -305,10 +305,11 @@ squeezes row by row (one extra channel instead of three).
 - Oracle: libjxl decodes the first displayed frame in RGBA16 (straight or
   premultiplied as the image stores alpha) and float RGBA. Ours must match
   bit for bit when every frame is drawn in integers (lossless Modular);
-  with a frame drawn in floats, within 3 16-bit steps a sample, and with
+  with a frame drawn in floats, within 4 16-bit steps a sample, and with
   splines within the conformance bound (peak 262 steps, RMS 6.55), which
   `toleranceFor` picks from the frame headers (`Decoder.skim`) before the
-  decode (plan.md decision 45; `test/oracle/jxl.zig` has the reasoning).
+  decode (plan.md decisions 45 and 77; `test/oracle/jxl.zig` has the
+  reasoning).
   16-bit answers count for integer images and float answers for float
   ones. A grey image is compared with libjxl's grey output, widened
   (test/oracle/jxl.c): like ours it is the first color channel, where its

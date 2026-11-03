@@ -12,12 +12,15 @@
 //! gives those images room, found from the frame headers before the
 //! decode (`Decoder.skim`):
 //!
-//! - 3 steps of 16 bits a sample. Floats that differ from libjxl's by a
-//!   few 1e-5 (at most 4.3e-5 seen, in the sRGB curve's linear segment,
-//!   whose slope 12.92 makes that 2 steps of 65535) round 1 to 3 steps
-//!   apart. The conformance suite allows more (its tightest peak is 0.004
-//!   of full scale, 262 steps); 3 holds this decoder to the reference's
-//!   arithmetic, as close as the floats allow.
+//! - 4 steps of 16 bits a sample (plan.md decision 77). Floats that
+//!   differ from libjxl's by a few 1e-5, in the sRGB curve's linear
+//!   segment, whose slope 12.92 amplifies a few 1e-6 in linear light,
+//!   round up to 4 steps of 65535 apart: 2.8 steps at most on the
+//!   conformance files, and 3.4 on a fuzzed XYB frame far out of gamut
+//!   (SHA-256 9377fe64..., 0.0216350 against 0.0215836). The conformance
+//!   suite allows more (its tightest peak is 0.004 of full scale, 262
+//!   steps); 4 holds this decoder to the reference's arithmetic, as close
+//!   as the floats allow.
 //! - With splines, the conformance suite's own bound, peak 0.004 and RMS
 //!   1e-4 of full scale (262 and 6.55 steps): a spline's erf is an
 //!   approximation the specification does not fix, and libjxl's and this
@@ -63,7 +66,7 @@ pub fn toleranceFor(input: []const u8) ?Oracle.Tolerance {
     var s: image.jxl.Decoder.Skim = .{};
     if (d.skim(raw[0..c.work_len], &s)) {} else |_| {}
     if (s.splines) return .{ .peak = 262, .rms = 6.55 };
-    if (s.float) return .{ .peak = 3 };
+    if (s.float) return .{ .peak = 4 };
     return null;
 }
 
