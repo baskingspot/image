@@ -309,7 +309,8 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
         if (stream) {
             const fh = f.?;
             const dims: headers.Dims = .init(fh);
-            const rows: u128 = frame.ringRows(fh) + dims.group_dim + 2 * frame.bandMargin(fh);
+            // The ring, the window, and the tail.
+            const rows: u128 = frame.ringRows(fh) + dims.group_dim + 3 * frame.bandMargin(fh);
             const ring = @min(pad_px, @as(u128, dims.xsize_blocks) * 8 * rows) + pad_px / 64;
             // With extra channels, global transforms found in the frame
             // take whole planes instead (`frame.lfGlobal`).

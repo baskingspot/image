@@ -351,6 +351,12 @@ pub const Shared = struct {
     /// crosses).
     planes: [3][]f32,
     ring_rows: usize = 0,
+    /// With a ring, copies of rows `tail_y .. tail_y + tail_rows` of the
+    /// channels not subsampled vertically, which the ring has dropped
+    /// while a band's window still reads them (`pixelRow`).
+    tail: [3][]f32 = @splat(&.{}),
+    tail_y: usize = 0,
+    tail_rows: usize = 0,
 
     /// Takes the planes: whole, or with `ring_rows`, the ring. They are
     /// cleared only with subsampled channels: otherwise every block has a
@@ -368,6 +374,26 @@ pub const Shared = struct {
     /// Where row `y` of the frame is in the planes.
     pub fn planeRow(s: *const Shared, y: usize) usize {
         return if (s.ring_rows == 0) y else y % s.ring_rows;
+    }
+
+    /// Row `y` of channel `c`'s plane: from the tail, when it holds it,
+    /// else the planes.
+    pub fn pixelRow(s: *const Shared, c: usize, y: usize) []f32 {
+        const stride = s.bw * 8;
+        if (y -% s.tail_y < s.tail_rows and s.vs[c] == 0) return s.tail[c][(y - s.tail_y) * stride ..][0..stride];
+        return s.planes[c][s.planeRow(y) * stride ..][0..stride];
+    }
+
+    /// Copies rows `y .. y + rows` of the channels not subsampled
+    /// vertically to the tail, before the ring drops them.
+    pub fn keepTail(s: *Shared, y: usize, rows: usize) void {
+        s.tail_rows = 0;
+        for (0..3) |c| {
+            if (s.vs[c] != 0) continue;
+            for (0..rows) |i| @memcpy(s.tail[c][i * s.bw * 8 ..][0 .. s.bw * 8], s.pixelRow(c, y + i));
+        }
+        s.tail_y = y;
+        s.tail_rows = rows;
     }
 
     /// `ring_rows`, when not 0, keeps only that many rows of pixels (a
@@ -1161,7 +1187,7 @@ pub fn chromaWindow(s: *const Shared, done: *[3]usize, w: usize, h: usize, ws: u
         for (ws..we) |y| {
             const out = win[c][(y - ws) * stride ..][0..stride];
             if (!vs) {
-                @memcpy(out, p[s.planeRow(y) * stride ..][0..stride]);
+                @memcpy(out, s.pixelRow(c, y));
                 continue;
             }
             const yc = y >> 1;

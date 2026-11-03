@@ -91,15 +91,20 @@ const Ring = struct {
 
 /// Where Gaborish reads when it does not filter the planes in place: row
 /// `y` of the planes it writes is row `y0 + y` of a frame held whole, or
-/// in a ring of `ring_rows` rows (`ring_rows` 0 for whole).
+/// in a ring of `ring_rows` rows (`ring_rows` 0 for whole), with rows
+/// `tail_y .. tail_y + tail_rows` the ring has dropped in `tail`.
 pub const Source = struct {
     p: [3][]const f32,
     stride: usize,
     y0: usize,
     ring_rows: usize,
+    tail: [3][]const f32 = @splat(&.{}),
+    tail_y: usize = 0,
+    tail_rows: usize = 0,
 
     fn row(s: *const Source, c: usize, y: usize) []const f32 {
         const fy = s.y0 + y;
+        if (fy -% s.tail_y < s.tail_rows) return s.tail[c][(fy - s.tail_y) * s.stride ..][0..s.stride];
         const at = if (s.ring_rows == 0) fy else fy % s.ring_rows;
         return s.p[c][at * s.stride ..][0..s.stride];
     }

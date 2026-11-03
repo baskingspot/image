@@ -209,7 +209,7 @@ pub fn bandMargin(fh: *const headers.FrameHeader) usize {
 pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
     const whole = headers.flag_splines;
     const d: headers.Dims = .init(fh);
-    const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 5;
+    const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 4;
     var ec_with_colors = true;
     for (fh.ec_upsampling[0..image.num_ec]) |u| ec_with_colors = ec_with_colors and u == fh.upsampling;
     return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and
@@ -226,11 +226,13 @@ fn modularRing(fh: *const headers.FrameHeader) u32 {
     return if (fh.upsampling != 1) 3 * d.group_dim else 2 * d.group_dim;
 }
 
-/// The rows a streamed frame's VarDCT planes keep: three group rows, the
-/// one being decoded and the two its finished neighbor's window reads.
+/// The rows a streamed frame's VarDCT planes keep: two group rows, the
+/// one being decoded and the finished one before it, whose band is
+/// written next; the `bandMargin` rows above that band its window also
+/// reads are kept in the tail (`vardct.Shared.keepTail`).
 pub fn ringRows(fh: *const headers.FrameHeader) usize {
     const d: headers.Dims = .init(fh);
-    return 3 * @as(usize, d.group_dim);
+    return 2 * @as(usize, d.group_dim);
 }
 
 /// An LF frame's output, which a frame with `flag_use_lf_frame` takes as
@@ -720,8 +722,12 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
     if (ctx.rows_in == 1) {
         // The window and sigmas, once the LF groups' fields are in.
         const vd = ctx.vd.?;
-        const rows: usize = d.group_dim + 2 * bandMargin(ctx.fh);
+        const margin = bandMargin(ctx.fh);
+        const rows: usize = d.group_dim + 2 * margin;
         for (&ctx.window) |*p| p.* = try arena.alloc(f32, rows * vd.bw * 8);
+        for (&vd.tail, vd.vs) |*p, vs| {
+            if (vs == 0) p.* = try arena.alloc(f32, margin * vd.bw * 8);
+        }
         const rf = &ctx.fh.filter;
         if (rf.epf_iters != 0) {
             ctx.sigmas = try arena.alloc(f32, vd.bw * vd.bh);
@@ -762,13 +768,21 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const sub = vd.subsampled();
     if (sub) {
         vardct.chromaWindow(vd, &ctx.chroma_done, d.width, h, ws, we, win);
-    } else if (!rf.gab) for (win, vd.planes) |o, plane| for (ws..we) |y| {
-        @memcpy(o[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
+    } else if (!rf.gab) for (win, 0..) |o, c| for (ws..we) |y| {
+        @memcpy(o[(y - ws) * stride ..][0..stride], vd.pixelRow(c, y));
     };
     // Mirrored at the window's edges, which are wrong only within the
     // margin, except at the frame's, where mirroring is right.
     const pl: filters.Planes = .{ .p = win, .stride = stride, .w = d.width, .h = we - ws };
-    const src: filters.Source = .{ .p = vd.planes, .stride = stride, .y0 = ws, .ring_rows = vd.ring_rows };
+    const src: filters.Source = .{
+        .p = vd.planes,
+        .stride = stride,
+        .y0 = ws,
+        .ring_rows = vd.ring_rows,
+        .tail = .{ vd.tail[0], vd.tail[1], vd.tail[2] },
+        .tail_y = vd.tail_y,
+        .tail_rows = vd.tail_rows,
+    };
     if (rf.gab) try filters.gaborish(arena, &pl, rf, if (sub) null else src);
     if (rf.epf_iters != 0) {
         const sig = ctx.sigmas[(ws / 8) * vd.bw ..];
@@ -864,6 +878,9 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const sink = ctx.band.?;
     sink.write(sink.ctx, &out);
     ctx.bands_out += 1;
+    // The next band's window reads the margin above it, which the next
+    // group row takes from the ring.
+    if (y1 < h) vd.keepTail(y1 - margin, margin);
 }
 
 /// A streamed frame's Modular channels for rows `y0 .. y0 + rows`, and

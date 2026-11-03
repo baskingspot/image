@@ -120,8 +120,10 @@ writing past it. Its terms, in `Decoder.workBound`:
 **Streaming.** A shown VarDCT frame that replaces the canvas and is never
 referenced, in one pass with its groups in order (the TOC not permuted),
 without splines or extra channels upsampled by another factor than the
-colors, and at least five group rows tall, keeps a ring of three group rows of pixels
-instead of whole planes (`vardct.Shared.ring_rows`). Once a
+colors, and at least four group rows tall, keeps a ring of two group rows of pixels
+instead of whole planes (`vardct.Shared.ring_rows`), and a tail of the
+margin's rows above the band to come, copied before the next group row
+takes their place in the ring (`vardct.Shared.keepTail`). Once a
 group row is in, the one before it is copied with eight rows of each
 neighbor into a window, filtered there (Gaborish reads one row each side,
 EPF's passes three, two, and one; a window starting on a block row keeps
@@ -428,8 +430,8 @@ noise at about ±1.5%.
    them: a frame with patches keeps four slots of the canvas's size (12
    bytes a pixel each), though cjxl's patch dictionary frame is a strip,
    which is most of the 699 MB peak of a 4000×2667 `--resampling=2` file
-   (results/jxl-noiseup-20261103.md); streaming frames with splines; keep
-   two group rows plus the margin instead of three. `work_len` for Modular
+   (results/jxl-noiseup-20261103.md); streaming frames with splines; the
+   extra channels' rings at one group row and the margin. `work_len` for Modular
    stays the whole frame's until `decodeConfig` can learn the transforms,
    which come after the tree (`results/jxl-mstream2-20261103.md`).
 2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no

@@ -1,0 +1,7 @@
+/tmp/nu/bignoise.jxl |   peak 81350976 of 185489825 (43%) |   peak 69447040 of 173399825 (40%)
+/tmp/nu/bigup2.jxl |   peak 698813696 of 2956360005 (23%) |   peak 693053760 of 2956360005 (23%)
+/tmp/abn/noise/screenshot_web-amazon_com-1313x6097.jxl |   peak 32810880 of 342139646 (9%) |   peak 28882624 of 342139646 (8%)
+corpus/vendor/generated/jxl/vardct-tall.jxl |   peak 2286080 of 11037845 (20%) |   peak 2262336 of 11013665 (20%)
+corpus/vendor/generated/jxl/jpeg-tall-420.jxl |   peak 2670464 of 13100985 (20%) |   peak 2573248 of 13004265 (19%)
+/tmp/gp/t4.jxl |   peak 2455744 of 12540986 (19%) |   peak 2424896 of 12512357 (19%)
+/tmp/abn/noise/photo_tecnick-RGB_OR_1200x1200_001-1200x1200.jxl |   peak 25441792 of 67576169 (37%) |   peak 21870656 of 63949169 (34%)
