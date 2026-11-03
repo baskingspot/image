@@ -584,6 +584,10 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   1 MP / above). Prefix codes for small images were measured and not kept
   (two icons gained, 6–10% of icon time). The apple.com gap is sample
   coverage; scaling default's samples with image size is with the owner.
+  Stage 5 (`wave5-jxl-encode5`, results/jxl-encode5-20261103.md): the
+  encoder uses the decoder's `pixelProps`, with the same files and speed.
+  The decoder's `walk` was measured slower for the encoder (fast 0.91 above
+  a megapixel) and isn't used; `Flat` stays.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
