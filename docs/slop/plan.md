@@ -484,7 +484,10 @@ owning the files adding-a-format.md assigns to its format plus
   tiff-encode-lzw 1.11×, GIF and WebP lossless encode 1.05–1.15×. TIFF
   PackBits keeps `@memset` (runs of at most 128 bytes). Left: WebP lossy
   decode and animation clears (WebP lossy orb), compress's
-  `flate.Writer.initInPlace` (about 1% of deflate encodes).
+  `flate.Writer.initInPlace` (done in compress 61998af with its own
+  `fastmem.set`, also for `bitCounts`' leaf counts; image pins it:
+  tiff-encode-deflate 1.04–1.05×, PNG encode icons 1.03–1.04×, the same
+  bytes; results/deflate-clears-20261103.md).
 - **Harness pass 4** (landed; results/oracle-memory-20261102.md): the oracle
   streams each batch behind its length, sends a decoder's requests op by op
   (adapting each input once per op), and reads corpus files from disk as
