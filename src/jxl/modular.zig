@@ -919,7 +919,10 @@ pub const Wp = struct {
     inline fn errorWeight(x: u32, maxweight: u32) u32 {
         const lg: i32 = std.math.log2_int(u64, @as(u64, x) + 1);
         const shift: u5 = @intCast(@max(0, lg - 5));
-        return 4 +% ((maxweight *% divlookup[@intCast(@as(u64, x) >> shift)]) >> shift);
+        // A volatile read, so that the four weights' reads stay four loads
+        // rather than becoming a vector gather, which is slow on x86.
+        const d = @as(*const volatile u32, &divlookup[@intCast(@as(u64, x) >> shift)]).*;
+        return 4 +% ((maxweight *% d) >> shift);
     }
 
     inline fn addBits(x: i64) i64 {
@@ -1085,14 +1088,14 @@ fn decodeChannel(
                 @memset(ch.data, makePixel(v, leaf.multiplier, leaf.value));
                 return;
             }
-            for (ch.data) |*p| p.* = makePixel(try r.read(br, ctx), leaf.multiplier, leaf.value);
+            for (ch.data) |*p| p.* = makePixel(try r.readInline(br, ctx), leaf.multiplier, leaf.value);
             return;
         }
         if (leaf.predictor != .weighted) {
             for (0..h) |y| {
                 for (0..w) |x| {
                     const g = predictOne(leaf.predictor, neighbours(ch, x, y), 0);
-                    ch.data[y * w + x] = makePixel(try r.read(br, ctx), leaf.multiplier, g +% leaf.value);
+                    ch.data[y * w + x] = makePixel(try r.readInline(br, ctx), leaf.multiplier, g +% leaf.value);
                 }
             }
             return;
@@ -1109,22 +1112,10 @@ fn decodeChannel(
     props[1] = @bitCast(stream_id);
     for (0..h) |y| {
         if (nref > 0) precomputeRefs(img, ci, y, refs, nref);
-        props[2] = @intCast(y);
-        props[9] = 0;
+        var prev9: i32 = 0;
         for (0..w) |x| {
             const n = neighbours(ch, x, y);
-            props[3] = @intCast(x);
-            props[4] = @truncate(if (n.top > 0) n.top else -n.top);
-            props[5] = @truncate(if (n.left > 0) n.left else -n.left);
-            props[6] = @truncate(n.top);
-            props[7] = @truncate(n.left);
-            props[8] = @truncate(n.left - props[9]);
-            props[9] = @truncate(n.left + n.top - n.topleft);
-            props[10] = @truncate(n.left - n.topleft);
-            props[11] = @truncate(n.topleft - n.top);
-            props[12] = @truncate(n.top - n.topright);
-            props[13] = @truncate(n.top - n.toptop);
-            props[14] = @truncate(n.left - n.leftleft);
+            pixelProps(props, n, x, y, &prev9);
             var wp_pred: i64 = 0;
             if (ft.uses_wp) {
                 var max_err: i64 = 0;
@@ -1132,18 +1123,57 @@ fn decodeChannel(
                 props[15] = @truncate(max_err);
             }
             if (nref > 0) @memcpy(props[num_nonref..], refs[x * nref ..][0..nref]);
-            var pos: u32 = ft.start;
-            while (nodes[pos].property >= 0) {
-                const nd = nodes[pos];
-                pos = nd.next(props[@intCast(nd.property)]);
-            }
-            const leaf = nodes[pos];
+            const leaf = nodes[walk(nodes, ft.start, props)];
             const g = predictOne(leaf.predictor, n, wp_pred) +% leaf.value;
-            const v = makePixel(try r.read(br, leaf.child), leaf.multiplier, g);
+            const v = makePixel(try r.readInline(br, leaf.child), leaf.multiplier, g);
             ch.data[y * w + x] = v;
             if (ft.uses_wp) wp.update(v, x, y);
         }
     }
+}
+
+/// Properties 2 to 14 at (x, y) from its neighbours `n`; `prev9` is
+/// property 9 of the pixel to the left (0 at the start of a row) and
+/// becomes this pixel's.
+pub inline fn pixelProps(props: []i32, n: Neighbours, x: usize, y: usize, prev9: *i32) void {
+    props[2] = @intCast(y);
+    props[3] = @intCast(x);
+    props[4] = @truncate(if (n.top > 0) n.top else -n.top);
+    props[5] = @truncate(if (n.left > 0) n.left else -n.left);
+    props[6] = @truncate(n.top);
+    props[7] = @truncate(n.left);
+    props[8] = @truncate(n.left - prev9.*);
+    props[9] = @truncate(n.left + n.top - n.topleft);
+    prev9.* = props[9];
+    props[10] = @truncate(n.left - n.topleft);
+    props[11] = @truncate(n.topleft - n.top);
+    props[12] = @truncate(n.top - n.topright);
+    props[13] = @truncate(n.top - n.toptop);
+    props[14] = @truncate(n.left - n.leftleft);
+}
+
+/// The leaf that `props` reach from split `start`, two levels a step: a
+/// split's two children are next to each other, so their tests load
+/// alongside its own, which halves the walk's chain of dependent loads. A
+/// leaf child is reached whichever way its parent goes. A child its
+/// parent's static test rules out may test a property past `props`
+/// (`plan` sizes them for the reachable nodes); its test reads the last
+/// property instead and is discarded.
+pub inline fn walk(nodes: []const Node, start: u32, props: []const i32) u32 {
+    var pos = start;
+    while (nodes[pos].property >= 0) {
+        const nd = nodes[pos];
+        const pair = nodes[nd.child..][0..2];
+        const go: u32 = @intFromBool(props[@intCast(nd.property)] <= nd.value);
+        var next: [2]u32 = undefined;
+        for (&next, pair, 0..) |*o, c, i| {
+            const leaf = c.property < 0;
+            const v = props[if (leaf) 0 else @min(@as(usize, @intCast(c.property)), props.len - 1)];
+            o.* = if (leaf) nd.child + @as(u32, @intCast(i)) else c.child + @intFromBool(v <= c.value);
+        }
+        pos = next[go];
+    }
+    return pos;
 }
 
 /// The reference properties of row `y`: for each earlier channel shaped

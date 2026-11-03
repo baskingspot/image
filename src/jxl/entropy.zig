@@ -787,39 +787,55 @@ pub const Reader = struct {
 
     /// Decodes the next integer with `cluster`'s histogram.
     pub fn readCluster(r: *Reader, br: *BitReader, cluster: u32) Error!u32 {
+        return r.readClusterInline(br, cluster);
+    }
+
+    /// `read`, inlined into a hot loop.
+    pub inline fn readInline(r: *Reader, br: *BitReader, ctx: usize) Error!u32 {
+        return r.readClusterInline(br, r.code.context_map[ctx]);
+    }
+
+    /// `readCluster`, inlined into a hot loop; an LZ77 match starts out of
+    /// line.
+    pub inline fn readClusterInline(r: *Reader, br: *BitReader, cluster: u32) Error!u32 {
         const code = r.code;
         if (r.num_to_copy > 0) return r.copy();
         const token = try r.symbol(br, cluster);
-        if (code.lz77.enabled and token >= code.lz77.min_symbol) {
-            const len = try code.lz77.len_config.value(token - code.lz77.min_symbol, br);
-            r.num_to_copy = len +% code.lz77.min_length;
-            const dctx = code.context_map[code.context_map.len - 1];
-            const dtoken = try r.symbol(br, dctx);
-            var distance: u64 = try code.configs[dctx].value(dtoken, br);
-            if (r.dist_multiplier == 0) {
-                distance += 1;
-            } else if (distance < 120) {
-                const sd = special_distances[@intCast(distance)];
-                const d = @as(i64, sd[0]) + @as(i64, r.dist_multiplier) * sd[1];
-                distance = @intCast(@max(1, d));
-            } else {
-                distance -= 119;
-            }
-            distance = @min(distance, r.num_decoded, window_size);
-            r.copy_pos = r.num_decoded -% @as(u32, @intCast(distance));
-            if (distance == 0) @memset(r.window[0..@min(r.window.len, r.num_to_copy)], 0);
-            if (r.num_to_copy < code.lz77.min_length) {
-                // The length wrapped: corrupt.
-                return error.BadEntropy;
-            }
-            return r.copy();
-        }
+        if (code.lz77.enabled and token >= code.lz77.min_symbol) return r.match(br, token);
         const v = try code.configs[cluster].value(token, br);
         if (code.lz77.enabled) {
             r.window[r.num_decoded & (r.window.len - 1)] = v;
             r.num_decoded +%= 1;
         }
         return v;
+    }
+
+    /// Starts the LZ77 match that `token` begins, and returns its first
+    /// value.
+    fn match(r: *Reader, br: *BitReader, token: u32) Error!u32 {
+        const code = r.code;
+        const len = try code.lz77.len_config.value(token - code.lz77.min_symbol, br);
+        r.num_to_copy = len +% code.lz77.min_length;
+        const dctx = code.context_map[code.context_map.len - 1];
+        const dtoken = try r.symbol(br, dctx);
+        var distance: u64 = try code.configs[dctx].value(dtoken, br);
+        if (r.dist_multiplier == 0) {
+            distance += 1;
+        } else if (distance < 120) {
+            const sd = special_distances[@intCast(distance)];
+            const d = @as(i64, sd[0]) + @as(i64, r.dist_multiplier) * sd[1];
+            distance = @intCast(@max(1, d));
+        } else {
+            distance -= 119;
+        }
+        distance = @min(distance, r.num_decoded, window_size);
+        r.copy_pos = r.num_decoded -% @as(u32, @intCast(distance));
+        if (distance == 0) @memset(r.window[0..@min(r.window.len, r.num_to_copy)], 0);
+        if (r.num_to_copy < code.lz77.min_length) {
+            // The length wrapped: corrupt.
+            return error.BadEntropy;
+        }
+        return r.copy();
     }
 
     inline fn copy(r: *Reader) u32 {

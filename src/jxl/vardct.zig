@@ -982,7 +982,7 @@ fn decodeBlock(
 inline fn readCtx(reader: *entropy.Reader, br: *BitReader, code: *const entropy.Code, ctx: usize) Error!u32 {
     const map = code.context_map;
     const n = map.len - @intFromBool(code.lz77.enabled);
-    return reader.readCluster(br, if (ctx < n) map[ctx] else 0);
+    return reader.readClusterInline(br, if (ctx < n) map[ctx] else 0);
 }
 
 /// Dequantizes a block's coefficients and writes its pixels.
