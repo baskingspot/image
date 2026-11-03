@@ -160,6 +160,10 @@ pub const Jpeg = struct {
     /// order, rows of `blocks_x` blocks.
     coefs: [3][]i16,
     got_quant: bool = false,
+    /// Per component and coefficient, the ratio of the luma and the
+    /// component's quantization steps in `cfl_bits` fixed point, which
+    /// chroma from luma scales by.
+    ratio: [3][64]i32 = undefined,
 
     /// The JPEG component of channels X, Y, B.
     const component = [3]usize{ 1, 0, 2 };
@@ -237,13 +241,20 @@ pub const Jpeg = struct {
                 const v = t[c * 64 + (k % 8) * 8 + k / 8];
                 j.quant[component[c]][k] = std.math.cast(u16, v) orelse return error.NotJpeg;
             };
+            // Raw tables are positive (`quant.zig`).
+            for (0..3) |jc| for (0..64) |k| {
+                j.ratio[jc][k] = @intCast((@as(u32, j.quant[0][k]) << cfl_bits) / j.quant[jc][k]);
+            };
             j.got_quant = true;
         }
-        // The luma block at this position, which chroma from luma adds back.
-        var y: [64]i16 = undefined;
-        if (b.coeffs[1]) |q| for (&y, 0..) |*o, k| {
-            o.* = try toI16(q[(k % 8) * 8 + k / 8]);
-        };
+        // The luma block at this position, which chroma from luma adds
+        // back. Ranges are checked once a block: an error union a
+        // coefficient stalls the loop on reloading it.
+        var y: [64]i32 = undefined;
+        if (b.coeffs[1]) |q| {
+            for (&y, 0..) |*o, k| o.* = q[(k % 8) * 8 + k / 8];
+            try checkI16(i32, &y);
+        }
         for (b.coeffs, 0..) |co, c| {
             const q = co orelse continue;
             const jc = component[c];
@@ -251,25 +262,30 @@ pub const Jpeg = struct {
             const by = b.by >> s.vs[c];
             const out = j.coefs[jc][(by * j.blocks_x[jc] + bx) * 64 ..][0..64];
             const f: i64 = if (c == 0) b.x_factor else if (c == 2) b.b_factor else 0;
-            // Chroma from luma in integers, as djxl rebuilds a JPEG
-            // (docs/slop/jxl.md): the factor and the ratio of the luma
-            // and chroma quantization steps in 11-bit fixed point.
-            const m = @divTrunc(f << cfl_bits, s.color_factor);
-            // The lowest frequency is the LF's.
-            for (1..64) |k| {
-                var v: i64 = q[(k % 8) * 8 + k / 8];
-                if (f != 0 and b.coeffs[1] != null) {
-                    const ratio = @divTrunc(@as(i64, j.quant[0][k]) << cfl_bits, j.quant[jc][k]);
+            var v: [64]i64 = undefined;
+            for (&v, 0..) |*o, k| o.* = q[(k % 8) * 8 + k / 8];
+            if (f != 0 and b.coeffs[1] != null) {
+                // Chroma from luma in integers, as djxl rebuilds a JPEG
+                // (docs/slop/jxl.md): the factor and the ratio of the
+                // luma and chroma quantization steps in 11-bit fixed point.
+                const m = @divTrunc(f << cfl_bits, s.color_factor);
+                for (&v, j.ratio[jc], y) |*o, ratio, l| {
                     const scale = (m * ratio + (1 << (cfl_bits - 1))) >> cfl_bits;
-                    v += (scale * y[k] + (1 << (cfl_bits - 1))) >> cfl_bits;
+                    o.* += (scale * l + (1 << (cfl_bits - 1))) >> cfl_bits;
                 }
-                out[k] = try toI16(v);
             }
+            // The lowest frequency is the LF's.
+            v[0] = 0;
+            try checkI16(i64, &v);
+            for (out[1..], v[1..]) |*o, x| o.* = @intCast(x);
         }
     }
 
-    fn toI16(v: i64) Error!i16 {
-        return std.math.cast(i16, v) orelse error.NotJpeg;
+    fn checkI16(comptime T: type, v: *const [64]T) Error!void {
+        const vec: @Vector(64, T) = v.*;
+        const lo = @reduce(.Min, vec);
+        const hi = @reduce(.Max, vec);
+        if (lo < std.math.minInt(i16) or hi > std.math.maxInt(i16)) return error.NotJpeg;
     }
 };
 
