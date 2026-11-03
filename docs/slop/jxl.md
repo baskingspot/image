@@ -369,6 +369,14 @@ power (two square roots, no division) measured +0.5% and moved 0.1% of
 16-bit samples, so it was not kept: the transform is bound by its
 operation count, not the divider.
 
+`results/jxl-speed4-20261103.md`: nothing kept. Branch-free ANS with
+eight-byte alias entries (lossy −1.2%), the weighted predictor's errors
+interleaved (lossless −0.5%), Gaborish and EPF's passes a row apart
+(+1.0%, needing 11 more ring rows), the IDCT without its copies (−0.5%),
+and AVX-512's sixteen lanes for the transform and filters (−1.0%) were
+all bit for bit and inside the noise or slower; an A/A run puts the
+noise at about ±1.5%.
+
 ## Next
 
 1. **Memory, further**: stream more frames (chroma subsampling, noise,
@@ -376,14 +384,12 @@ operation count, not the divider.
    group rows plus the margin instead of three; and Modular, whose
    frame-sized channels (12 bytes a pixel for RGB) are the lossless peak,
    once global transforms can be undone a group row at a time.
-2. **Speed**, after `results/jxl-speed3-20261103.md`. Lossy: the
-   coefficients and their entropy decoding (about 30%), the XYB to sRGB
-   transform (13%, bound by its operation count: wider vectors where the
-   target has them, or fewer operations per sample), EPF (11%, of which
-   its ring's row copies are 2%: removing them needs a second window of
-   planes), and Modular's LF and HF metadata (11%). Lossless: the tree
-   walk (28%), the weighted predictor (24%), and symbol reads (14%);
-   trees on one property could become a table. An 8-bit destination
+2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no
+   tuning left that measures: what remains needs another algorithm. The
+   XYB to sRGB transform (13% of lossy) with a power function of fewer
+   operations, which moves some 16-bit samples a step, so the oracle's
+   lossy tolerance must be rechecked; trees on one property as tables,
+   for `cjxl -e 2` and `-e 3` files; and an 8-bit destination, which
    still converts from the 16-bit native format.
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
    `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
