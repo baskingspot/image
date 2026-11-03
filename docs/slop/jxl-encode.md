@@ -27,6 +27,10 @@ gap on screenshots.
 Stage 4 (`wave5-jxl-encode4`, `results/jxl-encode4-20261103.md`): tree
 learning counts faster, the same files.
 
+Stage 5 (`wave5-jxl-encode5`, `results/jxl-encode5-20261103.md`): the
+decoder's `pixelProps` replaces the encoder's copy, the same files; its
+`walk` measured slower for the encoder and is not used.
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -193,10 +197,13 @@ The encoder uses the decoder's `Predictor`, `Neighbours` and `neighbours`,
 `clampedGradient`, `predictOne`, and `Wp` from `modular.zig`, and `Alias`
 and `initAlias` from `entropy.zig` (made `pub` by the JPEG XL orb in
 638be00). `Wp.init` takes the decoder's `Arena`, so `encode_modular.zig`
-hands it one over a slice of its `Bump`. Properties 2 to 14 still repeat
-the specification's in `pixelProps`, as the decoder computes them inline
-in its hot loop; the JPEG XL orb will share them with its speed work.
-Switching changed no file on the corpus at any effort.
+hands it one over a slice of its `Bump`. Switching changed no file on the
+corpus at any effort. Stage 5: properties 2 to 14 come from the decoder's
+`pixelProps`; again no file changed. The decoder's `walk` was tried in
+place of the encoder's `Flat` (over a copy of the tree in the decoder's
+`Node`) and is slower here: it tests each child's leafness and loads the
+children per step, where `Flat` has them precomputed. Fast lost 9%
+above a megapixel and 27% on apple.com, so `Flat` stays.
 
 ## Checks
 
@@ -223,19 +230,20 @@ Switching changed no file on the corpus at any effort.
 
 - Photos: at default, 1–2% larger than cjxl e7 on Kodak (3–4% in stage
   1). Twice the samples (2^19) makes default 1.2% smaller on the corpus,
-  0.99× e7's total, for 28% more time; not taken, the owner may want it.
+  0.99× e7's total, for 28% more time; not taken (decision 70).
   Judging splits with all four predictors: 0.4% smaller on photos for 20%
   more time.
-- Screenshots: apple.com and amazon.com are 4–7% larger than e7 at
-  default.
-- Learning time: counting each sample's tokens per property bucket is
-  about half of a default encode of a Kodak photo in a profile. Deriving
-  a child's
-  counts from its parent's and its sibling's could save up to half of
-  that. Counting property by property instead of sample by sample was
-  12% slower.
-- Choose prefix codes when they cost less, as they may for small images:
-  no ANS state per stream, cheaper histograms.
+- Screenshots: apple.com is 4% larger than e7 at default, from sample
+  coverage; samples scaled with the image (`clamp(pixels × 4 / 16, 2^18,
+2^20)`) bring it to 1.9% for 7.5% more corpus time (stage 4 results;
+  with the owner).
+- Learning time: deriving a child's counts from its parent's and its
+  sibling's could save half the counting, but a node's predictors and
+  tokens in use differ from its parent's, and breadth-first order would
+  keep a level's tables. Counting property by property instead of sample
+  by sample was 12% slower.
+- Prefix codes for small images were tried in stage 4: two 16×16 icons
+  gained 0.5–2%, and the trial cost 6–10% of an icon's time.
 - LZ77, if it comes back: it needs an exact cost guard (a second write
   pass) and pays only on synthetic images (`lz77.patch` in the stage 1
   results).

@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before   libjxl     ±   <1    ~   slowest vs before
+JxlEncodeE3/icon                  13        0.8     0.99     0.58    4%    2   11   0.95 [0.69, 0.97] icon_32-actions_address_book_new-32x32.raw
+JxlEncodeE3/1mp                   23        5.3     0.96     0.92    0%   13    3   0.83 [0.81, 0.84] icon_512-actions_bookmark_new-512x512.raw
+JxlEncodeE3/large                  7        4.4     0.91     0.72    1%    5    0   0.73 [0.64, 0.75] screenshot_web-apple_com-1313x4755.raw
+JxlEncodeE7/icon                  13        0.3     1.00     0.86    2%    0   13   1.00 [0.88, 1.00] icon_16-actions_address_book_new-16x16.raw
+JxlEncodeE7/1mp                   23        1.2     0.98     1.11    1%    7   15   0.90 [0.88, 0.98] icon_512-actions_address_book_new-512x512.raw
+JxlEncodeE7/large                  7        1.6     0.96     1.26    2%    3    4   0.92 [0.91, 0.92] screenshot_web-apple_com-1313x4755.raw
+all                               86        1.6     0.97     0.90         30   46

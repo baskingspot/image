@@ -1,0 +1,2 @@
+before      86 rows, 0 differ from image
+libjxl      86 rows, 86 differ from image

@@ -1,0 +1,295 @@
+diff --git a/docs/slop/jxl-encode.md b/docs/slop/jxl-encode.md
+index 5179a8d..49d697c 100644
+--- a/docs/slop/jxl-encode.md
++++ b/docs/slop/jxl-encode.md
+@@ -27,6 +27,10 @@ gap on screenshots.
+ Stage 4 (`wave5-jxl-encode4`, `results/jxl-encode4-20261103.md`): tree
+ learning counts faster, the same files.
+ 
++Stage 5 (`wave5-jxl-encode5`, `results/jxl-encode5-20261103.md`): the
++decoder's `pixelProps` and `walk` replace the encoder's copies, the same
++files.
++
+ ## What it writes
+ 
+ - A bare codestream (`FF 0A`). No option needs the container yet: there is
+@@ -193,10 +197,12 @@ The encoder uses the decoder's `Predictor`, `Neighbours` and `neighbours`,
+ `clampedGradient`, `predictOne`, and `Wp` from `modular.zig`, and `Alias`
+ and `initAlias` from `entropy.zig` (made `pub` by the JPEG XL orb in
+ 638be00). `Wp.init` takes the decoder's `Arena`, so `encode_modular.zig`
+-hands it one over a slice of its `Bump`. Properties 2 to 14 still repeat
+-the specification's in `pixelProps`, as the decoder computes them inline
+-in its hot loop; the JPEG XL orb will share them with its speed work.
+-Switching changed no file on the corpus at any effort.
++hands it one over a slice of its `Bump`. Switching changed no file on the
++corpus at any effort. Stage 5: properties 2 to 14 come from the decoder's
++`pixelProps`, and tokenizing walks the tree with the decoder's `walk`
++(two levels a step) over a copy of the tree in the decoder's `Node`
++(`decoderNodes`), in place of the encoder's own `Flat`; again no file
++changed.
+ 
+ ## Checks
+ 
+@@ -223,19 +229,20 @@ Switching changed no file on the corpus at any effort.
+ 
+ - Photos: at default, 1–2% larger than cjxl e7 on Kodak (3–4% in stage
+   1). Twice the samples (2^19) makes default 1.2% smaller on the corpus,
+-  0.99× e7's total, for 28% more time; not taken, the owner may want it.
++  0.99× e7's total, for 28% more time; not taken (decision 70).
+   Judging splits with all four predictors: 0.4% smaller on photos for 20%
+   more time.
+-- Screenshots: apple.com and amazon.com are 4–7% larger than e7 at
+-  default.
+-- Learning time: counting each sample's tokens per property bucket is
+-  about half of a default encode of a Kodak photo in a profile. Deriving
+-  a child's
+-  counts from its parent's and its sibling's could save up to half of
+-  that. Counting property by property instead of sample by sample was
+-  12% slower.
+-- Choose prefix codes when they cost less, as they may for small images:
+-  no ANS state per stream, cheaper histograms.
++- Screenshots: apple.com is 4% larger than e7 at default, from sample
++  coverage; samples scaled with the image (`clamp(pixels × 4 / 16, 2^18,
++2^20)`) bring it to 1.9% for 7.5% more corpus time (stage 4 results;
++  with the owner).
++- Learning time: deriving a child's counts from its parent's and its
++  sibling's could save half the counting, but a node's predictors and
++  tokens in use differ from its parent's, and breadth-first order would
++  keep a level's tables. Counting property by property instead of sample
++  by sample was 12% slower.
++- Prefix codes for small images were tried in stage 4: two 16×16 icons
++  gained 0.5–2%, and the trial cost 6–10% of an icon's time.
+ - LZ77, if it comes back: it needs an exact cost guard (a second write
+   pass) and pays only on synthetic images (`lz77.patch` in the stage 1
+   results).
+diff --git a/src/jxl/encode.zig b/src/jxl/encode.zig
+index 6aa0879..45be8df 100644
+--- a/src/jxl/encode.zig
++++ b/src/jxl/encode.zig
+@@ -248,7 +248,7 @@ const Sizes = struct {
+             .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
+             .samples = samplesMemory(p, w, h),
+             .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, @intCast(leaves))),
+-            .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
++            .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.DecNode) + 5 * @sizeOf(Token)),
+             .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
+             .code = ent.buildMemory(leaves) + ent.buildMemory(6),
+             .write = ent.writeMemory(leaves),
+@@ -1033,7 +1033,7 @@ fn encodeImpl(
+         tree = try mod.learn(mem, &smp, lo, nodes);
+     }
+ 
+-    const flat = mod.Flat.build(&tree, try mem.alloc(mod.Flat, tree.nodes.len));
++    const dnodes = mod.decoderNodes(&tree, try mem.alloc(mod.DecNode, tree.nodes.len));
+     // Count tokens, then build the histograms. When every stream's
+     // tokens fit the store, packed, they are kept for writing; otherwise
+     // they are made again.
+@@ -1046,7 +1046,7 @@ fn encodeImpl(
+         var k: u32 = 0;
+         while (k < ns) : (k += 1) {
+             const s = streamAt(&c, k);
+-            const n = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
++            const n = try streamTokens(mem, &c, s, &tree, dnodes, tokens, &plane_list);
+             hist.addTokens(tokens[0..n], .{});
+             stream_len[k] = @intCast(n);
+             if (!keep) continue;
+@@ -1093,7 +1093,7 @@ fn encodeImpl(
+             for (tokens[0..n], store[start_token..][0..n]) |*t, v| t.* = .{ .ctx = v & 0x7ff, .value = v >> 11 };
+             start_token += n;
+         } else {
+-            _ = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
++            _ = try streamTokens(mem, &c, s, &tree, dnodes, tokens, &plane_list);
+         }
+         // Even a stream without tokens (the global one, when every
+         // channel is coded in groups) carries its ANS state: decoders
+@@ -1132,7 +1132,7 @@ fn streamTokens(
+     c: *Ctx,
+     s: Stream,
+     tree: *const mod.Tree,
+-    flat: []const mod.Flat,
++    dnodes: []const mod.DecNode,
+     tokens: []Token,
+     plane_list: *[max_channels + 1]Plane,
+ ) !usize {
+@@ -1146,7 +1146,7 @@ fn streamTokens(
+     for (plane_list[0..n], 0..) |pl, ci| {
+         var rb: [mod.max_refs]Plane = undefined;
+         const refs = refsOf(plane_list[0..n], ci, s.meta, nref, &rb);
+-        len += try mod.tokenize(mem, pl, @intCast(ci), s.id, tree, flat, refs, tokens[len..]);
++        len += try mod.tokenize(mem, pl, @intCast(ci), s.id, tree, dnodes, refs, tokens[len..]);
+     }
+     return len;
+ }
+diff --git a/src/jxl/encode_modular.zig b/src/jxl/encode_modular.zig
+index 4ebef0d..7575845 100644
+--- a/src/jxl/encode_modular.zig
++++ b/src/jxl/encode_modular.zig
+@@ -25,6 +25,8 @@ pub const max_props = num_props + 4 * max_refs;
+ pub const wp_prop = 15;
+ 
+ pub const Predictor = dec.Predictor;
++/// The decoder's tree node, which `decoderNodes` fills for tokenizing.
++pub const DecNode = dec.Node;
+ 
+ /// A tree node. A split tests `props[property] > value`: true goes to
+ /// `child`, false to `child + 1`. A leaf (property -1) has its predictor
+@@ -77,69 +79,17 @@ pub const Tree = struct {
+     }
+ };
+ 
+-/// A tree walked two levels a step: node i tests its own property and
+-/// both children's at once (a leaf child tests nothing and is reached
+-/// either way) and goes to one of four grandchildren, so the walk's chain
+-/// of dependent loads is half as long. Indices are the tree's.
+-pub const Flat = struct {
+-    prop: [3]u8,
+-    leaf: bool,
+-    predictor: Predictor,
+-    value: [3]i32,
+-    /// The grandchildren, or for a leaf its context in `next[0]`.
+-    next: [4]u32,
+-
+-    pub fn build(tree: *const Tree, out: []Flat) []Flat {
+-        const nodes = tree.nodes;
+-        for (nodes, out[0..nodes.len]) |nd, *f| {
+-            if (nd.property < 0) {
+-                f.* = .{
+-                    .prop = @splat(0),
+-                    .leaf = true,
+-                    .predictor = nd.predictor,
+-                    .value = @splat(0),
+-                    .next = .{ nd.child, 0, 0, 0 },
+-                };
+-                continue;
+-            }
+-            f.* = .{ .prop = undefined, .leaf = false, .predictor = .zero, .value = undefined, .next = undefined };
+-            f.prop[0] = @intCast(nd.property);
+-            f.value[0] = nd.value;
+-            for (0..2) |c| {
+-                const ci: u32 = nd.child + @as(u32, @intCast(c));
+-                const ch = nodes[ci];
+-                if (ch.property < 0) {
+-                    // Tests property 0 against itself's maximum: either
+-                    // way the leaf.
+-                    f.prop[1 + c] = 0;
+-                    f.value[1 + c] = 0;
+-                    f.next[2 * c] = ci;
+-                    f.next[2 * c + 1] = ci;
+-                } else {
+-                    f.prop[1 + c] = @intCast(ch.property);
+-                    f.value[1 + c] = ch.value;
+-                    f.next[2 * c] = ch.child;
+-                    f.next[2 * c + 1] = ch.child + 1;
+-                }
+-            }
+-        }
+-        return out[0..nodes.len];
+-    }
+-
+-    /// The leaf `props` reach from node `start`.
+-    pub inline fn walk(flat: []const Flat, start: u32, props: *const [max_props]i32) u32 {
+-        var f = start;
+-        while (!flat[f].leaf) {
+-            const nd = &flat[f];
+-            const c0 = props[nd.prop[0]] > nd.value[0];
+-            const ca = props[nd.prop[1]] > nd.value[1];
+-            const cb = props[nd.prop[2]] > nd.value[2];
+-            const sel: usize = if (c0) @intFromBool(!ca) else 2 + @as(usize, @intFromBool(!cb));
+-            f = nd.next[sel];
+-        }
+-        return f;
++/// The tree as the decoder's nodes, which `modular.walk` walks two levels
++/// a step.
++pub fn decoderNodes(tree: *const Tree, out: []DecNode) []DecNode {
++    const nodes = tree.nodes;
++    for (nodes, out[0..nodes.len]) |nd, *o| {
++        // A leaf's value is its offset to the decoder; the encoder's is 0.
++        const value = if (nd.property < 0) 0 else nd.value;
++        o.* = .{ .property = nd.property, .predictor = nd.predictor, .value = value, .child = nd.child };
+     }
+-};
++    return out[0..nodes.len];
++}
+ 
+ /// A channel: `w` by `h` samples, row after row.
+ pub const Plane = struct {
+@@ -166,25 +116,6 @@ pub inline fn residual(v: i32, g: i64) u32 {
+     return ent.packSigned(@truncate(v - g));
+ }
+ 
+-/// Properties 2 to 14 at (x, y); `prev9` is property 9 of the pixel to
+-/// the left (0 at the start of a row) and becomes this pixel's.
+-pub inline fn pixelProps(props: *[max_props]i32, n: Neighbours, x: usize, y: usize, prev9: *i32) void {
+-    props[2] = @intCast(y);
+-    props[3] = @intCast(x);
+-    props[4] = @truncate(if (n.top > 0) n.top else -n.top);
+-    props[5] = @truncate(if (n.left > 0) n.left else -n.left);
+-    props[6] = @truncate(n.top);
+-    props[7] = @truncate(n.left);
+-    props[8] = @truncate(n.left - prev9.*);
+-    props[9] = @truncate(n.left + n.top - n.topleft);
+-    prev9.* = props[9];
+-    props[10] = @truncate(n.left - n.topleft);
+-    props[11] = @truncate(n.topleft - n.top);
+-    props[12] = @truncate(n.top - n.topright);
+-    props[13] = @truncate(n.top - n.toptop);
+-    props[14] = @truncate(n.left - n.leftleft);
+-}
+-
+ /// The reference properties at (x, y): for each of `refs`, nearest first,
+ /// |v|, v, |v - g|, v - g, where g is its clamped gradient prediction
+ /// (with modular.zig's edge rules for references).
+@@ -273,7 +204,7 @@ pub fn tokenize(
+     chan: u32,
+     stream: u32,
+     tree: *const Tree,
+-    flat: []const Flat,
++    dnodes: []const DecNode,
+     refs: []const Plane,
+     out: []Token,
+ ) !usize {
+@@ -303,7 +234,7 @@ pub fn tokenize(
+         .ch = c,
+         .d = d,
+         .w = w,
+-        .flat = flat,
++        .dnodes = dnodes,
+         .start = p.start,
+         .refs = refs,
+         .out = out,
+@@ -326,7 +257,7 @@ const Tokenizer = struct {
+     ch: dec.Channel,
+     d: []const i32,
+     w: usize,
+-    flat: []const Flat,
++    dnodes: []const DecNode,
+     start: u32,
+     refs: []const Plane,
+     out: []Token,
+@@ -362,14 +293,14 @@ const Tokenizer = struct {
+         const d = t.d;
+         const w = t.w;
+         const n = if (inside) neighboursInside(d, w, x, y) else neighbours(&t.ch, x, y);
+-        pixelProps(&t.props, n, x, y, prev9);
++        dec.pixelProps(&t.props, n, x, y, prev9);
+         if (has_refs) refProps(&t.props, t.refs, x, y);
+         var wp_pred: i64 = 0;
+         if (uses_wp) wp_pred = predictWp(&t.wp, x, y, n, &t.props[wp_prop]);
+-        const leaf = &t.flat[Flat.walk(t.flat, t.start, &t.props)];
++        const leaf = &t.dnodes[dec.walk(t.dnodes, t.start, &t.props)];
+         const v = d[y * w + x];
+         const g = predictOne(leaf.predictor, n, wp_pred);
+-        t.out[t.k] = .{ .ctx = leaf.next[0], .value = residual(v, g) };
++        t.out[t.k] = .{ .ctx = leaf.child, .value = residual(v, g) };
+         t.k += 1;
+         if (uses_wp) t.wp.update(v, x, y);
+     }
+@@ -593,7 +524,7 @@ pub fn sample(
+         var prev9: i32 = 0;
+         for (0..w) |x| {
+             const n = neighbours(&c, x, y);
+-            pixelProps(&props, n, x, y, &prev9);
++            dec.pixelProps(&props, n, x, y, &prev9);
+             if (nr > 0) refProps(&props, refs[0..nr], x, y);
+             var wp_pred: i64 = 0;
+             if (uses_wp) wp_pred = predictWp(&wp, x, y, n, &props[wp_prop]);

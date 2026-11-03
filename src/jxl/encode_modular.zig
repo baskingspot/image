@@ -166,25 +166,6 @@ pub inline fn residual(v: i32, g: i64) u32 {
     return ent.packSigned(@truncate(v - g));
 }
 
-/// Properties 2 to 14 at (x, y); `prev9` is property 9 of the pixel to
-/// the left (0 at the start of a row) and becomes this pixel's.
-pub inline fn pixelProps(props: *[max_props]i32, n: Neighbours, x: usize, y: usize, prev9: *i32) void {
-    props[2] = @intCast(y);
-    props[3] = @intCast(x);
-    props[4] = @truncate(if (n.top > 0) n.top else -n.top);
-    props[5] = @truncate(if (n.left > 0) n.left else -n.left);
-    props[6] = @truncate(n.top);
-    props[7] = @truncate(n.left);
-    props[8] = @truncate(n.left - prev9.*);
-    props[9] = @truncate(n.left + n.top - n.topleft);
-    prev9.* = props[9];
-    props[10] = @truncate(n.left - n.topleft);
-    props[11] = @truncate(n.topleft - n.top);
-    props[12] = @truncate(n.top - n.topright);
-    props[13] = @truncate(n.top - n.toptop);
-    props[14] = @truncate(n.left - n.leftleft);
-}
-
 /// The reference properties at (x, y): for each of `refs`, nearest first,
 /// |v|, v, |v - g|, v - g, where g is its clamped gradient prediction
 /// (with modular.zig's edge rules for references).
@@ -362,7 +343,7 @@ const Tokenizer = struct {
         const d = t.d;
         const w = t.w;
         const n = if (inside) neighboursInside(d, w, x, y) else neighbours(&t.ch, x, y);
-        pixelProps(&t.props, n, x, y, prev9);
+        dec.pixelProps(&t.props, n, x, y, prev9);
         if (has_refs) refProps(&t.props, t.refs, x, y);
         var wp_pred: i64 = 0;
         if (uses_wp) wp_pred = predictWp(&t.wp, x, y, n, &t.props[wp_prop]);
@@ -593,7 +574,7 @@ pub fn sample(
         var prev9: i32 = 0;
         for (0..w) |x| {
             const n = neighbours(&c, x, y);
-            pixelProps(&props, n, x, y, &prev9);
+            dec.pixelProps(&props, n, x, y, &prev9);
             if (nr > 0) refProps(&props, refs[0..nr], x, y);
             var wp_pred: i64 = 0;
             if (uses_wp) wp_pred = predictWp(&wp, x, y, n, &props[wp_prop]);
