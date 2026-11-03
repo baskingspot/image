@@ -11,6 +11,7 @@
 //! for byte (test/oracle/tiff_encode.zig).
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 
 const clear = 256;
@@ -30,14 +31,14 @@ pub const State = struct {
     generation: u32,
 
     pub fn init(s: *State) void {
-        @memset(&s.keys, 0);
+        vfill(u32, &s.keys, 0);
         s.generation = 0;
     }
 
     fn reset(s: *State) void {
         s.generation += 1;
         if (s.generation == 1 << 12) {
-            @memset(&s.keys, 0);
+            vfill(u32, &s.keys, 0);
             s.generation = 1;
         }
     }

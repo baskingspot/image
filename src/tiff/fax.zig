@@ -12,6 +12,7 @@
 //! (the return to control) end the data. Uncompressed mode is unsupported.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 
@@ -381,7 +382,7 @@ pub const Decoder = struct {
 /// Writes a row's pixels from its changes: black from each even-indexed
 /// change to the next.
 fn render(changes: []const u32, width: u32, dst: []u8) void {
-    @memset(dst, 0);
+    vfill(u8, dst, 0);
     var i: usize = 0;
     while (changes[i] < width) : (i += 2) setBits(dst, changes[i], @min(changes[i + 1], width));
 }
@@ -397,7 +398,7 @@ fn setBits(dst: []u8, from: u32, to: u32) void {
         return;
     }
     dst[first] |= head;
-    @memset(dst[first + 1 .. last], 0xff);
+    vfill(u8, dst[first + 1 .. last], 0xff);
     dst[last] |= tail;
 }
 
