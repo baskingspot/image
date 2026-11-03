@@ -1145,6 +1145,11 @@ width)` for every file with several entries.
 76. **`fill` stays private. Decided by the owner:** `src/fill.zig` is not
     exported; callers' own `@memset` is compiler_rt's problem. The drafted
     Zig issue (results/memset-20261103.md) is not filed for now.
+77. **JPEG XL lossy tolerance. Decided by the owner:** decision 45's
+    tolerance for frames drawn in floats rises from 3 to 4: a fuzzed
+    out-of-gamut XYB animation put one sample 4 steps from libjxl (5.1e-5 in
+    the sRGB curve's linear segment, the same float-evaluation class).
+    Lossless frames stay exact; splines keep the conformance bound.
 
 ## Harness requests
 
