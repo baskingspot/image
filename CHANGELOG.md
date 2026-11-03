@@ -107,3 +107,4 @@ All notable changes to image are recorded here. The format follows
 ### Fixed
 
 - `image.jxl.Decoder` no longer reads past the alpha channel when a lossy (VarDCT) frame with patches and alpha is not a multiple of 8 pixels wide; it read the wrong rows there, or panicked in safe builds.
+- `image.jxl.Decoder` decodes lossy grey JPEG XL images with patches correctly; it copied the patches' X into Y and B, so patched pixels came out wrong by up to full scale.

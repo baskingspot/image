@@ -196,7 +196,14 @@ fn readHeaders(d: *Decoder) Error!void {
 }
 
 fn planeCount(h: *const headers.ImageHeader) usize {
-    return h.colourChannels() + h.num_ec;
+    return colourPlanes(h) + h.num_ec;
+}
+
+/// The colour planes the frames, slots, and canvas keep: three for an XYB
+/// image, grey too, whose frames are X, Y, and B until their colour
+/// transform; its grey comes from the first only as it is written.
+fn colourPlanes(h: *const headers.ImageHeader) u32 {
+    return if (h.xyb) 3 else h.colourChannels();
 }
 
 /// The work memory bound (docs/slop/jxl.md, work memory).
@@ -743,7 +750,7 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
     }
     var refs: [4]?frame.PatchSource = @splat(null);
     if (fh.flags & headers.flag_patches != 0) {
-        const nc = image.colourChannels();
+        const nc = colourPlanes(image);
         for (&refs, &st.slots) |*r, *slot| {
             if (!slot.valid or !slot.before_ct or slot.w == 0) continue;
             const planes = try st.arena.alloc([]const f32, 3 + image.num_ec);
@@ -844,7 +851,7 @@ const BandOut = struct {
             .d = o.d,
             .img = extra,
             .img_y = extra_y,
-            .num_color = image.colourChannels(),
+            .num_color = colourPlanes(image),
             .color = planes,
             .color_stride = stride,
             .transform = if (planes != null) o.fh else null,
@@ -930,6 +937,8 @@ const Frame = struct {
         const xyb: ?color.Xyb = if (f.transform != null and h.xyb) color.Xyb.init(h) catch null else null;
         const ycbcr = if (f.transform) |fh| fh.ycbcr and !h.xyb else false;
         const nc_in: usize = if (xyb != null or ycbcr) 3 else f.num_color;
+        // The colours written: a grey XYB frame's first plane.
+        const nc = h.colourChannels();
         for (0..rows) |y| {
             const out = dst.row(@intCast(y0 + y));
             var x: usize = 0;
@@ -946,12 +955,12 @@ const Frame = struct {
                     const planes = f.color.?;
                     for (0..3) |c| @memcpy(into[c], planes[c][y * f.color_stride + x ..][0..n8]);
                     color.ycbcrToRgb(into);
-                } else for (0..f.num_color) |c| f.row(c, y, x, fl[c][0..n]);
-                if (alpha) |a| f.row(f.num_color + a, y, x, fl[f.num_color + a][0..n]);
+                } else for (0..nc) |c| f.row(c, y, x, fl[c][0..n]);
+                if (alpha) |a| f.row(f.num_color + a, y, x, fl[nc + a][0..n]);
                 if (direct) {
-                    packPivot(dst.format, &fl, f.num_color, alpha, n, out[x * bpp ..][0 .. n * bpp], !isFloat(h));
+                    packPivot(dst.format, &fl, nc, alpha, n, out[x * bpp ..][0 .. n * bpp], !isFloat(h));
                 } else {
-                    packPivot(p, &fl, f.num_color, alpha, n, &buf, !isFloat(h));
+                    packPivot(p, &fl, nc, alpha, n, &buf, !isFloat(h));
                     conv.run(out[x * bpp ..], &buf, n);
                 }
                 x += n;
@@ -1159,6 +1168,7 @@ fn writeCanvas(d: *const Decoder, dst: PixelBuffer) void {
     var fl: [max_planes][chunk]f32 = undefined;
     const alpha = h.alphaChannel();
     const nc = h.colourChannels();
+    const np = colourPlanes(h);
     for (0..h.height) |y| {
         const out = dst.row(@intCast(y));
         var x: usize = 0;
@@ -1166,7 +1176,7 @@ fn writeCanvas(d: *const Decoder, dst: PixelBuffer) void {
             const n = @min(chunk, h.width - x);
             const at = y * h.width + x;
             for (0..nc) |c| @memcpy(fl[c][0..n], st.canvas[c][at..][0..n]);
-            if (alpha) |a| @memcpy(fl[nc + a][0..n], st.canvas[nc + a][at..][0..n]);
+            if (alpha) |a| @memcpy(fl[nc + a][0..n], st.canvas[np + a][at..][0..n]);
             packPivot(p, &fl, nc, alpha, n, &buf, !isFloat(h));
             conv.run(out[x * dst.format.bytesPerPixel() ..], &buf, n);
             x += n;

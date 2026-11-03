@@ -12,6 +12,19 @@ rgb="$src/basn2c08.png"
 grey="$src/basn0g08.png"
 cj -d 1 "$rgba" "$out/jxl/vardct-alpha.jxl"
 cj -d 1 "$grey" "$out/jxl/vardct-grey.jxl"
+# Grey with alpha and patches of a glyph repeated on a flat background:
+# its dictionary frame keeps X, Y, and B for the patches.
+im "$grey" -resize '12x16!' -threshold 50% -background white -gravity northwest -extent 14x20 "$tmp/grey-glyph.png"
+im -size 14x20 xc:white "$tmp/grey-blank.png"
+im "$tmp/grey-glyph.png" "$tmp/grey-glyph.png" "$tmp/grey-blank.png" +append "$tmp/grey-glyphs.png"
+im -size 61x41 "tile:$tmp/grey-glyphs.png" -alpha set -channel A -fx 'j<20?1:0.5' +channel \
+  -type GrayscaleAlpha "$tmp/grey-text.png"
+cj -d 1 --patches=1 "$tmp/grey-text.png" "$out/jxl/vardct-grey-patches.jxl"
+# The same in colour: the patches blend into the alpha, whose rows (61) are
+# narrower than the colour planes' (64).
+im "$tmp/grey-text.png" -colorspace sRGB -type TrueColorAlpha -fill '#204080' -opaque black \
+  "$tmp/colour-text.png"
+cj -d 1 --patches=1 "$tmp/colour-text.png" "$out/jxl/vardct-patches-alpha.jxl"
 cj -d 4 -p "$rgb" "$out/jxl/vardct-progressive.jxl"
 cj -d 2 --progressive_dc=1 "$rgb" "$out/jxl/vardct-lf-frame.jxl"
 cj -d 2 --resampling=2 "$rgb" "$out/jxl/vardct-upsampling.jxl"

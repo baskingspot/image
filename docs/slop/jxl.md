@@ -90,7 +90,9 @@ read; a file that would need more fails with `TooComplex` rather than
 writing past it. Its terms, in `Decoder.workBound`:
 
 - The canvas and four reference slots, as float planes, when frames may
-  need them. A single last frame without a crop in a still image needs
+  need them: three colour planes for an XYB image, grey too, since a slot
+  saved before the colour transform holds X, Y, and B for patches; the grey
+  comes from the first as it is written. A single last frame without a crop in a still image needs
   neither, which `decodeConfig` learns by reading the first frame header
   when there is no ICC profile or preview before it.
 - One Modular frame of up to twice the canvas's pixels, three times over

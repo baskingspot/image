@@ -469,7 +469,7 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
             .nonvisible = ctx.counts[1],
         }, planes, stride, base[0], base[1]);
     }
-    const grey = image.colour.space == .grey;
+    const grey = image.colour.space == .grey and !image.xyb;
     return .{
         .img = img,
         .num_color = if (grey) 1 else 3,
