@@ -1099,6 +1099,17 @@ width)` for every file with several entries.
 73. **WebP lossy trellis at `best`. Decided by the owner:** kept in every
     mode choice, at 0.6× libwebp -m 6; trellis speed is the orb's next
     item.
+74. **JPEG XL reconstruction budgets. Decided by the owner:** `jpegWorkLen`
+    keeps its fixed budgets (4 MiB of tables, LF group, and pass scratch;
+    1 MiB per entropy code), about 9 MB at 16×16; scaling them would make a
+    small file with a large code `TooComplex` where libjxl decodes it.
+75. **JPEG XL learning samples by size. Decided by the owner:** `default`
+    learns from `clamp(pixels × 4 / 16, 2^18, 2^20)` samples, so only large
+    images change (corpus −0.58% for +7.5% time; apple.com 1.043 → 1.019 of
+    e7). This refines decision 70.
+76. **`fill` stays private. Decided by the owner:** `src/fill.zig` is not
+    exported; callers' own `@memset` is compiler_rt's problem. The drafted
+    Zig issue (results/memset-20261103.md) is not filed for now.
 
 ## Harness requests
 
