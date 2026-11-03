@@ -466,6 +466,17 @@ owning the files adding-a-format.md assigns to its format plus
   PackBits, and LZW strips are byte-identical to libtiff's. Against libtiff:
   PackBits 1.5–2.8×, LZW 1.25–1.70×, Deflate 0.60–0.73× (compress against
   zlib), uncompressed 0.95–13.8×; peak RSS about 3 MiB under libtiff.
+- **Vector fill** (`wave2-memset`, the harness orb; results/memset-20261103.md):
+  `@memset` of a runtime length, and LLVM's zeroing of large aggregates,
+  call compiler_rt's byte-wise memset even with libc. Large or per-call
+  clears use `src/fill.zig`'s 256-bit `fill` (volatile vector stores, or
+  LLVM turns the loop back into memset), and short fills keep `@memset`.
+  bmp-decode-rle 1.57×, ico-decode 1.48× (its PNG decoder left the
+  `picked` union), progressive JPEG 1.26×, tiff-decode-jpeg 1.21×,
+  tiff-encode-lzw 1.11×, GIF and WebP lossless encode 1.05–1.15×. TIFF
+  PackBits keeps `@memset` (runs of at most 128 bytes). Left: WebP lossy
+  decode and animation clears (WebP lossy orb), compress's
+  `flate.Writer.initInPlace` (about 1% of deflate encodes).
 - **Harness pass 4** (landed; results/oracle-memory-20261102.md): the oracle
   streams each batch behind its length, sends a decoder's requests op by op
   (adapting each input once per op), and reads corpus files from disk as
@@ -1080,8 +1091,3 @@ not yet made:
 - An `artifacts` key per job in baskingspot/gh-actions' ci.yml (a
   gh-actions change, release, and pin bump), so oracle-ci can move back into
   `.github/ci.yaml` from its own job in `.github/workflows/ci.yml`.
-- `@memset` lowers to Zig 0.16 compiler_rt's `memset`, a byte-store loop,
-  even in bench-image, which links libc (the symbol is local, so glibc's is
-  never called); users' binaries get the same. Measure where large fills
-  cost time across the bench rows and give `src/` a vector fill where they
-  do (the WebP lossy orb found it in its token histograms).
