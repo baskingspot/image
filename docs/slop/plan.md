@@ -297,8 +297,15 @@ Running beside wave 1's tail, started early by the owner:
   upsampled into each band's window from the ring. A 50 MP recompressed
   photo peaks at 120 MB instead of 686 MB (work_len 744 → 244 MB), tall
   screenshots decode 22–26% faster; libjxl's even rows on subsampled frames
-  with Gaborish are a documented split. Next: noise and upsampled frames,
-  then two group rows instead of three.
+  with Gaborish are a documented split. Fixed (`wave4-jxl-patchstride`):
+  patches blended into extra channels used the colour planes' stride, so a
+  valid lossy file with patches, alpha, and a width not a multiple of 8
+  read past the alpha plane (a ReleaseSafe panic, an out-of-bounds read in
+  ReleaseFast). Open: grey XYB images with patches blend X into all three
+  planes (up to 65532 off libjxl); the XYB-to-linear step rounds where
+  libjxl fuses multiply-adds, which puts some far-out-of-gamut fuzzed
+  frames 5 steps off. Next: noise and upsampled frames, then two group rows
+  instead of three.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
