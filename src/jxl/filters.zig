@@ -254,7 +254,7 @@ pub fn epf(
             const s = sig_row[x / 8];
             const px = x + r;
             if (s < min_sigma) {
-                for (0..3) |c| @memcpy(pl.p[c][y * pl.stride + x ..][0..n], rows[c][3][px..][0..n]);
+                for (0..3) |c| store(pl, c, y, x, n, load(rows[c][3], px));
                 continue;
             }
             const isg = mul * @as(V, @splat(s));
@@ -312,11 +312,21 @@ pub fn epf(
                 },
             }
             const inv = one / wsum;
-            for (0..3) |c| {
-                const out: [lanes]f32 = acc[c] * inv;
-                @memcpy(pl.p[c][y * pl.stride + x ..][0..n], out[0..n]);
-            }
+            for (0..3) |c| store(pl, c, y, x, n, acc[c] * inv);
         }
+    }
+}
+
+/// Writes the `n` pixels of `v` to row `y` of plane `c` from column `x`:
+/// as one vector when the row's stride has room for it (the columns past
+/// the width are padding nothing reads), else a pixel at a time.
+inline fn store(pl: *const Planes, c: usize, y: usize, x: usize, n: usize, v: V) void {
+    const row = pl.p[c][y * pl.stride ..][0..pl.stride];
+    if (x + lanes <= pl.stride) {
+        row[x..][0..lanes].* = v;
+    } else {
+        const a: [lanes]f32 = v;
+        for (row[x..][0..n], a[0..n]) |*o, e| o.* = e;
     }
 }
 
