@@ -1,0 +1,102 @@
+bmp-decode	37151	0.00	
+bmp-decode-rle	10703	32.01	bmp.dib.rle__anon_49595 31.3%; bmp.Decoder.pixels 0.7%
+bmp-decode-bgra	37666	0.00	
+bmp-encode-rgb	1621	0.37	mem.writeInt 0.3%; bmp.Encode(.rgb8).run 0.1%
+bmp-encode-rgba	1554	1.03	mem.writeInt 1.0%; bmp.Encode(.rgba8).run 0.1%
+bmp-encode-gray	1567	1.34	mem.writeInt 1.3%
+ico-decode	4248	30.44	ico.Decoder.Generic(png.Decoder).init 30.2%; timed 0.3%
+gif-decode	13619	1.08	gif.Decoder.init 1.1%
+gif-decode-anim	1479	3.25	gif.all 3.0%; gif.Decoder.init 0.2%
+gif-encode	3	0.00	
+gif-encode-few	3	0.00	
+gif-encode-anim	2	0.00	
+png-decode	16239	0.05	png.Decoder.pixels 0.0%
+png-encode	47671	0.39	flate.Writer.initInPlace 0.2%; png.reduce.Survey.init 0.1%; flate.dynamic.HuffmanEncoder(286).bitCounts 0.0%; flate.dynamic.HuffmanEncoder(19).bitCounts 0.0%
+png-encode-fast	22391	0.97	flate.Writer.initInPlace 0.4%; png.reduce.Survey.init 0.3%; flate.dynamic.HuffmanEncoder(30).bitCounts 0.1%; flate.dynamic.HuffmanEncoder(19).bitCounts 0.1%
+qoi-decode	14003	0.00	
+qoi-decode-bgra	13669	0.00	
+png-decode-icons	1072	0.19	png.Decoder.pixels 0.2%
+qoi-decode-icons	798	0.00	
+qoi-encode	14169	0.00	
+wbmp-decode	12847	0.00	
+wbmp-decode-rgba	12384	0.00	
+wbmp-encode	12448	0.00	
+convert-rgba8-bgra8	1827	0.00	
+convert-rgb8-rgba8	1855	0.00	
+convert-rgba8-rgb8	1771	0.00	
+convert-rgba8-premul	1389	0.00	
+convert-gray8-rgba8	2249	0.00	
+convert-rgba16-rgba8	1608	0.00	
+tga-decode	12708	0.00	
+tga-decode-rle	13022	0.00	
+tga-decode-bgra	11831	0.00	
+tga-encode	12289	0.00	
+tga-encode-rle	13165	0.00	
+netpbm-decode-ppm	13912	0.00	
+netpbm-decode-ppm-rgba	12011	0.00	
+netpbm-decode-pgm	12943	0.00	
+netpbm-decode-ppm16	12653	0.00	
+netpbm-decode-ppm16-bgra	13416	0.00	
+netpbm-decode-pam	12331	0.00	
+netpbm-decode-pbm	11959	0.00	
+netpbm-decode-plain	13205	0.00	
+netpbm-decode-pfm	14384	0.00	
+netpbm-encode-ppm	12725	0.00	
+netpbm-encode-pgm	13129	0.00	
+netpbm-encode-pam	12839	0.00	
+netpbm-encode-ppm16	13192	0.00	
+netpbm-encode-plain	20292	0.00	
+jpeg-decode	13282	9.67	jpeg.huffman.Table.init__anon_185157 4.9%; jpeg.huffman.Table.init__anon_185159 4.7%; jpeg.Decoder.startScan 0.0%
+jpeg-decode-progressive	15067	13.07	jpeg.Decoder.frameOf__anon_181858 6.8%; jpeg.huffman.Table.init__anon_185159 4.5%; jpeg.huffman.Table.init__anon_185157 1.7%; jpeg.Decoder.startScan 0.1%
+jpeg-decode-444	13085	9.00	jpeg.huffman.Table.init__anon_185157 4.5%; jpeg.huffman.Table.init__anon_185159 4.4%; jpeg.Decoder.startScan 0.1%
+jpeg-decode-arith	18142	0.00	
+jpeg-decode-12bit	14186	7.51	jpeg.huffman.Table.init__anon_185157 3.8%; jpeg.huffman.Table.init__anon_185159 3.6%; jpeg.Decoder.startScan 0.0%
+jpeg-decode-lossless	20312	2.59	jpeg.huffman.Table.init__anon_185161 2.6%; jpeg.Decoder.startLossless 0.0%
+jpeg-decode-cmyk	13977	6.60	jpeg.huffman.Table.init__anon_185157 3.4%; jpeg.huffman.Table.init__anon_185159 3.1%; jpeg.Decoder.startScan 0.0%
+jpeg-encode	12878	3.47	jpeg.huffman_encode.Codes.init 3.1%; jpeg.encode.Encoder.sequentialStreaming 0.4%; jpeg.encode.rgbToYcc 0.0%
+jpeg-encode-444	14134	2.76	jpeg.huffman_encode.Codes.init 2.4%; jpeg.encode.Encoder.sequentialStreaming 0.3%
+jpeg-encode-optimized	13255	5.45	jpeg.encode.Encoder.storedScan 2.2%; jpeg.huffman_encode.optimal 2.1%; jpeg.huffman_encode.Codes.init 0.8%; jpeg.encode.encode 0.2%
+jpeg-encode-progressive	14424	5.17	jpeg.encode.Encoder.storedScan 2.3%; jpeg.huffman_encode.optimal 1.9%; jpeg.huffman_encode.Codes.init 0.7%; jpeg.encode.Encoder.progressive 0.1%
+jpeg-encode-gray	13944	5.08	jpeg.huffman_encode.Codes.init 4.9%; jpeg.encode.Encoder.sequentialStreaming 0.2%
+webp-decode-lossless	14594	1.60	webp.lossless.readCode 0.7%; webp.lossless.Stream.image__anon_186828 0.4%; webp.Decoder.init 0.2%; webp.lossless.Stream.image__anon_186822 0.2%
+webp-decode-lossless-large	4343	0.02	webp.lossless.readCode 0.0%
+tiff-decode-none	12400	0.00	
+tiff-decode-lzw	15839	0.00	
+tiff-decode-deflate	15410	0.00	
+tiff-decode-packbits	13402	2.45	tiff.packbits.setExact 2.0%; tiff.Decoder.decodeLines__anon_156673 0.4%
+tiff-decode-jpeg	1	0.00	
+tiff-decode-g4	10418	5.98	tiff.fax.render 2.7%; tiff.Decoder.decodeLines__anon_156673 2.6%; tiff.fax.setBits 0.7%
+tiff-encode-none	12143	0.00	
+tiff-encode-packbits	14087	0.00	
+tiff-encode-lzw	21231	4.69	tiff.encode_lzw.State.init 4.7%; tiff_encode.Encode(.lzw).run 0.0%
+tiff-encode-deflate	44620	1.26	flate.Writer.initInPlace 0.9%; flate.dynamic.HuffmanEncoder(286).bitCounts 0.1%; flate.dynamic.HuffmanEncoder(19).bitCounts 0.1%; flate.dynamic.HuffmanEncoder(30).bitCounts 0.1%
+webp-decode-lossy	13676	4.53	webp.vp8.decodeFrame 4.1%; webp.vp8.decode 0.1%; webp.Decoder.init 0.1%; webp.lossless.readCode 0.1%
+webp-decode-anim	2150	4.93	webp.anim 1.9%; webp.vp8.decodeFrame 1.2%; pixel.PixelBuffer.row 0.9%; webp.lossless.Stream.image__anon_186828 0.3%
+webp-encode-lossy	31812	0.03	webp.vp8_encode.Enc.run 0.0%; webp.vp8_encode.encode 0.0%; webp.vp8_encode.Enc.chooseSegments 0.0%
+webp-encode-lossy-fast	18212	0.05	webp.vp8_encode.encode 0.0%; root.wrap__anon_2494__struct_186553.call 0.0%; webp.vp8_encode_bool.Writer.put 0.0%; webp.vp8_encode.Enc.run 0.0%
+webp-encode-lossy-best	67685	0.01	webp.vp8_encode.encode 0.0%; webp.vp8_encode.Enc.chooseSegments 0.0%; webp.vp8_encode.Enc.analyze 0.0%; webp.vp8_encode.Enc.loadBand 0.0%
+webp-encode-lossy-rgba	34281	1.42	webp.encode.chooseCache 0.6%; webp.encode_lz77.findMatches 0.3%; webp.encode_codes.Histogram.clear 0.2%; webp.encode.rankModes 0.1%
+webp-encode-lossy-fast-m0	18352	0.05	webp.vp8_encode.encode 0.0%; webp.vp8_encode.Enc.run 0.0%; root.wrap__anon_2494__struct_186553.call 0.0%
+jxl-decode	34091	7.45	jxl.vardct.readPassGroup 4.3%; jxl.vardct.Shared.allocPlanes 1.8%; jxl.modular.decodeStream 1.0%; jxl.entropy.readContextMap 0.1%
+jxl-decode-lossless	102311	2.12	jxl.modular.decodeStream 2.0%; jxl.modular.Wp.init 0.1%; jxl.entropy.readHistogram 0.0%; jxl.Decoder.init 0.0%
+jxl-jbrd	3	0.00	
+jxl-jbrd-progressive	3	0.00	
+webp-encode-z0	2	0.00	
+webp-encode-z1	2	0.00	
+webp-encode-z2	2	0.00	
+webp-encode-z3	1	0.00	
+webp-encode-z4	2	0.00	
+webp-encode-z5	1	0.00	
+webp-encode-z6	3	0.00	
+webp-encode-z7	1	0.00	
+webp-encode-z8	2	0.00	
+webp-encode-z9	2	0.00	
+jxl-encode-e1	1	0.00	
+jxl-encode-e2	2	0.00	
+jxl-encode-e3	4	0.00	
+jxl-encode-e4	2	0.00	
+jxl-encode-e5	2	0.00	
+jxl-encode-e6	3	0.00	
+jxl-encode-e7	2	0.00	
+jxl-encode-e8	1	0.00	
+jxl-encode-e9	2	0.00	

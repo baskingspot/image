@@ -1,0 +1,22 @@
+op                           rows  geomean    min    max  faster/slower (p<0.05)
+BmpDecodeRle                   35    1.573   1.17   3.23  35/0
+IcoDecode                      15    1.484   1.03   2.02  14/0
+JpegDecode                     44    1.136   0.98   1.79  21/0
+JpegDecodeProgressive          44    1.259   1.05   1.84  41/0
+JpegDecodeLossless             44    1.037   0.99   1.34  12/3
+JpegEncode                     44    1.033   0.99   1.20  14/0
+JpegEncodeGray                 44    1.039   0.98   1.29  9/2
+JpegEncodeOptimized            44    1.049   0.98   1.30  14/0
+TiffDecodeJPEG                 44    1.211   0.99   1.65  32/0
+TiffDecodePackBits             44    0.945   0.82   1.05  1/19
+TiffDecodeG4                   35    1.030   0.98   1.18  13/0
+TiffEncodeLZW                  44    1.106   0.97   2.19  12/3
+GifEncode                      11    1.063   1.04   1.11  8/0
+GifEncodeFew                   11    1.150   1.02   1.48  6/0
+GifEncodeAnim                   4    1.045   1.03   1.06  4/0
+WebpEncodeZ0                   21    1.103   1.00   1.31  14/0
+WebpEncodeZ2                   21    1.060   0.99   1.27  12/0
+WebpEncodeZ5                   21    1.082   1.03   1.29  16/0
+JxlDecode                      44    1.007   0.98   1.06  0/0
+PngDecode                      52    1.003   0.98   1.05  0/1
+QoiDecode                      44    0.975   0.85   1.09  1/11
