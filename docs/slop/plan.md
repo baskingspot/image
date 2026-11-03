@@ -259,9 +259,17 @@ Running beside wave 1's tail, started early by the owner:
   +54%, peak RSS unchanged; about 0.76× libjxl lossy, 0.89× lossless, 0.59×
   rebuilding the mosaic. `jpegWorkLen` 9.2 MB at 16×16 (from 10.0), 25 MB
   at 768×512 (from 37). `modular.pixelProps` and `modular.walk` are pub for
-  the encoder. Next: speed pass 2 (EPF, the coefficient loop specialized on
-  the code's kind, comptime default quant tables, no plane clearing), then
-  render by group row.
+  the encoder. Speed pass 2 (`wave4-jxl-speed2`,
+  results/jxl-speed2-20261103.md): VarDCT's coefficient loop specialized on
+  the code's kind (+1.3% lossy, +1.6% rebuilding), the default
+  dequantization tables up to DCT32 computed at compile time (+8.8% lossy,
+  icons +20–28%), and the planes left uncleared without chroma subsampling
+  (+3.1%). Over pass 1: lossy +13.8%, rebuilding +2.4%, lossless unchanged,
+  bit for bit, same memory; about 0.81× libjxl lossy on the 1200×1200
+  photo. EPF's shared differences were measured and rejected (−0.9%,
+  `cjxl -d 1` runs one iteration). Next: the XYB to sRGB transform (14% of
+  lossy), the 16-bit packing and RGB to RGBA conversion (about 7%), band
+  copies (5%), Modular's common trees, then render by group row.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
