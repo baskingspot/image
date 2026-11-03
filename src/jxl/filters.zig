@@ -7,6 +7,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const Arena = @import("Arena.zig");
+const vfill = @import("../fill.zig").fill;
 const headers = @import("headers.zig");
 
 pub const Error = Arena.Error;
@@ -214,7 +215,7 @@ pub fn epf(
     // vectors; the padding's values reach only lanes past the edge.
     const w8 = (pl.w + lanes - 1) / lanes * lanes;
     var ring: Ring = try .init(arena, r, w8);
-    @memset(ring.rows, 0);
+    vfill(f32, ring.rows, 0);
     ring.start(pl);
     const sm: f32 = switch (pass) {
         0 => rf.epf_pass0_sigma_scale * 1.65,

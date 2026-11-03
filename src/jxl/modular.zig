@@ -15,6 +15,7 @@ const testing = std.testing;
 const BitReader = @import("BitReader.zig");
 const entropy = @import("entropy.zig");
 const Arena = @import("Arena.zig");
+const vfill = @import("../fill.zig").fill;
 const unpackSigned = @import("headers.zig").unpackSigned;
 
 pub const Error = entropy.Error || error{
@@ -780,7 +781,7 @@ pub fn decodeStream(br: *BitReader, arena: *Arena, img: *Image, stream_id: u32, 
     for (img.channels()) |*c| {
         if (c.data.len == 0) {
             c.data = try arena.alloc(i32, @as(usize, c.w) * c.h);
-            @memset(c.data, 0);
+            vfill(i32, c.data, 0);
         }
     }
     try decodeChannels(br, arena, img, stream_id, use_global, opt);
@@ -908,10 +909,10 @@ pub const Wp = struct {
 
     pub fn init(arena: *Arena, hdr: WpHeader, w: usize) Error!Wp {
         var s: Wp = .{ .hdr = hdr, .w = w, .pred_err = undefined, .err = try arena.alloc(i32, (w + 2) * 2) };
-        @memset(s.err, 0);
+        vfill(i32, s.err, 0);
         for (&s.pred_err) |*p| {
             p.* = try arena.alloc(u32, (w + 2) * 2);
-            @memset(p.*, 0);
+            vfill(u32, p.*, 0);
         }
         return s;
     }
@@ -1085,7 +1086,7 @@ fn decodeChannel(
         const ctx = leaf.child;
         if (leaf.predictor == .zero) {
             if (r.singleValue(ctx, w * h)) |v| {
-                @memset(ch.data, makePixel(v, leaf.multiplier, leaf.value));
+                vfill(i32, ch.data, makePixel(v, leaf.multiplier, leaf.value));
                 return;
             }
             for (ch.data) |*p| p.* = makePixel(try r.readInline(br, ctx), leaf.multiplier, leaf.value);

@@ -12,6 +12,7 @@ const testing = std.testing;
 const BitReader = @import("BitReader.zig");
 const entropy = @import("entropy.zig");
 const Arena = @import("Arena.zig");
+const vfill = @import("../fill.zig").fill;
 const headers = @import("headers.zig");
 const modular = @import("modular.zig");
 const quant = @import("quant.zig");
@@ -203,7 +204,7 @@ pub const Jpeg = struct {
             const n = @as(usize, j.blocks_x[jc]) * j.blocks_y[jc] * 64;
             if (mem.len - at < n) return error.TooComplex;
             j.coefs[jc] = mem[at..][0..n];
-            @memset(j.coefs[jc], 0);
+            vfill(i16, j.coefs[jc], 0);
             at += n;
         }
         return j;
@@ -360,7 +361,7 @@ pub const Shared = struct {
         const rows: usize = if (s.ring_rows == 0) s.bh * 8 else s.ring_rows;
         if (s.pixels()) for (&s.planes) |*p| {
             p.* = try arena.alloc(f32, s.bw * 8 * rows);
-            if (s.subsampled()) @memset(p.*, 0);
+            if (s.subsampled()) vfill(f32, p.*, 0);
         };
     }
 
@@ -422,7 +423,7 @@ pub const Shared = struct {
         if (fh.passes.num > 1) {
             const gd = group_blocks * 8;
             s.coeffs = try arena.alloc(i32, s.num_groups * gd * gd * 3);
-            @memset(s.coeffs, 0);
+            vfill(i32, s.coeffs, 0);
         }
         s.passes_done = try arena.alloc(u8, s.num_groups);
         @memset(s.passes_done, 0);
@@ -890,7 +891,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
             const size = 64 * @as(usize, st.covered());
             var blocks: [3][]i32 = undefined;
             if (!keep and zeroed < size) {
-                for (0..3) |c| @memset(q[c * max_coeffs + zeroed .. c * max_coeffs + size], 0);
+                for (0..3) |c| vfill(i32, q[c * max_coeffs + zeroed .. c * max_coeffs + size], 0);
                 zeroed = size;
             }
             for (0..3) |c| {
