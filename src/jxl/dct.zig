@@ -170,18 +170,38 @@ pub fn idct2d(
 /// The scaled forward DCT of an `r` by `c` block of LF samples, in natural
 /// layout (row index the vertical frequency): the inverse of `idct2d`.
 fn dct2d(r: usize, c: usize, in: []const f32, in_stride: usize, out: []f32) void {
+    const br = &basis_table[std.math.log2_int(usize, r)];
+    const bc = &basis_table[std.math.log2_int(usize, c)];
+    // Separably: each row's horizontal frequencies, then the columns'.
+    var rows: [32 * 32]f64 = undefined;
+    for (0..r) |y| {
+        for (0..c) |v| {
+            var sum: f64 = 0;
+            for (0..c) |x| sum += @as(f64, in[y * in_stride + x]) * bc[v][x];
+            rows[y * c + v] = sum;
+        }
+    }
     for (0..r) |u| {
         for (0..c) |v| {
             var sum: f64 = 0;
-            for (0..r) |y| {
-                for (0..c) |x| {
-                    sum += @as(f64, in[y * in_stride + x]) * basis(u, y, r) * basis(v, x, c);
-                }
-            }
+            for (0..r) |y| sum += br[u][y] * rows[y * c + v];
             out[u * c + v] = @floatCast(sum / @as(f64, @floatFromInt(r * c)));
         }
     }
 }
+
+/// `basis(k, n, 1 << l)` at `[l][k][n]`, for the LF sizes `dct2d` takes.
+const basis_table: [6][32][32]f64 = blk: {
+    @setEvalBranchQuota(1_000_000);
+    var t: [6][32][32]f64 = @splat(@splat(@splat(0)));
+    for (0..6) |l| {
+        const size = 1 << l;
+        for (0..size) |k| for (0..size) |n| {
+            t[l][k][n] = basis(k, n, size);
+        };
+    }
+    break :blk t;
+};
 
 fn basis(k: usize, n: usize, size: usize) f64 {
     if (k == 0) return 1;

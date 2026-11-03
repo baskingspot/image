@@ -370,7 +370,7 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
     }
     const pl: filters.Planes = .{ .p = planes, .stride = stride, .w = w, .h = h };
     const rf = &fh.filter;
-    if (rf.gab) try filters.gaborish(arena, &pl, rf);
+    if (rf.gab) try filters.gaborish(arena, &pl, rf, null);
     if (rf.epf_iters != 0) {
         const m = arena.mark();
         defer arena.release(m);
@@ -697,16 +697,20 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const y1 = @min(h, y0 + gd);
     const ws = y0 -| band_margin;
     const we = @min(h, y1 + band_margin);
+    const rf = &ctx.fh.filter;
     var win: [3][]f32 = undefined;
     for (&win, ctx.window, vd.planes) |*o, buf, plane| {
         o.* = buf[0 .. (we - ws) * stride];
-        for (ws..we) |y| @memcpy(o.*[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
+        // Gaborish writes the window from the planes instead.
+        if (!rf.gab) for (ws..we) |y| {
+            @memcpy(o.*[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
+        };
     }
     // Mirrored at the window's edges, which are wrong only within the
     // margin, except at the frame's, where mirroring is right.
     const pl: filters.Planes = .{ .p = win, .stride = stride, .w = d.width, .h = we - ws };
-    const rf = &ctx.fh.filter;
-    if (rf.gab) try filters.gaborish(arena, &pl, rf);
+    const src: filters.Source = .{ .p = vd.planes, .stride = stride, .y0 = ws, .ring_rows = vd.ring_rows };
+    if (rf.gab) try filters.gaborish(arena, &pl, rf, src);
     if (rf.epf_iters != 0) {
         const sig = ctx.sigmas[(ws / 8) * vd.bw ..];
         if (rf.epf_iters >= 3) try filters.epf(arena, &pl, rf, 0, sig, vd.bw);

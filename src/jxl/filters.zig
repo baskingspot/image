@@ -88,34 +88,82 @@ const Ring = struct {
     }
 };
 
-pub fn gaborish(arena: *Arena, pl: *const Planes, rf: *const headers.RestorationFilter) Error!void {
-    const m = arena.mark();
-    defer arena.release(m);
-    var ring: Ring = try .init(arena, 1, pl.w);
-    ring.start(pl);
+/// Where Gaborish reads when it does not filter the planes in place: row
+/// `y` of the planes it writes is row `y0 + y` of a frame held whole, or
+/// in a ring of `ring_rows` rows (`ring_rows` 0 for whole).
+pub const Source = struct {
+    p: [3][]const f32,
+    stride: usize,
+    y0: usize,
+    ring_rows: usize,
+
+    fn row(s: *const Source, c: usize, y: usize) []const f32 {
+        const fy = s.y0 + y;
+        const at = if (s.ring_rows == 0) fy else fy % s.ring_rows;
+        return s.p[c][at * s.stride ..][0..s.stride];
+    }
+};
+
+/// Gaborish over `pl`: in place, or from `src`, which saves copying the
+/// rows first.
+pub fn gaborish(arena: *Arena, pl: *const Planes, rf: *const headers.RestorationFilter, src: ?Source) Error!void {
     var w: [3][3]f32 = undefined;
     for (0..3) |c| {
         const div = 1 + 4 * (rf.gab_weights[c][0] + rf.gab_weights[c][1]);
         w[c] = .{ 1 / div, rf.gab_weights[c][0] / div, rf.gab_weights[c][1] / div };
     }
+    if (src) |*s| {
+        for (0..pl.h) |y| {
+            const yi: isize = @intCast(y);
+            const top = mirror(yi - 1, pl.h);
+            const bottom = mirror(yi + 1, pl.h);
+            for (0..3) |c| {
+                const out = pl.p[c][y * pl.stride ..][0..pl.w];
+                gaborishRow(s.row(c, top), s.row(c, y), s.row(c, bottom), out, w[c]);
+            }
+        }
+        return;
+    }
+    const m = arena.mark();
+    defer arena.release(m);
+    var ring: Ring = try .init(arena, 1, pl.w);
+    ring.start(pl);
     for (0..pl.h) |y| {
         ring.advance(pl, y);
         const yi: isize = @intCast(y);
         for (0..3) |c| {
-            const t = ring.row(c, yi - 1)[1..];
-            const r = ring.row(c, yi)[1..];
-            const b = ring.row(c, yi + 1)[1..];
             const out = pl.p[c][y * pl.stride ..][0..pl.w];
-            const tm1 = ring.row(c, yi - 1);
-            const rm1 = ring.row(c, yi);
-            const bm1 = ring.row(c, yi + 1);
-            for (out, 0..) |*o, x| {
-                const side = (rm1[x] + r[x + 1]) + (t[x] + b[x]);
-                const corner = (tm1[x] + t[x + 1]) + (bm1[x] + b[x + 1]);
-                o.* = corner * w[c][2] + (side * w[c][1] + r[x] * w[c][0]);
-            }
+            gaborishRow(ring.row(c, yi - 1)[1..], ring.row(c, yi)[1..], ring.row(c, yi + 1)[1..], out, w[c]);
         }
     }
+}
+
+/// One row of Gaborish from the rows above, at, and below it, each with
+/// column 0 first and mirrored past column `out.len - 1`.
+fn gaborishRow(t: []const f32, r: []const f32, b: []const f32, out: []f32, w: [3]f32) void {
+    const n = out.len;
+    const one = struct {
+        fn px(tt: []const f32, rr: []const f32, bb: []const f32, x: usize, len: usize, ww: [3]f32) f32 {
+            const xi: isize = @intCast(x);
+            const l = mirror(xi - 1, len);
+            const rt = mirror(xi + 1, len);
+            const side = (rr[l] + rr[rt]) + (tt[x] + bb[x]);
+            const corner = (tt[l] + tt[rt]) + (bb[l] + bb[rt]);
+            return corner * ww[2] + (side * ww[1] + rr[x] * ww[0]);
+        }
+    }.px;
+    out[0] = one(t, r, b, 0, n, w);
+    // Eight at a time inside, in the same order as one at a time.
+    const w0: V = @splat(w[0]);
+    const w1: V = @splat(w[1]);
+    const w2: V = @splat(w[2]);
+    var x: usize = 1;
+    while (x + lanes < n) : (x += lanes) {
+        const side = (load(r, x - 1) + load(r, x + 1)) + (load(t, x) + load(b, x));
+        const corner = (load(t, x - 1) + load(t, x + 1)) + (load(b, x - 1) + load(b, x + 1));
+        out[x..][0..lanes].* = corner * w2 + (side * w1 + load(r, x) * w0);
+    }
+    while (x < n) : (x += 1) out[x] = one(t, r, b, x, n, w);
 }
 
 /// The inverse sigma of each block, from the quantization field and the
@@ -293,6 +341,6 @@ test "gaborish keeps a flat image flat" {
         var b: [4096]u8 = undefined;
     }).b);
     const pl: Planes = .{ .p = .{ buf[0..20], buf[20..40], buf[40..60] }, .stride = 5, .w = 5, .h = 4 };
-    try gaborish(&arena, &pl, &.{});
+    try gaborish(&arena, &pl, &.{}, null);
     for (buf) |v| try testing.expectApproxEqAbs(@as(f32, 0.25), v, 1e-6);
 }

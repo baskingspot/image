@@ -167,13 +167,17 @@ fn srgbV(v: V) V {
     return @select(f32, v < @as(V, @splat(0)), -r, r);
 }
 
-/// The cube root of non-negative `a`: a guess from the exponent's bits,
-/// then three Newton steps.
+/// The cube root of non-negative `a`, to within 2 ulp: a guess at
+/// a^(-1/3) from the exponent's bits, two Newton steps for it, which need
+/// no division, then one Newton step for the cube root itself.
 fn cbrtV(a: V) V {
     const U = @Vector(8, u32);
     const bits: U = @bitCast(a);
-    var y: V = @bitCast(bits / @as(U, @splat(3)) + @as(U, @splat(709921077)));
-    inline for (0..3) |_| y = y - (y * y * y - a) / (@as(V, @splat(3)) * y * y);
+    var r: V = @bitCast(@as(U, @splat(0x54a0fc5c)) -% bits / @as(U, @splat(3)));
+    const a3 = a * @as(V, @splat(1.0 / 3.0));
+    inline for (0..2) |_| r = r * (@as(V, @splat(4.0 / 3.0)) - a3 * r * r * r);
+    var y = a * r * r;
+    y = y - (y * y * y - a) / (@as(V, @splat(3)) * y * y);
     return @select(f32, a == @as(V, @splat(0)), a, y);
 }
 

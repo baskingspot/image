@@ -829,7 +829,12 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
     const last = pass + 1 == s.passes.num;
     const keep = s.coeffs.len != 0;
     const gsize = group_blocks * group_blocks * 64;
-    const q = try arena.alloc(i32, 3 * 64 * 1024);
+    // One pass's coefficients, a channel's at a time `max_coeffs` apart,
+    // kept zero between blocks: zeroed to the largest block so far, and
+    // after each block only where it was decoded.
+    const max_coeffs = 64 * 1024;
+    const q = try arena.alloc(i32, 3 * max_coeffs);
+    var zeroed: usize = 0;
     const scratch: []f32 = if (s.pixels()) try arena.alloc(f32, 3 * 64 * 1024 + 2 * 64 * 1024) else &.{};
     var offset: usize = 0;
     for (0..r.h) |by| {
@@ -845,20 +850,25 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
             }
             const size = 64 * @as(usize, st.covered());
             var blocks: [3][]i32 = undefined;
+            if (!keep and zeroed < size) {
+                for (0..3) |c| @memset(q[c * max_coeffs + zeroed .. c * max_coeffs + size], 0);
+                zeroed = size;
+            }
             for (0..3) |c| {
-                if (keep) {
-                    blocks[c] = s.coeffs[(g * 3 + c) * gsize + offset ..][0..size];
-                } else {
-                    blocks[c] = q[c * size ..][0..size];
-                    @memset(blocks[c], 0);
-                }
+                blocks[c] = if (keep)
+                    s.coeffs[(g * 3 + c) * gsize + offset ..][0..size]
+                else
+                    q[c * max_coeffs ..][0..size];
             }
             const shift: u5 = @intCast(s.passes.shift[pass]);
+            const orders = s.orders[pass][Strategy.order_class[a >> 1]];
+            // Where each channel's decoded coefficients end in its order.
+            var ends: [3]usize = @splat(st.covered());
             for ([3]usize{ 1, 0, 2 }) |c| {
                 // A subsampled channel has a block only where its
                 // coordinates are a multiple of the subsampling.
                 if ((bx >> s.hs[c]) << s.hs[c] != bx or (by >> s.vs[c]) << s.vs[c] != by) continue;
-                try decodeBlock(
+                ends[c] = try decodeBlock(
                     br,
                     &reader,
                     s,
@@ -871,7 +881,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
                     st,
                     at,
                     c,
-                    s.orders[pass][Strategy.order_class[a >> 1]],
+                    orders,
                     blocks[c],
                     shift,
                 );
@@ -897,6 +907,9 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
                 }
                 if (s.pixels()) reconstruct(s, st, r.x0 + bx, r.y0 + by, blocks, scratch);
             }
+            if (!keep) for (blocks, ends, 0..) |b, end, c| {
+                for (orders[c * size ..][st.covered()..end]) |o| b[o] = 0;
+            };
             bx += st.bx();
         }
     }
@@ -904,6 +917,8 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
     s.passes_done[g] += 1;
 }
 
+/// Adds a varblock's coefficients in channel `c` to `block`, and returns
+/// where they end in its order: every one it wrote is before that.
 fn decodeBlock(
     br: *BitReader,
     reader: *entropy.Reader,
@@ -920,7 +935,7 @@ fn decodeBlock(
     orders: []const u16,
     block: []i32,
     shift: u5,
-) Error!void {
+) Error!usize {
     const covered: usize = st.covered();
     const log2c = st.log2Covered();
     const size = covered * 64;
@@ -960,6 +975,7 @@ fn decodeBlock(
         nzeros -= prev;
     }
     if (nzeros != 0) return error.BadImage;
+    return k;
 }
 
 /// Reads in context `ctx`, whose cluster is 0 past the map's end.

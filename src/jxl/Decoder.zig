@@ -951,18 +951,27 @@ fn packPivot(
         };
         return;
     }
-    const nc = p.channelCount();
-    var q: [chunk]u16 = undefined;
+    var q: [4][chunk]u16 = undefined;
     const max: f32 = if (p.sample() == .u8) 255 else 65535;
-    for (0..nc) |k| {
-        const c = if (k < num_color) k else ai.?;
-        quantize(fl[c][0..n], q[0..n], max);
-        if (p.sample() == .u8) {
-            for (0..n) |x| buf[x * nc + k] = @intCast(q[x]);
-        } else {
-            const out = std.mem.bytesAsSlice(u16, buf[0 .. n * nc * 2]);
-            for (0..n) |x| out[x * nc + k] = q[x];
-        }
+    switch (p.channelCount()) {
+        inline 1...4 => |nc| {
+            for (0..nc) |k| {
+                const c = if (k < num_color) k else ai.?;
+                quantize(fl[c][0..n], q[k][0..n], max);
+            }
+            // Interleaved a pixel at a time, with the channel count fixed.
+            if (p.sample() == .u8) {
+                for (0..n) |x| inline for (0..nc) |k| {
+                    buf[x * nc + k] = @intCast(q[k][x]);
+                };
+            } else {
+                const out = std.mem.bytesAsSlice(u16, buf[0 .. n * nc * 2]);
+                for (0..n) |x| inline for (0..nc) |k| {
+                    out[x * nc + k] = q[k][x];
+                };
+            }
+        },
+        else => unreachable,
     }
 }
 
