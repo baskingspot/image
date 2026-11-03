@@ -1149,7 +1149,8 @@ width)` for every file with several entries.
     tolerance for frames drawn in floats rises from 3 to 4: a fuzzed
     out-of-gamut XYB animation put one sample 4 steps from libjxl (5.1e-5 in
     the sRGB curve's linear segment, the same float-evaluation class).
-    Lossless frames stay exact; splines keep the conformance bound.
+    Lossless frames stay exact; splines keep the conformance bound. Done in
+    `wave4-jxl-tol4`: test/oracle/jxl.zig gives frames drawn in floats peak 4.
 
 ## Harness requests
 
