@@ -532,9 +532,15 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   0.82× of e7's speed up to 1 MP and 1.01× above; decision 71 then set
   default to 1024 leaves. The encoder uses the
   decoder's predictors, weighted predictor, and alias table; the per-pixel
-  properties stay private until the decoder shares them. Next: screenshots
-  (4–7% larger than e7), count subtraction in split scoring, prefix codes
-  for small images, and work tables sized from the image.
+  properties stay private until the decoder shares them. Stage 3
+  (`wave5-jxl-encode3`, results/jxl-encode3-20261102.md): groups take
+  palettes and RCTs of their own (cjxl's local transforms), chosen by
+  estimate with a 3% RCT margin, few-color and majority rules for palettes.
+  The corpus is 0.8/1.4/1.5% smaller at fast/default/best (0.969 of e3,
+  0.990 of e7, 0.983 of e8) at the same speed; amazon.com is 0.983 of e7,
+  apple.com 1.043. Next: icon speed (0.58× e7 at default), prefix codes for
+  small images, the apple.com gap, count subtraction in split scoring, and
+  work tables sized from the image.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
