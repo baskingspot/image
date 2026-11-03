@@ -10,6 +10,7 @@
 //! which is where libjpeg-turbo warns that the data segment ended early.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 
@@ -77,14 +78,14 @@ pub const Table = struct {
         }
         t.limit[17] = std.math.maxInt(u32);
         @memcpy(t.values[0..n], spec.values[0..n]);
-        @memset(t.values[n..], 0);
+        vfill(u8, t.values[n..], 0);
         if (kind != .ac) {
             const max: u8 = if (kind == .lossless) 16 else 15;
             for (spec.values[0..n]) |v| if (v > max) return error.BadHuffmanTable;
         }
         // Lookahead entries for codes of at most `fast_bits` bits.
-        @memset(&t.fast, 0);
-        @memset(&t.fast_ac, 0);
+        vfill(u16, &t.fast, 0);
+        vfill(i32, &t.fast_ac, 0);
         code = 0;
         k = 0;
         for (spec.counts[0..fast_bits], 1..) |c, l| {

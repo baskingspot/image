@@ -47,6 +47,7 @@ const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
 const exif = @import("../exif.zig");
+const vfill = @import("../fill.zig").fill;
 const arith = @import("arith.zig");
 const huffman = @import("huffman.zig");
 const idct = @import("idct.zig");
@@ -1263,7 +1264,7 @@ fn frameOf(d: *Decoder, comptime S: type, comptime lossless: bool, dst: PixelBuf
     // A DCT component no scan covers is zero, as in the reference. A
     // lossless one is an error: the reference reads its samples
     // uninitialized and fails.
-    if (!lossless) @memset(std.mem.sliceAsBytes(w.coefs), 0);
+    if (!lossless) vfill(i16, w.coefs, 0);
     var covered: u4 = 0;
     while (true) {
         for (d.scan.comp[0..d.scan.n]) |ci| covered |= @as(u4, 1) << @intCast(ci);

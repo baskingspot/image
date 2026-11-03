@@ -26,6 +26,7 @@ const shared = @import("../encode.zig");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
+const vfill = @import("../fill.zig").fill;
 const huffman = @import("huffman.zig");
 const Spec = huffman.Spec;
 const natural = huffman.natural;
@@ -479,7 +480,7 @@ const Encoder = struct {
         var counts: [2][2][256]u64 = undefined;
         const used = scan.tables();
         for (0..2) |class| for (0..2) |t| {
-            if (used[class][t]) counts[class][t] = @splat(0);
+            if (used[class][t]) vfill(u64, &counts[class][t], 0);
         };
         var gather: Coder(true) = .{ .bw = undefined, .codes = undefined, .counts = &counts };
         try e.runScan(true, &gather, scan);

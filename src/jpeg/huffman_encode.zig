@@ -3,6 +3,7 @@
 //! counts (T.81 K.2), and the bit writer with its byte stuffing.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 const Spec = @import("huffman.zig").Spec;
@@ -15,7 +16,9 @@ pub const Codes = struct {
     size: [256]u8,
 
     pub fn init(spec: *const Spec) Codes {
-        var c: Codes = .{ .code = @splat(0), .size = @splat(0) };
+        var c: Codes = undefined;
+        vfill(u16, &c.code, 0);
+        vfill(u8, &c.size, 0);
         var code: u32 = 0;
         var i: usize = 0;
         for (spec.counts, 1..) |n, len| {
@@ -51,8 +54,10 @@ pub fn optimal(freq: *const [256]u64) Spec {
         used[m] = @intCast(i);
         m += 1;
     };
-    var size: [n]u16 = @splat(0);
-    var others: [n]i16 = @splat(-1);
+    var size: [n]u16 = undefined;
+    vfill(u16, &size, 0);
+    var others: [n]i16 = undefined;
+    vfill(i16, &others, -1);
     while (true) {
         var c1: i16 = -1;
         var v: u64 = std.math.maxInt(u64);
@@ -84,7 +89,8 @@ pub fn optimal(freq: *const [256]u64) Spec {
         }
     }
     // A code can be up to 256 bits long before adjustment.
-    var bits: [n + 1]u16 = @splat(0);
+    var bits: [n + 1]u16 = undefined;
+    vfill(u16, &bits, 0);
     for (size) |s| if (s != 0) {
         bits[s] += 1;
     };
