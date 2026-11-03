@@ -63,7 +63,10 @@ const num_quant_tables = 17;
 const Params = struct {
     predictors: []const mod.Predictor,
     wp_prop: bool,
+    /// Samples learning takes: one in 16 of the image's (four a pixel),
+    /// from `samples` to `samples_max`.
     samples: usize,
+    samples_max: usize,
     thresholds: u32,
     max_leaves: u32,
     split_cost: f32,
@@ -85,6 +88,7 @@ fn params(effort: Effort) Params {
             .predictors = &.{.gradient},
             .wp_prop = false,
             .samples = 1 << 15,
+            .samples_max = 1 << 15,
             .thresholds = 16,
             .max_leaves = 256,
             .split_cost = 64,
@@ -98,6 +102,7 @@ fn params(effort: Effort) Params {
             .predictors = &.{ .gradient, .weighted, .left, .top },
             .wp_prop = true,
             .samples = 1 << 18,
+            .samples_max = 1 << 20,
             .thresholds = 32,
             .max_leaves = 1024,
             .split_cost = 48,
@@ -114,6 +119,7 @@ fn params(effort: Effort) Params {
             },
             .wp_prop = true,
             .samples = 1 << 19,
+            .samples_max = 1 << 19,
             .thresholds = 64,
             .max_leaves = 2048,
             .split_cost = 40,
@@ -333,10 +339,13 @@ fn sampleStreams(
     }
 }
 
-/// The samples a tree is learned from: the effort's, or every sample of a
-/// smaller image.
+/// The samples a tree is learned from: the effort's, more for a large
+/// image at an effort that scales them, or every sample of a smaller
+/// image.
 fn sampleCap(p: Params, w: u32, h: u32) usize {
-    return @intCast(@min(p.samples, @as(u64, w) * h * max_channels + p.palette_max * max_channels));
+    const pixels = @as(u64, w) * h;
+    const want = std.math.clamp(pixels * max_channels / 16, p.samples, p.samples_max);
+    return @intCast(@min(want, pixels * max_channels + p.palette_max * max_channels));
 }
 
 fn learnOptions(p: Params, leaves: u32) mod.LearnOptions {

@@ -35,6 +35,10 @@ Stage 6 (`wave5-jxl-encode6`, `results/jxl-encode6-20261103.md`): work
 tables sized by the image, the same files; `workLen` at 16×16 is about a
 seventh of what it was at fast and default.
 
+Stage 7 (`wave5-jxl-encode7`, `results/jxl-encode7-20261103.md`):
+default learns from one in 16 of a large image's samples, up to 2^20
+(decision 75); images above a megapixel come out 1.0% smaller.
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -95,7 +99,8 @@ seventh of what it was at fast and default.
 
 One tree codes every group. It is learned from samples: rows from every
 stream, in a band whose offset moves from group to group, up to `samples`
-pixels. Learning from a corner of the image, as the first version did, made
+samples; default takes one in 16 of a large image's, up to `samples_max`
+(decision 75). Learning from a corner of the image, as the first version did, made
 the tree fit only that corner.
 
 - Properties: the specification's 16 (including the weighted predictor's
@@ -155,7 +160,7 @@ are kept between the passes; otherwise the second pass makes them again.
 | predictors                        | gradient | gradient, weighted, left, top | all 14 |
 | weighted-predictor property       | no       | yes                           | yes    |
 | reference channels                | 0        | 2                             | 3      |
-| samples                           | 2^15     | 2^18                          | 2^19   |
+| samples                           | 2^15     | 2^18 to 2^20, one in 16       | 2^19   |
 | thresholds per property           | 16       | 32                            | 64     |
 | leaves                            | 256      | 1024                          | 2048   |
 | split cost (bits)                 | 64       | 48                            | 40     |
@@ -183,7 +188,10 @@ for the worst source, 16-bit RGBA. The parts:
 - the histograms and codes.
 
 That comes to about 25 B/px for large images at every effort (50–80 B/px
-at a megapixel, where the token store is not yet capped). Small images pay
+at a megapixel, where the token store is not yet capped). Default's
+samples grow with the image above a megapixel (stage 7): 8 MB more at
+1448×1448, 25 MB more from 2048×2048 on, where they reach 2^20. Small
+images pay
 for tables sized by the image (stage 6):
 
 - leaves: the effort's, the decoder's limit, and one per 64 samples, at
@@ -249,14 +257,12 @@ above a megapixel and 27% on apple.com, so `Flat` stays.
 ## Next
 
 - Photos: at default, 1–2% larger than cjxl e7 on Kodak (3–4% in stage
-  1). Twice the samples (2^19) makes default 1.2% smaller on the corpus,
+  1). Twice the samples (2^19) for every image makes default 1.2% smaller on the corpus,
   0.99× e7's total, for 28% more time; not taken (decision 70).
   Judging splits with all four predictors: 0.4% smaller on photos for 20%
   more time.
-- Screenshots: apple.com is 4% larger than e7 at default, from sample
-  coverage; samples scaled with the image (`clamp(pixels × 4 / 16, 2^18,
-2^20)`) bring it to 1.9% for 7.5% more corpus time (stage 4 results;
-  with the owner).
+- Screenshots: apple.com is 1.9% larger than e7 at default, with samples
+  scaled to the image (stage 7). It was 4.3%.
 - Learning time: deriving a child's counts from its parent's and its
   sibling's could save half the counting, but a node's predictors and
   tokens in use differ from its parent's, and breadth-first order would

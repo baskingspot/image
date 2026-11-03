@@ -1,0 +1,2 @@
+before      43 rows, 7 differ from image
+libjxl      43 rows, 43 differ from image

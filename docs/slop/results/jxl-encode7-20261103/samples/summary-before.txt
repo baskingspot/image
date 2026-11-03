@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s   libjxl     ±   <1    ~   slowest vs libjxl
+JxlEncodeE7/icon                  13        0.3     0.87    3%    7    4   0.60 [0.59, 0.62] icon_64-actions_appointment_new-64x64.raw
+JxlEncodeE7/1mp                   23        1.3     1.15    2%    5    4   0.66 [0.63, 0.67] test-testcard-256x256.raw
+JxlEncodeE7/large                  7        1.6     1.34    2%    0    0   1.20 [1.12, 1.24] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.raw
+all                               43        0.9     1.08         12    8

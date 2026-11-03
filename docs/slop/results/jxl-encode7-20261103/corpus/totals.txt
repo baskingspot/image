@@ -1,0 +1,4 @@
+effort fast [s7]: 15575114 bytes, 7872.7 ms; icons<=64x64: 24916 bytes, 27.2 ms
+effort default [s7]: 14358338 bytes, 25104.4 ms; icons<=64x64: 23449 bytes, 74.7 ms
+effort best [s7]: 14140396 bytes, 67600.6 ms; icons<=64x64: 22798 bytes, 455.1 ms
+effort default [m6b]: 14441994 bytes, 24118.6 ms; icons<=64x64: 23449 bytes, 74.1 ms
