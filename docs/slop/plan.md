@@ -301,10 +301,13 @@ Running beside wave 1's tail, started early by the owner:
   patches blended into extra channels used the colour planes' stride, so a
   valid lossy file with patches, alpha, and a width not a multiple of 8
   read past the alpha plane (a ReleaseSafe panic, an out-of-bounds read in
-  ReleaseFast). Open: grey XYB images with patches blend X into all three
-  planes (up to 65532 off libjxl); the XYB-to-linear step rounds where
-  libjxl fuses multiply-adds, which puts some far-out-of-gamut fuzzed
-  frames 5 steps off. Next: noise and upsampled frames, then two group rows
+  ReleaseFast); the shape seeds the fuzzer. Grey XYB images keep X, Y, and
+  B in their canvas and reference slots, so patches from a grey image's
+  dictionary frame decode right (`wave4-jxl-greypatch`; up to 65535 off
+  libjxl before, 1 now). Open: a fuzzed far-out-of-gamut XYB frame
+  (27366ec7…) is 5 steps off libjxl; fused multiply-adds in the XYB
+  transform don't close it (the inputs already differ in their last bits),
+  so it is the reference's float freedom. Next: noise and upsampled frames, then two group rows
   instead of three.
 
 Started at once by the owner ("anything we can do in parallel"), each
