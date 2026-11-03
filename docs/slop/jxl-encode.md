@@ -39,6 +39,10 @@ Stage 7 (`wave5-jxl-encode7`, `results/jxl-encode7-20261103.md`):
 default learns from one in 16 of a large image's samples, up to 2^20
 (decision 75); images above a megapixel come out 1.0% smaller.
 
+Stage 8 (`wave5-jxl-encode8`, `results/jxl-encode8-20261103.md`): packed
+sample rows, partitioned in place, and learning's memory shared with the
+token store in `workLen`; the same files.
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -112,7 +116,14 @@ the tree fit only that corner.
   distinct values, so that a long tail gets some. They are chosen from a
   sixteenth of the samples, between 1024 and 4096, sorted by counting when
   a property's values span fewer than 4096 (most do).
-- Samples keep a byte per property, its bucket, not the i32 value. An image
+- Samples keep each property's bucket, not the i32 value, and each
+  predictor's token, in a row per sample (`Samples`). Rows are bytes
+  unless they would outgrow the token store, whose memory they share
+  (`packRows`); then buckets take as many bits as the effort's thresholds
+  need (5, 6, or 7) and tokens 6, 21 bytes a sample at default where
+  bytes and a 4-byte index took 32. Learning partitions the rows
+  themselves, in the order the index did, so a node's samples are
+  contiguous. An image
   of at most 2^15 samples is sampled once with whole properties, which are
   then bucketed. A larger one is sampled twice over the same rows: first a
   random one pixel in `cap / 4096` with whole properties, to choose the
@@ -187,11 +198,14 @@ for the worst source, 16-bit RGBA. The parts:
 - the samples and learning tables;
 - the histograms and codes.
 
-That comes to about 25 B/px for large images at every effort (50–80 B/px
+Learning's memory, the samples and their tables, is released before the
+tokens are counted, so it and the parts made after it (the token store,
+histograms, and codes) count once, the larger of the two (stage 8).
+
+That comes to about 25 B/px for large images at every effort (about 50 B/px
 at a megapixel, where the token store is not yet capped). Default's
-samples grow with the image above a megapixel (stage 7): 8 MB more at
-1448×1448, 25 MB more from 2048×2048 on, where they reach 2^20. Small
-images pay
+samples grow with the image above a megapixel (stage 7), to 22 MB of
+packed rows at 2^20, the token store's 16.8 MB and some. Small images pay
 for tables sized by the image (stage 6):
 
 - leaves: the effort's, the decoder's limit, and one per 64 samples, at
@@ -275,3 +289,7 @@ above a megapixel and 27% on apple.com, so `Flat` stays.
   results).
 - Best's tree-learning counts are 3.1 MiB at any size (14 predictors,
   65 buckets, 28 properties).
+- Default above 2.4 MP: 2^20 packed rows (22 MB) still outgrow the token
+  store by about 5 MiB of peak RSS (stage 8). Narrower buckets for the
+  properties with few thresholds (the channel, the stream) would save a
+  few bits a row, not enough to close it.

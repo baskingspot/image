@@ -251,25 +251,51 @@ const Sizes = struct {
             .planes = stream_samples * 4,
             .rows = @max(gw, pal) * max_bpp,
             .tokens = stream_samples * @sizeOf(Token) + @max(stream_samples, (2 * leaves + 1) * 5) * 4,
-            .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
+            // The palette's hash, keys, colors, and order, its plane,
+            // and the rows its search reads.
+            .hash = hash_size * 2 + pal * 8 + pal * max_channels * 2 + pal * 2 + pal * max_channels * 4 +
+                max_channels * @max(gw, pal) * 4,
             .samples = samplesMemory(p, w, h),
-            .learn = mod.learnMemory(sampleRoom(p, w, h), learnOptions(p, @intCast(leaves))),
+            .learn = mod.learnMemory(learnOptions(p, @intCast(leaves))),
             .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
             .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
             .code = ent.buildMemory(leaves, clusters) + ent.buildMemory(6, 6),
             .write = ent.writeMemory(leaves),
             .wp = mod.Wp.memory(@max(gw, pal)),
             .store = @as(usize, @intCast(@min(all_samples + pal * max_channels, store_tokens))) * 4,
-            .streams = (lay.num_groups + 1) * 4 + 2 * lay.num_groups,
+            // The streams' lengths and transforms, and the sections' sizes.
+            .streams = (lay.num_groups + 1) * 4 + 2 * lay.num_groups + @as(usize, @intCast(lay.tocEntries())) * 4,
         };
     }
 
+    /// Learning's memory is released before the tokens are counted, so
+    /// the samples and the parts made after them share it.
     fn total(s: Sizes) ?usize {
         var t: usize = 0;
+        var learning: usize = 0;
+        var after: usize = 0;
         inline for (@typeInfo(Sizes).@"struct".fields) |f| {
-            t = std.math.add(usize, t, @field(s, f.name) + 64) catch return null;
+            const part = std.math.add(usize, @field(s, f.name), 64) catch return null;
+            const sum = if (comptime isLearning(f.name))
+                &learning
+            else if (comptime isAfterLearning(f.name))
+                &after
+            else
+                &t;
+            sum.* = std.math.add(usize, sum.*, part) catch return null;
         }
-        return t;
+        return std.math.add(usize, t, @max(learning, after)) catch null;
+    }
+
+    fn isLearning(comptime name: []const u8) bool {
+        return std.mem.eql(u8, name, "samples") or std.mem.eql(u8, name, "learn");
+    }
+
+    fn isAfterLearning(comptime name: []const u8) bool {
+        inline for (.{ "histograms", "store", "code", "write" }) |n| {
+            if (std.mem.eql(u8, name, n)) return true;
+        }
+        return false;
     }
 };
 
@@ -294,7 +320,16 @@ fn samplesMemory(p: Params, w: u32, h: u32) usize {
     const cap = sampleCap(p, w, h);
     const room = sampleRoom(p, w, h);
     const whole = if (cap <= single_pass_samples) cap else mod.thresholdSamples(cap);
-    return mod.Samples.memory(room, @min(whole, room), p.predictors.len, p.refs);
+    return mod.Samples.memory(room, @min(whole, room), &learnOptions(p, 0), packRows(p, w, h));
+}
+
+/// Whether the samples' rows are packed: when the image is sampled in two
+/// passes and its rows would otherwise take more memory than the token
+/// store, which reuses theirs, so that they would set the peak.
+fn packRows(p: Params, w: u32, h: u32) bool {
+    if (sampleCap(p, w, h) <= single_pass_samples) return false;
+    const store = @min(@as(u64, w) * h * max_channels + p.palette_max * max_channels, store_tokens) * 4;
+    return sampleRoom(p, w, h) * mod.Samples.rowBytes(&learnOptions(p, 0), false) > store;
 }
 
 /// The samples an image can give, at most: its channels hold at most four
@@ -1034,7 +1069,7 @@ fn encodeImpl(
         const single = cap <= single_pass_samples;
         const whole = if (single) cap else mod.thresholdSamples(cap);
         const room = sampleRoom(p, lay.w, lay.h);
-        var smp: mod.Samples = try .init(mem, room, @min(whole, room), p.predictors.len, p.refs);
+        var smp: mod.Samples = try .init(mem, room, @min(whole, room), &lo, packRows(p, lay.w, lay.h));
         // A band of rows from every stream, as tall as the share of the
         // image the samples can cover.
         const budget: u64 = @as(u64, cap) * 4;
@@ -1050,8 +1085,10 @@ fn encodeImpl(
             thr = .choose(&smp, smp.len, &lo);
             smp = .{
                 .props = smp.props,
-                .buckets = smp.buckets,
-                .tokens = smp.tokens,
+                .rows = smp.rows,
+                .row_bytes = smp.row_bytes,
+                .bucket_bits = smp.bucket_bits,
+                .token_bits = smp.token_bits,
                 .thr = &thr,
                 .num_pred = smp.num_pred,
                 .nprops = smp.nprops,

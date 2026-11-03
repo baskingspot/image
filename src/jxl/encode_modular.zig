@@ -401,11 +401,16 @@ pub const LearnOptions = struct {
 /// Samples for learning a tree: each sampled pixel's properties and the
 /// token of its residual under every candidate predictor (capped at
 /// `learn_tokens - 1`). Until `thr` is set, properties are kept whole, for
-/// choosing thresholds from; after, only their buckets, a byte each.
+/// choosing thresholds from; after, only their buckets.
 pub const Samples = struct {
     props: []i32,
-    buckets: []u8,
-    tokens: []u8,
+    /// A row a sample: its tokens, `token_bits` each, from the low bits
+    /// up, then from the next byte its properties' buckets, `bucket_bits`
+    /// each. Both are 8 unless the rows are packed.
+    rows: []u8,
+    row_bytes: usize,
+    bucket_bits: u4,
+    token_bits: u4,
     thr: ?*const Thresholds = null,
     num_pred: usize,
     /// Properties per sample: 16 and four per reference channel.
@@ -421,31 +426,135 @@ pub const Samples = struct {
     /// so that their positions do not repeat with the stride.
     random: u32 = 0,
 
-    /// For up to `cap` samples, `whole` of them with whole properties.
-    pub fn memory(cap: usize, whole: usize, num_pred: usize, refs: usize) usize {
-        const nprops = num_props + 4 * refs;
-        return whole * nprops * 4 + cap * (nprops + num_pred) + 64;
+    /// For up to `cap` samples, `whole` of them with whole properties,
+    /// learned with `options`, in packed rows or not.
+    pub fn memory(cap: usize, whole: usize, options: *const LearnOptions, pack: bool) usize {
+        const nprops = num_props + 4 * options.refs;
+        return whole * nprops * 4 + cap * rowBytes(options, pack) + row_pad + 64;
     }
 
-    pub fn init(mem: *Bump, cap: usize, whole: usize, num_pred: usize, refs: usize) !Samples {
-        const nprops = num_props + 4 * refs;
+    pub fn init(mem: *Bump, cap: usize, whole: usize, options: *const LearnOptions, pack: bool) !Samples {
+        const nprops = num_props + 4 * options.refs;
+        const rb = rowBytes(options, pack);
         return .{
             .props = try mem.alloc(i32, whole * nprops),
-            .buckets = try mem.alloc(u8, cap * nprops),
-            .tokens = try mem.alloc(u8, cap * num_pred),
-            .num_pred = num_pred,
+            .rows = try mem.alloc(u8, cap * rb + row_pad),
+            .row_bytes = rb,
+            .bucket_bits = bucketBits(options, pack),
+            .token_bits = if (pack) packed_token_bits else 8,
+            .num_pred = options.predictors.len,
             .nprops = nprops,
             .cap = cap,
         };
+    }
+
+    /// The bytes a row takes, packed or not.
+    pub fn rowBytes(options: *const LearnOptions, pack: bool) usize {
+        const nprops = num_props + 4 * options.refs;
+        const tb: usize = if (pack) packed_token_bits else 8;
+        return (options.predictors.len * tb + 7) / 8 + (nprops * bucketBits(options, pack) + 7) / 8;
+    }
+
+    fn bucketBits(options: *const LearnOptions, pack: bool) u4 {
+        if (!pack) return 8;
+        return @intCast(@max(5, std.math.log2_int_ceil(usize, bucketsMax(options))));
+    }
+
+    fn tokenBytes(s: *const Samples) usize {
+        return (s.num_pred * s.token_bits + 7) / 8;
+    }
+
+    /// The bit where property `p`'s bucket starts in a row.
+    inline fn bucketBit(s: *const Samples, p: usize) usize {
+        return s.tokenBytes() * 8 + p * s.bucket_bits;
+    }
+
+    /// Where sample `i`'s row starts.
+    inline fn row(s: *const Samples, i: usize) []u8 {
+        return s.rows[i * s.row_bytes ..];
+    }
+
+    /// Writes sample `i`'s buckets, of the whole properties `props`.
+    inline fn putBuckets(s: *Samples, i: usize, thr: *const Thresholds, props: []const i32) void {
+        const out = s.row(i)[s.tokenBytes()..];
+        const bb = s.bucket_bits;
+        if (bb == 8) return thr.bucketsOf(props, out[0..props.len]);
+        var b: [max_props]u8 = undefined;
+        thr.bucketsOf(props, b[0..props.len]);
+        switch (bb) {
+            inline 5, 6, 7 => |c| switch (props.len) {
+                inline num_props, num_props + 4, num_props + 8, num_props + 12 => |n| packFields(c, n, &b, out),
+                else => unreachable,
+            },
+            else => unreachable,
+        }
     }
 
     /// Replaces the whole properties taken so far with their buckets.
     pub fn bucketize(s: *Samples, thr: *const Thresholds) void {
         s.thr = thr;
         const np = s.nprops;
-        for (0..s.len) |i| thr.bucketsOf(s.props[i * np ..][0..np], s.buckets[i * np ..][0..np]);
+        for (0..s.len) |i| s.putBuckets(i, thr, s.props[i * np ..][0..np]);
     }
 };
+
+/// Bits a learning token takes in a packed row.
+const packed_token_bits = 6;
+/// Packs `n` fields of `b`, `bits` wide each, into `out` from the low bits
+/// up.
+inline fn packFields(comptime bits: u4, comptime n: usize, b: *const [max_props]u8, out: []u8) void {
+    comptime std.debug.assert(n <= max_props);
+    var acc: u64 = 0;
+    comptime var nbits: u32 = 0;
+    comptime var at: usize = 0;
+    inline for (0..n) |p| {
+        acc |= @as(u64, b[p]) << nbits;
+        nbits += bits;
+        if (nbits >= 32) {
+            std.mem.writeInt(u32, out[at..][0..4], @truncate(acc), .little);
+            at += 4;
+            acc >>= 32;
+            nbits -= 32;
+        }
+    }
+    inline while (nbits > 0) : (nbits -= @min(nbits, 8)) {
+        out[at] = @truncate(acc);
+        at += 1;
+        acc >>= 8;
+    }
+}
+
+/// `packFields` for any number of fields.
+fn packSlow(comptime bits: u4, b: []const u8, out: []u8) void {
+    var acc: u64 = 0;
+    var nbits: u32 = 0;
+    var at: usize = 0;
+    for (b) |v| {
+        acc |= @as(u64, v) << @intCast(nbits);
+        nbits += bits;
+        if (nbits >= 32) {
+            std.mem.writeInt(u32, out[at..][0..4], @truncate(acc), .little);
+            at += 4;
+            acc >>= 32;
+            nbits -= 32;
+        }
+    }
+    while (nbits > 0) : (nbits -= @min(nbits, 8)) {
+        out[at] = @truncate(acc);
+        at += 1;
+        acc >>= 8;
+    }
+}
+
+/// A byte past the last row, since a field is read two bytes at a time.
+const row_pad = 1;
+
+/// The field `bits` wide at `bit` in `buf`; with 8, the byte there.
+inline fn getBits(comptime bits: u4, buf: []const u8, bit: usize) u32 {
+    if (bits == 8) return buf[bit >> 3];
+    const x: u32 = std.mem.readInt(u16, buf[bit >> 3 ..][0..2], .little);
+    return (x >> @intCast(bit & 7)) & ((1 << bits) - 1);
+}
 
 /// Each property's thresholds, which divide its values into buckets.
 pub const Thresholds = struct {
@@ -588,15 +697,22 @@ pub fn sample(
             } else s.phase += 1;
             if (s.phase >= s.stride and s.len < s.cap) {
                 s.phase = 0;
+                const rw = s.row(s.len);
+                var toks: [max_props]u8 = undefined;
+                for (options.predictors, toks[0..options.predictors.len]) |pr, *t| {
+                    const full = options.config.split(residual(v, predictOne(pr, n, wp_pred))).token;
+                    t.* = @intCast(@min(full, learn_tokens - 1));
+                }
+                if (s.token_bits == 8) {
+                    @memcpy(rw[0..s.num_pred], toks[0..s.num_pred]);
+                } else switch (s.num_pred) {
+                    inline 1, 4, 14 => |np| packFields(packed_token_bits, np, &toks, rw),
+                    else => packSlow(packed_token_bits, toks[0..s.num_pred], rw),
+                }
                 if (s.thr) |thr| {
-                    thr.bucketsOf(props[0..s.nprops], s.buckets[s.len * s.nprops ..][0..s.nprops]);
+                    s.putBuckets(s.len, thr, props[0..s.nprops]);
                 } else {
                     @memcpy(s.props[s.len * s.nprops ..][0..s.nprops], props[0..s.nprops]);
-                }
-                const tk = s.tokens[s.len * s.num_pred ..][0..s.num_pred];
-                for (options.predictors, tk) |pr, *t| {
-                    const tok = options.config.split(residual(v, predictOne(pr, n, wp_pred))).token;
-                    t.* = @intCast(@min(tok, learn_tokens - 1));
                 }
                 s.len += 1;
             }
@@ -644,11 +760,10 @@ inline fn xlog(c: u32) f32 {
 }
 
 /// The memory `learn` takes for `s`.
-pub fn learnMemory(cap: usize, options: LearnOptions) usize {
+pub fn learnMemory(options: LearnOptions) usize {
     const nprops = num_props + 4 * options.refs;
     const nb = bucketsMax(&options);
-    return cap * 4 + // indices
-        nprops * nb * judgedMax(&options) * learn_tokens * 2 + // counts
+    return nprops * nb * judgedMax(&options) * learn_tokens * 2 + // counts
         nprops * nb * 4 + // samples per bucket
         (2 * options.max_leaves + 1) * (@sizeOf(Node) + @sizeOf(Range)) + 1024;
 }
@@ -666,8 +781,18 @@ fn judgedMax(options: *const LearnOptions) usize {
     return if (options.search_predictors == 0) np else @min(np, options.search_predictors);
 }
 
-/// Learns a tree from `s`. `scale` is the pixels each sample stands for.
+/// Learns a tree from `s`, reordering its rows. `scale` is the pixels each
+/// sample stands for.
 pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []Node) !Tree {
+    return switch (s.bucket_bits) {
+        inline 5, 6, 7, 8 => |bb| learnRows(bb, mem, s, options, nodes_out),
+        else => unreachable,
+    };
+}
+
+/// `learn` for rows of buckets `bb` bits wide; 8 is rows of bytes.
+fn learnRows(comptime bb: u4, mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []Node) !Tree {
+    const tb = if (bb == 8) 8 else packed_token_bits;
     const thr = s.thr.?;
     const n = s.len;
     const np = options.predictors.len;
@@ -679,15 +804,12 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         t.numberLeaves();
         return t;
     }
-    const buckets = s.buckets;
     const nthr = &thr.count;
-    // Tokens per predictor, capped for counting, and their extra bits.
-    const toks = s.tokens;
+    const tbytes = s.tokenBytes();
+    // Tokens' extra bits.
     const config = options.config;
     var extra: [learn_tokens]f32 = undefined;
     for (&extra, 0..) |*e, t| e.* = extraBits(config, @intCast(t));
-    const idx = try mem.alloc(u32, n);
-    for (idx, 0..) |*v, i| v.* = @intCast(i);
     // A node judges at most `split_samples` samples, so u16 counts hold.
     std.debug.assert(options.split_samples <= std.math.maxInt(u16));
     const counts = try mem.alloc(u16, nprops * bucketsMax(&options) * judgedMax(&options) * learn_tokens);
@@ -708,19 +830,21 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     var cur: usize = 0;
     while (cur < num_nodes) : (cur += 1) {
         const r = ranges[cur];
-        const items = idx[r.begin..r.end];
+        // The node's samples are rows `r.begin` to `r.end`.
+        const items_len: usize = r.end - r.begin;
         // The node as a leaf.
         var total: [max_predictors][learn_tokens]u32 = undefined;
         for (total[0..np]) |*t| @memset(t, 0);
-        for (items) |i| {
-            for (0..np) |k| total[k][toks[i * np + k]] += 1;
+        for (r.begin..r.end) |i| {
+            const rw = s.row(i);
+            for (0..np) |k| total[k][getBits(tb, rw, k * tb)] += 1;
         }
         // The predictors by their cost as a leaf; splits are judged with
         // the cheapest few.
         var pcost: [max_predictors]f32 = undefined;
         var sel: [max_predictors]u8 = undefined;
         for (0..np) |k| {
-            pcost[k] = cost(&total[k], &extra, @intCast(items.len));
+            pcost[k] = cost(&total[k], &extra, @intCast(items_len));
             sel[k] = @intCast(k);
         }
         for (1..np) |a| {
@@ -730,7 +854,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         leaf_cost = pcost[sel[0]];
         const ns = judgedMax(&options);
         nodes[cur] = .{ .predictor = options.predictors[sel[0]] };
-        if (leaves >= options.max_leaves or num_nodes + 2 > nodes.len or items.len < 2) continue;
+        if (leaves >= options.max_leaves or num_nodes + 2 > nodes.len or items_len < 2) continue;
         // No split saves more than the whole node costs.
         if (leaf_cost * scale <= options.split_cost) continue;
         // The best split over every property and threshold. Counts are
@@ -759,14 +883,14 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
             clean = cn.len;
         }
         // A large node's split is judged on an even share of its samples.
-        const sub_step = (items.len + options.split_samples - 1) / options.split_samples;
+        const sub_step = (items_len + options.split_samples - 1) / options.split_samples;
         var sub_total: [max_predictors][learn_tokens]u32 = undefined;
         if (sub_step > 1) {
             for (sub_total[0..ns]) |*t| @memset(t, 0);
-            var q: usize = 0;
-            while (q < items.len) : (q += sub_step) {
-                const i = items[q];
-                for (sel[0..ns], 0..) |k, j| sub_total[j][toks[i * np + k]] += 1;
+            var i: usize = r.begin;
+            while (i < r.end) : (i += sub_step) {
+                const rw = s.row(i);
+                for (sel[0..ns], 0..) |k, j| sub_total[j][getBits(tb, rw, k * tb)] += 1;
             }
         }
         // Indexed by position in `sel`.
@@ -779,22 +903,20 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         var sub_cost: f64 = std.math.inf(f64);
         for (0..ns) |j| sub_cost = @min(sub_cost, cost(&judged[j], &extra, n_items));
         // The properties with thresholds, and their first rows.
-        var plist: [num_props + 4 * max_refs]u8 = undefined;
+        var plist: [num_props + 4 * max_refs]u16 = undefined;
         var poff: [num_props + 4 * max_refs]u32 = undefined;
         var npl: usize = 0;
         for (0..nprops) |p| {
             if (nthr[p] == 0) continue;
-            plist[npl] = @intCast(p);
+            plist[npl] = @intCast(p * bb);
             poff[npl] = @intCast(off[p]);
             npl += 1;
         }
         const job: Count = .{
-            .items = items,
+            .s = s,
+            .begin = r.begin,
+            .end = r.end,
             .step = sub_step,
-            .buckets = buckets,
-            .nprops = nprops,
-            .toks = toks,
-            .np = np,
             .sel = sel[0..ns],
             .amap = &amap,
             .plist = plist[0..npl],
@@ -802,8 +924,8 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
             .na = na,
         };
         switch (ns) {
-            inline 1, 2 => |c| job.run(c, bucket_n, cn),
-            else => job.run(null, bucket_n, cn),
+            inline 1, 2 => |c| job.run(bb, c, bucket_n, cn),
+            else => job.run(bb, null, bucket_n, cn),
         }
         var q: usize = 0;
         var tot: [max_predictors][learn_tokens]u32 = undefined;
@@ -819,7 +941,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
             }
         }
         const noise_bits: f64 = options.noise * @as(f32, @floatFromInt(na));
-        const sub_scale = scale * @as(f64, @floatFromInt(items.len)) / @as(f64, @floatFromInt(n_items));
+        const sub_scale = scale * @as(f64, @floatFromInt(items_len)) / @as(f64, @floatFromInt(n_items));
         var best_gain: f64 = 0;
         var best_p: usize = 0;
         var best_j: u32 = 0;
@@ -877,15 +999,15 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         }
         // Clear the counts, a bucket's rows at a time: found from the
         // samples when there are few, else from the bucket sizes.
-        const judged_n = (items.len + sub_step - 1) / sub_step;
+        const judged_n = (items_len + sub_step - 1) / sub_step;
         const width = ns * na;
         if (judged_n * nprops < rows) {
-            q = 0;
-            while (q < items.len) : (q += sub_step) {
-                const b = buckets[items[q] * nprops ..][0..nprops];
+            q = r.begin;
+            while (q < r.end) : (q += sub_step) {
+                const rw = s.row(q)[tbytes..];
                 for (0..nprops) |p| {
                     if (nthr[p] == 0) continue;
-                    const row = off[p] + b[p];
+                    const row = off[p] + getBits(bb, rw, p * bb);
                     if (bucket_n[row] == 0) continue;
                     bucket_n[row] = 0;
                     @memset(cn[row * width ..][0..width], 0);
@@ -901,13 +1023,15 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         if (best_gain <= options.split_cost) continue;
         // Split: samples above the threshold first.
         var lo: usize = 0;
-        var hi: usize = items.len;
+        var hi: usize = items_len;
+        const rb = s.row_bytes;
+        const split_bit = s.bucketBit(best_p);
         while (lo < hi) {
-            if (buckets[items[lo] * nprops + best_p] > best_j) {
+            if (getBits(bb, s.row(r.begin + lo), split_bit) > best_j) {
                 lo += 1;
             } else {
                 hi -= 1;
-                std.mem.swap(u32, &items[lo], &items[hi]);
+                swapRows(s.row(r.begin + lo)[0..rb], s.row(r.begin + hi)[0..rb]);
             }
         }
         nodes[cur] = .{
@@ -927,36 +1051,48 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     return t;
 }
 
+/// Swaps two rows of equal length, eight bytes at a time.
+inline fn swapRows(a: []u8, b: []u8) void {
+    var i: usize = 0;
+    while (i + 8 <= a.len) : (i += 8) {
+        const x = std.mem.readInt(u64, a[i..][0..8], .little);
+        std.mem.writeInt(u64, a[i..][0..8], std.mem.readInt(u64, b[i..][0..8], .little), .little);
+        std.mem.writeInt(u64, b[i..][0..8], x, .little);
+    }
+    while (i < a.len) : (i += 1) std.mem.swap(u8, &a[i], &b[i]);
+}
+
 /// A node's counting: each judged sample's token, per property bucket
 /// and predictor in `sel`, and the samples per bucket.
 const Count = struct {
-    items: []const u32,
+    s: *const Samples,
+    begin: usize,
+    end: usize,
     step: usize,
-    buckets: []const u8,
-    nprops: usize,
-    toks: []const u8,
-    np: usize,
     sel: []const u8,
     amap: *const [learn_tokens]u8,
     /// The properties with thresholds, and their first rows.
-    plist: []const u8,
+    /// Where their buckets start, in bits past the tokens.
+    plist: []const u16,
     poff: []const u32,
     na: usize,
 
-    /// `comptime_ns` is `sel.len` when it is known, so the predictor loop
-    /// unrolls.
-    fn run(j: *const Count, comptime comptime_ns: ?usize, bucket_n: []u32, cn: []u16) void {
+    /// `bb` is the rows' bucket bits; `comptime_ns` is `sel.len` when it
+    /// is known, so the predictor loop unrolls.
+    fn run(j: *const Count, comptime bb: u4, comptime comptime_ns: ?usize, bucket_n: []u32, cn: []u16) void {
         const ns = comptime_ns orelse j.sel.len;
         const width = ns * j.na;
-        var q: usize = 0;
-        while (q < j.items.len) : (q += j.step) {
-            const i = j.items[q];
-            const b = j.buckets[i * j.nprops ..][0..j.nprops];
+        const tb = if (bb == 8) 8 else packed_token_bits;
+        const tbytes = j.s.tokenBytes();
+        var i = j.begin;
+        while (i < j.end) : (i += j.step) {
+            const rw = j.s.row(i);
+            const b = rw[tbytes..];
             // Each predictor's column for the sample's token, taken once.
             var ta: [max_predictors]usize = undefined;
-            for (0..ns) |k| ta[k] = k * j.na + j.amap[j.toks[i * j.np + j.sel[k]]];
-            for (j.plist, j.poff) |p, o| {
-                const row = o + b[p];
+            for (0..ns) |k| ta[k] = k * j.na + j.amap[getBits(tb, rw, @as(usize, j.sel[k]) * tb)];
+            for (j.plist, j.poff) |bit, o| {
+                const row = o + getBits(bb, b, bit);
                 bucket_n[row] += 1;
                 const at = cn[row * width ..];
                 if (comptime_ns) |c| {
