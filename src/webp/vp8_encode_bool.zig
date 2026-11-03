@@ -3,39 +3,17 @@
 //! them: each token's cost under a set of probabilities, and the counts
 //! the probabilities are chosen from.
 //!
-//! A partition is coded twice: once by `Counter`, which only follows the
-//! coder's range, since how many bytes a partition takes depends on how
-//! many times the range renormalizes and on nothing else; then by `Writer`
-//! into the caller's writer, once the sizes in the headers before it are
-//! known. `Writer` streams: a carry can only reach the last byte that is
-//! not 0xff and the 0xff bytes after it, so those are held back until the
-//! next byte that is not 0xff settles them.
+//! `Writer` streams: a carry can only reach the last byte that is not
+//! 0xff and the 0xff bytes after it, so those are held back until the
+//! next byte that is not 0xff settles them. It counts the bytes it codes
+//! even once its output is full, so that the encoder can code a partition
+//! into spare memory and still learn its length when it does not fit.
 
 const std = @import("std");
 const testing = std.testing;
 const Io = std.Io;
 const tables = @import("vp8_encode_tables.zig");
 const bands = tables.bands;
-
-/// Follows a partition's range to count its bytes, without writing them.
-pub const Counter = struct {
-    range: u32 = 255,
-    shifts: u64 = 0,
-
-    pub inline fn put(c: *Counter, p: u8, bit: u1) void {
-        const split = 1 + (((c.range - 1) * p) >> 8);
-        c.range = if (bit == 1) c.range - split else split;
-        const n: u5 = @clz(@as(u8, @intCast(c.range)));
-        c.range <<= n;
-        c.shifts += n;
-    }
-
-    /// The bytes `Writer` writes for the same booleans: one each time 8
-    /// more bits are shifted out after the first 24, and 4 to finish.
-    pub fn bytes(c: *const Counter) u64 {
-        return 4 + if (c.shifts >= 24) (c.shifts - 24) / 8 + 1 else 0;
-    }
-};
 
 /// Codes booleans into `out` (section 7.3's encoder).
 pub const Writer = struct {
@@ -315,39 +293,79 @@ pub const Costs = struct {
     /// The end-of-block token.
     eob: [4][8][3]u16,
 
+    /// A token's cost is its class's path through the tree, which the
+    /// probabilities set, plus its bits at fixed probabilities (a
+    /// category's extra bits and the sign), which they do not: the paths
+    /// are added up for each context, and the rest is a constant.
     pub fn init(c: *Costs, probs: *const Probs) void {
         for (0..4) |t| for (0..8) |b| for (0..3) |x| {
             const p = &probs[t][b][x];
             c.eob[t][b][x] = @intCast(tables.cost(p[0], 0));
-            const more = tables.cost(p[0], 1);
-            for (0..68) |v| {
+            const more: u16 = @intCast(tables.cost(p[0], 1));
+            var paths: @Vector(11, u16) = undefined;
+            inline for (0..11) |k| {
                 var sum: u32 = 0;
-                const s: Sum = .{ .sum = &sum, .p = p };
-                if (v == 0) {
+                const s: Sum(false) = .{ .sum = &sum, .p = p };
+                if (k == 0) {
                     s.node(0, 0, 1, 0);
                 } else {
                     s.node(0, 0, 1, 1);
-                    magnitude(s, 0, 0, @intCast(v));
-                    sum += 256;
+                    magnitude(s, 0, 0, class_start[k]);
                 }
-                if (v == 67) sum -= tables.cat6_cost[0];
-                c.after_zero[t][b][x][v] = @intCast(sum);
-                c.lead[t][b][x][v] = @intCast(sum + more);
+                paths[k] = @intCast(sum);
             }
+            const az = @shuffle(u16, paths, undefined, class_mask) + fixed_cost;
+            c.after_zero[t][b][x] = az;
+            c.lead[t][b][x] = az + @as(@Vector(68, u16), @splat(more));
         };
     }
 
-    /// Adds up the costs of booleans one node set at a time.
-    const Sum = struct {
-        sum: *u32,
-        p: *const [11]u8,
-        inline fn node(s: Sum, _: u8, _: u2, i: u4, bit: u1) void {
-            s.sum.* += tables.cost(s.p[i], bit);
+    /// The first magnitude of each token class up to DCT_CAT6.
+    const class_start = [11]u8{ 0, 1, 2, 3, 4, 5, 7, 11, 19, 35, 67 };
+
+    /// Each magnitude's token class, as a shuffle mask.
+    const class_mask: @Vector(68, i32) = blk: {
+        var m: [68]i32 = undefined;
+        for (&m, 0..) |*k, v| {
+            k.* = 0;
+            for (class_start, 0..) |s, i| if (v >= s) {
+                k.* = i;
+            };
         }
-        inline fn fixed(s: Sum, p: u8, bit: u1) void {
-            s.sum.* += tables.cost(p, bit);
-        }
+        break :blk m;
     };
+
+    /// Each magnitude's bits at fixed probabilities, DCT_CAT6's extra
+    /// bits left to `tables.cat6_cost`.
+    const fixed_cost: @Vector(68, u16) = blk: {
+        @setEvalBranchQuota(100_000);
+        var t: [68]u16 = undefined;
+        t[0] = 0;
+        for (1..68) |v| {
+            var sum: u32 = 256;
+            const s: Sum(true) = .{ .sum = &sum, .p = undefined };
+            magnitude(s, 0, 0, v);
+            if (v == 67) sum -= tables.cat6_cost[0];
+            t[v] = sum;
+        }
+        break :blk t;
+    };
+
+    /// Adds up the costs of the booleans at the tree's nodes, or of
+    /// those at fixed probabilities.
+    fn Sum(comptime fixed_only: bool) type {
+        return struct {
+            const Self = @This();
+            sum: *u32,
+            p: *const [11]u8,
+            inline fn node(s: Self, _: u8, _: u2, i: u4, bit: u1) void {
+                if (!fixed_only) s.sum.* += tables.cost(s.p[i], bit);
+            }
+            inline fn fixed(s: Self, p: u8, bit: u1) void {
+                if (fixed_only) s.sum.* += tables.cost(p, bit);
+            }
+        };
+    }
 
     /// The cost of one block's tokens, as `block` codes them.
     pub fn blockCost(c: *const Costs, t: usize, ctx0: u2, first: u5, last: i32, levels: *const [16]i16) u32 {
@@ -373,7 +391,7 @@ pub const Costs = struct {
     }
 };
 
-test "the writer's bytes decode, and the counter counts them" {
+test "the writer's bytes decode, and it counts them when they do not fit" {
     var prng: std.Random.DefaultPrng = .init(testing.random_seed);
     const r = prng.random();
     var bits: [5000]u1 = undefined;
@@ -394,14 +412,19 @@ test "the writer's bytes decode, and the counter counts them" {
         }
         var fw: Io.Writer = .fixed(&out);
         var w: Writer = .{ .out = &fw };
-        var c: Counter = .{};
+        var short_buf: [100]u8 = undefined;
+        var short: Io.Writer = .fixed(short_buf[0 .. round % short_buf.len]);
+        var c: Writer = .{ .out = &short };
         for (bits[0..n], probs[0..n]) |b, p| {
             w.put(p, b);
             c.put(p, b);
         }
         try w.finish();
-        try testing.expectEqual(c.bytes(), fw.end);
         try testing.expectEqual(w.written, fw.end);
+        if (c.finish()) {
+            try testing.expectEqualSlices(u8, fw.buffered(), short.buffered());
+        } else |_| try testing.expect(fw.end > short.buffer.len);
+        try testing.expectEqual(w.written, c.written);
         // Section 7.3's decoder reads them back.
         const data = fw.buffered();
         var value: u32 = (@as(u32, data[0]) << 8) | data[1];

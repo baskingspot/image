@@ -1,0 +1,12 @@
+== both
+ours-best vs cwebp6: mean psnr -1.7%  ssim -4.8%
+ours-best vs main-best: mean psnr -0.0%  ssim -0.0%
+== dev
+ours-best vs cwebp6: mean psnr -3.7%  ssim -5.8%
+ours-best vs main-best: mean psnr +0.0%  ssim +0.1%
+== hold
+ours-best vs cwebp6: mean psnr +0.4%  ssim -3.9%
+ours-best vs main-best: mean psnr -0.1%  ssim -0.2%
+== alpha (psnr over pixels whose alpha is not 0)
+ours-best vs cwebp6: mean psnr -3.0%  ssim -14.5%
+ours-best vs main-best: mean psnr -0.1%  ssim +0.6%

@@ -446,6 +446,15 @@ inline fn rdCost(d: u32, rate: u32, lam: u64) u64 {
 
 const Trellis = enum { off, final, all };
 
+/// The two partitions as `Enc.code` left them: their bytes where they
+/// fit in the spare room, and their lengths.
+const Parts = struct {
+    first: ?[]const u8,
+    first_len: u64,
+    tokens: ?[]const u8,
+    tokens_len: u64,
+};
+
 const Enc = struct {
     src: PixelBuffer,
     width: u32,
@@ -1116,8 +1125,8 @@ const Enc = struct {
         @memset(e.top_modes, dsp.b_dc);
         e.coefs_end = 0;
         e.mode_spent = 0;
-        e.st.counts = std.mem.zeroes(coder.Hist);
-        e.st.empty_counts = std.mem.zeroes(coder.Hist);
+        zeroHist(&e.st.counts);
+        zeroHist(&e.st.empty_counts);
         for (0..e.mbh) |mby| {
             e.loadBand(mby);
             @memset(&e.left_modes, dsp.b_dc);
@@ -1292,6 +1301,22 @@ const Enc = struct {
         if (len % 2 == 1) try w.writeByte(0);
     }
 
+    /// Codes the token partition, then the first, into the level store's
+    /// spare room, which the tokens' worst case leaves: a partition that
+    /// fits is copied out from there, and one that does not is coded
+    /// again straight to the output, its length still counted.
+    fn code(e: *Enc) Parts {
+        var spare: Io.Writer = .fixed(e.coefs[e.coefs_end..]);
+        var b1: coder.Writer = .{ .out = &spare };
+        e.writeTokens(coder.Writer, &b1);
+        const tokens: ?[]const u8 = if (b1.finish()) spare.buffered() else |_| null;
+        var rest: Io.Writer = .fixed(spare.unusedCapacitySlice());
+        var b0: coder.Writer = .{ .out = &rest };
+        e.writeFirst(&b0);
+        const first: ?[]const u8 = if (b0.finish()) rest.buffered() else |_| null;
+        return .{ .first = first, .first_len = b0.written, .tokens = tokens, .tokens_len = b1.written };
+    }
+
     /// The token partition.
     fn writeTokens(e: *Enc, comptime W: type, bw: *W) void {
         const E = coder.Emit(W);
@@ -1312,6 +1337,15 @@ const Enc = struct {
         }
     }
 };
+
+/// Zeroes `h` sixteen counts to a store. A plain zeroing becomes a call
+/// to `memset`, which without libc is compiler_rt's, a byte at a time:
+/// 7% of a 16x16 image's time for the two histograms.
+fn zeroHist(h: *coder.Hist) void {
+    const V = @Vector(16, u32);
+    const vs: *align(4) volatile [@sizeOf(coder.Hist) / @sizeOf(V)]V = @ptrCast(h);
+    for (vs) |*v| v.* = @splat(0);
+}
 
 /// The probability of a 0 for a branch taken `zeros` and `ones` times,
 /// as a decoder reads it: 1 to 255.
@@ -1495,8 +1529,8 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     // anyway, 4x4 prediction and the segment map are given up. Past about
     // 150 megapixels even that can overflow, and the image is too large,
     // as it is for libwebp.
-    var first_len = firstLen(&e);
-    if (first_len >= 1 << 19) {
+    var parts = e.code();
+    if (parts.first_len >= 1 << 19) {
         e.mode_budget = 0;
         if (e.segments) {
             e.segments = false;
@@ -1506,20 +1540,12 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
         }
         e.run();
         e.chooseProbs();
-        first_len = firstLen(&e);
+        parts = e.code();
     }
+    const first_len = parts.first_len;
     if (first_len >= 1 << 19) return error.ImageTooLarge;
 
-    // Size the second, then write the file.
-    // The token partition is coded into the level store's spare room,
-    // which its worst case leaves, and copied out from there; should it
-    // not fit, its length is still counted, and it is coded again
-    // straight to the output.
-    var spare: Io.Writer = .fixed(e.coefs[e.coefs_end..]);
-    var b1: coder.Writer = .{ .out = &spare };
-    e.writeTokens(coder.Writer, &b1);
-    const held: ?[]const u8 = if (b1.finish()) spare.buffered() else |_| null;
-    const vp8_len = 10 + first_len + b1.written;
+    const vp8_len = 10 + first_len + parts.tokens_len;
     const alpha_len: u64 = if (!has_alpha) 0 else 1 + (compressed orelse @as(u64, src.width) * src.height);
     const extended = has_alpha or options.icc != null or options.exif != null or options.xmp != null;
     var riff_len: u64 = 4 + chunkLen(vp8_len);
@@ -1556,30 +1582,27 @@ pub fn encode(w: *Io.Writer, src: PixelBuffer, options: EncodeOptions, work: []u
     std.mem.writeInt(u16, head[6..8], @intCast(src.width), .little);
     std.mem.writeInt(u16, head[8..10], @intCast(src.height), .little);
     try w.writeAll(&head);
-    var b0: coder.Writer = .{ .out = w };
-    e.writeFirst(&b0);
-    try b0.finish();
-    if (held) |bytes| {
+    if (parts.first) |bytes| {
+        try w.writeAll(bytes);
+    } else {
+        var again: coder.Writer = .{ .out = w };
+        e.writeFirst(&again);
+        try again.finish();
+        std.debug.assert(again.written == first_len);
+    }
+    if (parts.tokens) |bytes| {
         try w.writeAll(bytes);
     } else {
         var again: coder.Writer = .{ .out = w };
         e.writeTokens(coder.Writer, &again);
         try again.finish();
-        std.debug.assert(again.written == b1.written);
+        std.debug.assert(again.written == parts.tokens_len);
     }
-    std.debug.assert(b0.written == first_len);
     if (vp8_len % 2 == 1) try w.writeByte(0);
     if (extended) {
         if (options.exif) |b| try writeChunk(w, "EXIF", b);
         if (options.xmp) |b| try writeChunk(w, "XMP ", b);
     }
-}
-
-/// The first partition's length in bytes.
-fn firstLen(e: *Enc) u64 {
-    var c: coder.Counter = .{};
-    e.writeFirst(&c);
-    return c.bytes();
 }
 
 /// A chunk's bytes in the file: its header, payload, and padding.

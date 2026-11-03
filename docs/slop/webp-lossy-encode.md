@@ -2,8 +2,10 @@
 
 `image.webp.lossy` writes one VP8 key frame (RFC 6386) in a RIFF container
 (RFC 9649), written from the specifications; libwebp is the oracle and the
-bar. Results: `results/webp-lossy-encode-20261102.md`, and for trellis
-quantization and the speed pass, `results/webp-lossy-trellis-20261102.md`.
+bar. Results: `results/webp-lossy-encode-20261102.md`, for trellis
+quantization and the speed pass, `results/webp-lossy-trellis-20261102.md`,
+and for icon speed,
+`results/webp-lossy-speed-20261103.md`.
 
 ## Shape
 
@@ -17,11 +19,12 @@ quantization and the speed pass, `results/webp-lossy-trellis-20261102.md`.
 - `vp8_encode_trellis.zig`: trellis quantization, the levels of a block
   that cost least in squared error plus lambda times their bits.
 - `vp8_encode_bool.zig`: the boolean encoder (`Writer`, which streams
-  through a one-byte cache and a count of pending 0xff bytes for carries),
-  a `Counter` that follows only the range to size a partition without
-  writing it, one token walker shared by the writer and the counter, the
-  tallies (a count per token, by class, turned into the tree's counts
-  afterwards), and coefficient costs from the current probabilities.
+  through a one-byte cache and a count of pending 0xff bytes for carries,
+  and counts its bytes even past a full output), one token walker shared
+  by the writer and the tallies (a count per token, by class, turned into
+  the tree's counts afterwards), and coefficient costs from the current
+  probabilities: each class's path through the tree for each context,
+  plus a constant table of the bits at fixed probabilities.
 - `vp8_encode_tables.zig`: the specification's tables (copied from
   `vp8_tables.zig`), the zigzag order and bands, and a cost table in 1/256
   bit.
@@ -47,11 +50,11 @@ One encode:
 4. The token probabilities are updated where the counts save more than
    the update costs; the skip flag is used when it costs less than the
    empty macroblocks' end-of-block tokens.
-5. The token partition is coded into the level store's spare room (its
-   worst case leaves 2.7 bytes a pixel at quality 75), the first partition
-   is sized by a `Counter` pass, and the file is written to the caller's
-   writer. When the token partition does not fit, its length is still
-   counted, and it is coded a second time straight to the output.
+5. The token partition, then the first, are coded into the level store's
+   spare room (its worst case leaves 2.7 bytes a pixel at quality 75),
+   and the file is written to the caller's writer, copying them from
+   there. A partition that does not fit still has its length counted,
+   and it is coded a second time straight to the output.
 
 Work memory (`workLen`) is about 45 KiB of state, 803 bytes per
 macroblock (the level store's worst case, the modes, and the activity),

@@ -1,0 +1,17 @@
+image/arm, geomean              rows image MP/s  libwebp     ±   <1    ~   slowest vs libwebp
+WebpEncodeLossy/icon              13        4.9     0.95    2%    7    6   0.90 [0.86, 1.05] icon_32-actions_address_book_new-32x32.raw
+WebpEncodeLossy/1mp               23       15.5     1.28    1%    2    1   0.92 [0.89, 0.93] photo_kodak-kodim01-768x512.raw
+WebpEncodeLossy/large              8       17.5     1.38    1%    0    0   1.07 [1.02, 1.11] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyFast/icon          13        8.8     1.33    1%    1    3   0.97 [0.88, 1.01] icon_16-actions_appointment_new-16x16.raw
+WebpEncodeLossyFast/1mp           23       42.1     1.48    1%    0    0   1.24 [1.08, 1.27] photo_wikipedia-002-1260x806.raw
+WebpEncodeLossyFast/large          8       47.5     1.53    2%    0    0   1.29 [1.25, 1.32] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyBest/icon          13        1.3     0.57    2%   13    0   0.48 [0.45, 0.49] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeLossyBest/1mp           23        4.1     0.62    1%   23    0   0.56 [0.50, 0.58] test-kodim23-768x512.raw
+WebpEncodeLossyBest/large          8        4.7     0.64    4%    8    0   0.59 [0.57, 0.60] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyRGBA/icon          13        2.8     1.44    3%    1    0   0.96 [0.85, 0.97] textures_pk-_0mod_button1-64x64.rgb
+WebpEncodeLossyRGBA/1mp           23       12.0     1.37    1%    2    2   0.90 [0.78, 0.93] photo_kodak-kodim01-768x512.rgb
+WebpEncodeLossyRGBA/large          8       16.5     1.36    1%    0    0   1.06 [1.03, 1.08] photo_wikipedia-001-1276x850.rgb
+WebpEncodeLossyFastM0/icon        13        8.9     1.28    2%    2    2   0.95 [0.92, 0.99] icon_16-actions_address_book_new-16x16.raw
+WebpEncodeLossyFastM0/1mp         23       42.6     0.91    1%   14    3   0.72 [0.71, 0.73] photo_wikipedia-002-1260x806.raw
+WebpEncodeLossyFastM0/large        8       48.3     0.92    1%    6    1   0.78 [0.77, 0.79] photo_wikipedia-001-1276x850.raw
+all                              220       11.6     1.08         79   18

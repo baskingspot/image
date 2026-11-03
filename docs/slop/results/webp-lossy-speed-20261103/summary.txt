@@ -1,0 +1,17 @@
+image/arm, geomean              rows image MP/s  libwebp     ±   <1    ~   slowest vs libwebp
+WebpEncodeLossy/icon              13        7.4     1.44    1%    0    0   1.06 [1.03, 1.09] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeLossy/1mp               23       15.9     1.30    1%    1    0   0.94 [0.91, 0.97] photo_kodak-kodim01-768x512.raw
+WebpEncodeLossy/large              8       17.9     1.40    1%    0    0   1.10 [1.08, 1.14] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyFast/icon          13       18.3     2.74    1%    0    0   2.01 [1.89, 2.06] icon_64-actions_appointment_new-64x64.raw
+WebpEncodeLossyFast/1mp           23       44.0     1.53    0%    0    0   1.27 [1.26, 1.30] photo_kodak-kodim01-768x512.raw
+WebpEncodeLossyFast/large          8       48.7     1.55    2%    0    0   1.33 [1.33, 1.37] photo_wikipedia-001-1276x850.raw
+WebpEncodeLossyBest/icon          13        2.3     0.97    1%    6    1   0.81 [0.80, 0.82] icon_64-actions_address_book_new-64x64.raw
+WebpEncodeLossyBest/1mp           23        5.6     0.83    1%   23    0   0.75 [0.74, 0.77] test-kodim23-768x512.raw
+WebpEncodeLossyBest/large          8        6.3     0.85    1%    8    0   0.79 [0.78, 0.80] photo_mosaic-50mp-8192x6144.raw
+WebpEncodeLossyRGBA/icon          13        3.4     1.76    1%    0    0   1.10 [1.08, 1.12] textures_pk-_0mod_button1-64x64.rgb
+WebpEncodeLossyRGBA/1mp           23       12.2     1.39    1%    1    0   0.92 [0.86, 0.94] photo_kodak-kodim01-768x512.rgb
+WebpEncodeLossyRGBA/large          8       16.8     1.38    1%    0    0   1.08 [1.07, 1.10] photo_wikipedia-001-1276x850.rgb
+WebpEncodeLossyFastM0/icon        13       18.3     2.61    2%    0    0   1.94 [1.66, 2.04] icon_64-actions_appointment_new-64x64.raw
+WebpEncodeLossyFastM0/1mp         23       44.1     0.94    1%   14    1   0.75 [0.74, 0.75] photo_wikipedia-002-1260x806.raw
+WebpEncodeLossyFastM0/large        8       49.0     0.93    1%    5    2   0.79 [0.78, 0.80] photo_wikipedia-001-1276x850.raw
+all                              220       14.4     1.33         58    4
