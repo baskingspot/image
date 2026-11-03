@@ -32,6 +32,7 @@ const decode = @import("../decode.zig");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
 const PixelBuffer = @import("../pixel.zig").PixelBuffer;
 const Converter = @import("../convert.zig").Converter;
+const vfill = @import("../fill.zig").fill;
 
 pub const Error = decode.Error || error{
     /// RLE data that writes past the image or ends without an
@@ -562,7 +563,7 @@ fn fields(in: *Input, h: Header, dst: PixelBuffer, pad: usize) Error!void {
 /// RLE8 and RLE4 (the module comment has the rules for streams that
 /// misbehave). `lut` holds the palette in `dst`'s format.
 fn rle(comptime n: usize, in: *Input, h: Header, lut: *const [256][n]u8, dst: PixelBuffer) Error!void {
-    for (0..h.height) |y| @memset(dst.row(@intCast(y)), 0);
+    for (0..h.height) |y| vfill(u8, dst.row(@intCast(y)), 0);
     const w: usize = h.width;
     const four = h.compression == .rle4;
     var x: usize = 0;
