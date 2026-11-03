@@ -30,6 +30,10 @@ cj --lossless_jpeg=1 "$tmp/444.jpg" "$out/jxl/jpeg-444.jxl"
 im "$rgb" -resize '8x1100!' "$tmp/tall.png"
 cj -d 2 --epf=3 --gaborish=1 "$tmp/tall.png" "$out/jxl/vardct-tall.jxl"
 cj -d 2 --epf=3 --gaborish=1 --group_order=1 "$tmp/tall.png" "$out/jxl/vardct-tall-centre.jxl"
+# A 4:2:0 JPEG, recompressed, of five group rows and an odd width:
+# streamed, its chroma upsampled a band at a time.
+im "$rgb" -resize '17x1100!' -quality 85 -sampling-factor 4:2:0 "$tmp/tall-420.jpg"
+cj --lossless_jpeg=1 "$tmp/tall-420.jpg" "$out/jxl/jpeg-tall-420.jxl"
 # The same, streamed with its alpha.
 im "$rgba" -resize '8x1100!' "$tmp/tall-alpha.png"
 cj -d 2 --epf=3 --gaborish=1 "$tmp/tall-alpha.png" "$out/jxl/vardct-tall-alpha.jxl"

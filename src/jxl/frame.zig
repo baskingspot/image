@@ -156,6 +156,8 @@ pub const Context = struct {
     /// A band's rows with their filter margins, and EPF's sigmas.
     window: [3][]f32 = undefined,
     sigmas: []f32 = &.{},
+    /// The rows of each subsampled channel upsampled across in the ring.
+    chroma_done: [3]usize = @splat(0),
 };
 
 /// Receives a streamed frame's finished rows: `rows` rows from row `y0`.
@@ -184,8 +186,8 @@ pub const BandSink = struct {
 const band_margin = 8;
 
 /// Whether a frame can stream: in one pass, its groups in order, without
-/// what needs the whole frame (upsampling, patches, splines, noise, chroma
-/// subsampling), not an LF frame, and VarDCT taller than the ring and a
+/// what needs the whole frame (upsampling, patches, splines, noise), not
+/// an LF frame, and VarDCT taller than the ring and a
 /// window (`ringRows`), or Modular in integers (`needsFloat` false) of at
 /// least two group rows, below which streaming saves nothing. Global
 /// Modular transforms that are not `pointwise` make `lfGlobal` decode the
@@ -196,7 +198,7 @@ pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader
     const d: headers.Dims = .init(fh);
     const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 5;
     return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and
-        !upsampled(image, fh) and fh.flags & whole == 0 and fh.maxHShift() | fh.maxVShift() == 0;
+        !upsampled(image, fh) and fh.flags & whole == 0;
 }
 
 /// The rows a streamed frame's frame-sized Modular channels keep: a
@@ -729,18 +731,21 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const we = @min(h, y1 + band_margin);
     const rf = &ctx.fh.filter;
     var win: [3][]f32 = undefined;
-    for (&win, ctx.window, vd.planes) |*o, buf, plane| {
-        o.* = buf[0 .. (we - ws) * stride];
-        // Gaborish writes the window from the planes instead.
-        if (!rf.gab) for (ws..we) |y| {
-            @memcpy(o.*[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
-        };
-    }
+    for (&win, ctx.window) |*o, buf| o.* = buf[0 .. (we - ws) * stride];
+    // Subsampled channels are upsampled into the window, which Gaborish
+    // then filters in place; otherwise Gaborish writes the window from the
+    // planes.
+    const sub = vd.subsampled();
+    if (sub) {
+        vardct.chromaWindow(vd, &ctx.chroma_done, d.width, h, ws, we, win);
+    } else if (!rf.gab) for (win, vd.planes) |o, plane| for (ws..we) |y| {
+        @memcpy(o[(y - ws) * stride ..][0..stride], plane[vd.planeRow(y) * stride ..][0..stride]);
+    };
     // Mirrored at the window's edges, which are wrong only within the
     // margin, except at the frame's, where mirroring is right.
     const pl: filters.Planes = .{ .p = win, .stride = stride, .w = d.width, .h = we - ws };
     const src: filters.Source = .{ .p = vd.planes, .stride = stride, .y0 = ws, .ring_rows = vd.ring_rows };
-    if (rf.gab) try filters.gaborish(arena, &pl, rf, src);
+    if (rf.gab) try filters.gaborish(arena, &pl, rf, if (sub) null else src);
     if (rf.epf_iters != 0) {
         const sig = ctx.sigmas[(ws / 8) * vd.bw ..];
         if (rf.epf_iters >= 3) try filters.epf(arena, &pl, rf, 0, sig, vd.bw);

@@ -117,15 +117,19 @@ writing past it. Its terms, in `Decoder.workBound`:
 
 **Streaming.** A shown VarDCT frame that replaces the canvas and is never
 referenced, in one pass with its groups in order (the TOC not permuted),
-without upsampling, patches, splines, noise, or chroma subsampling, and at
-least five group rows tall, keeps a ring of three group rows of pixels
+without upsampling, patches, splines, or noise, and at least five group
+rows tall, keeps a ring of three group rows of pixels
 instead of whole planes (`vardct.Shared.ring_rows`). Once a
 group row is in, the one before it is copied with eight rows of each
 neighbor into a window, filtered there (Gaborish reads one row each side,
 EPF's passes three, two, and one; a window starting on a block row keeps
 EPF's sigmas and border rows aligned, and its edges are the frame's only
 at the frame's edges, where mirroring is right), color-transformed, and
-written to the caller's rows. Extra channels (alpha) are Modular channels
+written to the caller's rows. Subsampled chroma (a recompressed JPEG's) is
+upsampled into the window: each ring row of a subsampled channel is
+upsampled across in place once, when the first window needs it, and the
+window's rows are blended down from those, as `vardct.upsampleChroma` does
+on whole planes, before Gaborish, which then filters the window in place. Extra channels (alpha) are Modular channels
 read as each band is written: groups decode in order, so a group row's
 extra channels are final once its groups are in, and they keep two group
 rows (`Channel.ring`), the band being written and the row after it. A
@@ -145,9 +149,9 @@ and delta palettes read across bands, so a frame with one is decoded
 whole; its memory is taken at the end of `lfGlobal`, once its transforms
 are known: rings, or whole planes and channels. Pixels are the whole
 frame's bit for bit (the unit tests and the fuzz target's `checkStream`
-compare them, and `vardct-tall*.jxl` and `modular-tall*.jxl` in the
-generated corpus cover the plain, permuted, alpha, palette, and squeezed
-cases). `decodeConfig` peeks the TOC's permutation bit
+compare them, and `vardct-tall*.jxl`, `jpeg-tall-420.jxl`, and
+`modular-tall*.jxl` in the generated corpus cover the plain, permuted,
+alpha, palette, 4:2:0, and squeezed cases). `decodeConfig` peeks the TOC's permutation bit
 after the frame header, so the bound shrinks only when the frame will
 stream; for VarDCT with extra channels it keeps the larger of the ring and
 whole planes, since the transforms are not known until the frame is read,
@@ -162,7 +166,8 @@ When `decodeConfig` has peeked a single last frame, the frame term is that
 frame's exactly (`frameBound`); otherwise it covers any frame of up to twice
 the canvas with every feature. On a 50-megapixel photograph the arena's peak
 is 127 MB of a 243 MB bound for `cjxl -d 1`, streamed (627 MB of 948 MB
-whole), and 608 MB for `-d 0`. Memory the decoder never touches costs a
+whole), and 608 MB for `-d 0`; recompressed from a 4:2:0 JPEG, 120 MB
+of a 244 MB bound, streamed (686 MB of 744 MB whole). Memory the decoder never touches costs a
 caller nothing when it comes from `mmap`, but a caller that fills it, as
 Zig's safe allocators do, pays for all of it. Further cuts: undoing
 squeezes row by row (one extra channel instead of three).
@@ -246,6 +251,13 @@ squeezes row by row (one extra channel instead of three).
   and spot, 3.8e-6) are a quarter of a 16-bit step, so they would need f32
   native for drawn or blended frames, which doubles the caller's buffer;
   the owner decides.
+- **Chroma upsampling before Gaborish** (results/jxl-chroma-20261103.md).
+  A subsampled frame's chroma is upsampled before the restoration filters,
+  the order libjxl's pipeline also uses. With Gaborish on (which cjxl never
+  writes for a JPEG, but a frame may), libjxl's even rows differ from ours
+  by up to 1,134 16-bit steps and its odd rows agree, while ours match
+  Gaborish applied to the unfiltered output (which is linear, as are the
+  upsampling and YCbCr), so ours are kept.
 - **Splines** are drawn with an exact erf and cosine; animation_spline
   differs from libjxl by up to 1.1e-3, within its 4e-3 bound.
 - **Feature budgets.** Patches are held to 65536 plus one per 16 padded
@@ -394,8 +406,8 @@ noise at about ±1.5%.
 
 ## Next
 
-1. **Memory, further**: stream more frames (chroma subsampling, noise,
-   upsampling, which need a few more rows each); keep two
+1. **Memory, further**: stream more frames (noise and upsampling, which
+   need a few more rows each); keep two
    group rows plus the margin instead of three. `work_len` for Modular
    stays the whole frame's until `decodeConfig` can learn the transforms,
    which come after the tree (`results/jxl-mstream2-20261103.md`).

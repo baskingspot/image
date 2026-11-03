@@ -434,7 +434,7 @@ pub const Shared = struct {
         return if (s.sink) |k| k.pixels else true;
     }
 
-    fn subsampled(s: *const Shared) bool {
+    pub fn subsampled(s: *const Shared) bool {
         return s.hs[0] | s.hs[1] | s.hs[2] | s.vs[0] | s.vs[1] | s.vs[2] != 0;
     }
 
@@ -1120,25 +1120,14 @@ pub fn epfSigmas(s: *const Shared, rf: *const headers.RestorationFilter, out: []
 /// Upsamples the subsampled channels to the frame's size, in place:
 /// each new pixel is 3/4 of the nearer pixel and 1/4 of the farther, with
 /// the edges mirrored at the channel's size, `w` by `h` before shifting.
+/// Across first, then down.
 pub fn upsampleChroma(s: *Shared, w: usize, h: usize) void {
     const stride = s.bw * 8;
     for (0..3) |c| {
         const p = s.planes[c];
         if (s.hs[c] != 0) {
-            const n = (w + 1) >> 1;
             const rows = (h + (@as(usize, 1) << s.vs[c]) - 1) >> s.vs[c];
-            for (0..rows) |y| {
-                const row = p[y * stride ..][0..stride];
-                var x = n;
-                while (x > 0) {
-                    x -= 1;
-                    const l = row[if (x == 0) 0 else x - 1];
-                    const m = row[x];
-                    const r = row[if (x + 1 == n) x else x + 1];
-                    if (2 * x + 1 < stride) row[2 * x + 1] = 0.75 * m + 0.25 * r;
-                    row[2 * x] = 0.75 * m + 0.25 * l;
-                }
-            }
+            for (0..rows) |y| upsampleAcross(p[y * stride ..][0..stride], w);
         }
         if (s.vs[c] != 0) {
             const n = (h + 1) >> 1;
@@ -1146,16 +1135,63 @@ pub fn upsampleChroma(s: *Shared, w: usize, h: usize) void {
             var y = n;
             while (y > 0) {
                 y -= 1;
-                const up = p[(if (y == 0) 0 else y - 1) * stride ..][0..stride];
                 const mid = p[y * stride ..][0..stride];
-                const down = p[(if (y + 1 == n) y else y + 1) * stride ..][0..stride];
-                if (2 * y + 1 < rows) {
-                    for (p[(2 * y + 1) * stride ..][0..stride], mid, down) |*o, m, d| o.* = 0.75 * m + 0.25 * d;
-                }
-                for (p[2 * y * stride ..][0..stride], mid, up) |*o, m, u| o.* = 0.75 * m + 0.25 * u;
+                if (2 * y + 1 < rows) upsampleDown(p[(2 * y + 1) * stride ..][0..stride], mid, p, stride, y, n, true);
+                upsampleDown(p[2 * y * stride ..][0..stride], mid, p, stride, y, n, false);
             }
         }
     }
+}
+
+/// A streamed frame's rows `ws .. we` of each channel, at the frame's
+/// size, into `win` (rows of the planes' stride), as `upsampleChroma`
+/// leaves them. The rings' subsampled rows are upsampled across in place
+/// once each: `done[c]` counts those of channel `c` already done.
+pub fn chromaWindow(s: *const Shared, done: *[3]usize, w: usize, h: usize, ws: usize, we: usize, win: [3][]f32) void {
+    const stride = s.bw * 8;
+    const n = (h + 1) >> 1;
+    for (0..3) |c| {
+        const p = s.planes[c];
+        const vs = s.vs[c] != 0;
+        // The last row the window's rows read, before upsampling down.
+        const last = if (vs) @min(n - 1, ((we - 1) >> 1) + 1) else we - 1;
+        if (s.hs[c] != 0) while (done[c] <= last) : (done[c] += 1) {
+            upsampleAcross(p[s.planeRow(done[c]) * stride ..][0..stride], w);
+        };
+        for (ws..we) |y| {
+            const out = win[c][(y - ws) * stride ..][0..stride];
+            if (!vs) {
+                @memcpy(out, p[s.planeRow(y) * stride ..][0..stride]);
+                continue;
+            }
+            const yc = y >> 1;
+            const near = if (y & 1 == 0) (if (yc == 0) 0 else yc - 1) else (if (yc + 1 == n) yc else yc + 1);
+            const mid = p[s.planeRow(yc) * stride ..][0..stride];
+            for (out, mid, p[s.planeRow(near) * stride ..][0..stride]) |*o, m, d| o.* = 0.75 * m + 0.25 * d;
+        }
+    }
+}
+
+/// Upsamples one row across, in place: its first `(w + 1) / 2` pixels to
+/// `w`, mirrored at its ends.
+fn upsampleAcross(row: []f32, w: usize) void {
+    const n = (w + 1) >> 1;
+    var x = n;
+    while (x > 0) {
+        x -= 1;
+        const l = row[if (x == 0) 0 else x - 1];
+        const m = row[x];
+        const r = row[if (x + 1 == n) x else x + 1];
+        if (2 * x + 1 < row.len) row[2 * x + 1] = 0.75 * m + 0.25 * r;
+        row[2 * x] = 0.75 * m + 0.25 * l;
+    }
+}
+
+/// Row `2y` (`odd` false) or `2y + 1` of a channel upsampled down, from
+/// its row `y` and the one above or below, mirrored at row `n - 1`.
+fn upsampleDown(out: []f32, mid: []const f32, p: []const f32, stride: usize, y: usize, n: usize, odd: bool) void {
+    const near = if (odd) (if (y + 1 == n) y else y + 1) else (if (y == 0) 0 else y - 1);
+    for (out, mid, p[near * stride ..][0..stride]) |*o, m, d| o.* = 0.75 * m + 0.25 * d;
 }
 
 test "Lehmer codes decode as by scanning for the k-th free value" {
