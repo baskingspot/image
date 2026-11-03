@@ -67,15 +67,36 @@ pub fn upsample(
     dw: usize,
     dh: usize,
 ) void {
+    upsampleRows(kern, src, 0, sw, sh, sstride, 0, sh, dst, dw, dh, dw);
+}
+
+/// `upsample` of source rows `y0 .. y1` alone, into `dst`'s rows from
+/// output row `y0 * N` (rows of `dstride`), with `src` holding the
+/// source's rows from `src_y0`: those within two rows of `y0 .. y1`,
+/// mirrored at the source's edges, must be there.
+pub fn upsampleRows(
+    kern: *const Kernel,
+    src: []const f32,
+    src_y0: usize,
+    sw: usize,
+    sh: usize,
+    sstride: usize,
+    y0: usize,
+    y1: usize,
+    dst: []f32,
+    dw: usize,
+    dh: usize,
+    dstride: usize,
+) void {
     const n = kern.n;
     var cols: [5]usize = undefined;
     var rows: [5][]const f32 = undefined;
     var win: [25]f32 = undefined;
-    for (0..sh) |y| {
+    for (y0..y1) |y| {
         if (y * n >= dh) break;
         for (&rows, 0..) |*r, i| {
             const yy = mirror(@as(isize, @intCast(y + i)) - 2, sh);
-            r.* = src[yy * sstride ..][0..sw];
+            r.* = src[(yy - src_y0) * sstride ..][0..sw];
         }
         for (0..sw) |x| {
             if (x * n >= dw) break;
@@ -93,7 +114,7 @@ pub fn upsample(
             for (0..n) |oy| {
                 const yo = y * n + oy;
                 if (yo >= dh) break;
-                const out = dst[yo * dw ..][0..dw];
+                const out = dst[(yo - y0 * n) * dstride ..][0..dw];
                 for (0..n) |ox| {
                     const xo = x * n + ox;
                     if (xo >= dw) break;

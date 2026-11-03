@@ -158,56 +158,72 @@ pub const Context = struct {
     sigmas: []f32 = &.{},
     /// The rows of each subsampled channel upsampled across in the ring.
     chroma_done: [3]usize = @splat(0),
+    /// The noise of a streamed frame, when it adds any.
+    noise_stream: ?noise.Stream = null,
 };
 
-/// Receives a streamed frame's finished rows: `rows` rows from row `y0`.
-/// A VarDCT frame's colors come filtered but before the color transform,
-/// in three planes of rows of `stride` (at least the frame's width), and
-/// `extra` holds the extra channels; a Modular frame's planes are null
-/// and `extra` holds its colors, then its extra channels, with the
-/// frame's layout and its rows from row `extra_y` (`Channel.row` finds
-/// them, in rings or not). The planes may be changed.
+/// A streamed frame's finished rows: `rows` rows from row `y0`, after
+/// upsampling. A VarDCT frame's colors come in three planes of rows of
+/// `stride` (at least the frame's width), filtered, upsampled, and with
+/// their noise, and before the color transform unless `transformed`; its
+/// extra channels are in `ec`, as floats in rows of the frame's width,
+/// when they were upsampled, and in `extra` otherwise. A Modular frame's
+/// planes are null and `extra` holds its colors, then its extra channels.
+/// `extra` has the frame's layout and its rows from row `extra_y`
+/// (`Channel.row` finds them, in rings or not). The planes may be
+/// changed.
+pub const Band = struct {
+    planes: ?[3][]f32,
+    stride: usize = 0,
+    transformed: bool = false,
+    extra: *const modular.Image,
+    extra_y: usize,
+    ec: ?[]const []f32 = null,
+    y0: usize,
+    rows: usize,
+};
+
+/// Receives a streamed frame's bands, in order.
 pub const BandSink = struct {
     ctx: *anyopaque,
-    write: *const fn (
-        ctx: *anyopaque,
-        planes: ?[3][]f32,
-        stride: usize,
-        extra: *const modular.Image,
-        extra_y: usize,
-        y0: usize,
-        rows: usize,
-    ) void,
+    write: *const fn (ctx: *anyopaque, band: *const Band) void,
 };
 
-/// The rows of filter margin a band needs on each side: Gaborish's one and
-/// EPF's three passes' three, two, and one, rounded up to a block, so a
-/// window starts on a block row as EPF's sigmas and border rows need.
-const band_margin = 8;
+/// The rows of filter margin a band needs on each side, rounded up to a
+/// block, so a window starts on a block row as EPF's sigmas and border
+/// rows need: Gaborish's one and EPF's three passes' three, two, and one,
+/// and two more filtered rows for upsampling.
+pub fn bandMargin(fh: *const headers.FrameHeader) usize {
+    return if (fh.upsampling != 1) 16 else 8;
+}
 
 /// Whether a frame can stream: in one pass, its groups in order, without
-/// what needs the whole frame (upsampling, patches, splines, noise), not
-/// an LF frame, and VarDCT taller than the ring and a
-/// window (`ringRows`), or Modular in integers (`needsFloat` false) of at
-/// least two group rows, below which streaming saves nothing. Global
+/// what needs the whole frame (splines, and extra channels upsampled by
+/// another factor than the colors), not an LF frame, and
+/// VarDCT taller than the ring and a window (`ringRows`), or Modular in
+/// integers (`needsFloat` false, so neither upsampled nor with noise) of
+/// at least two group rows, below which streaming saves nothing. Global
 /// Modular transforms that are not `pointwise` make `lfGlobal` decode the
 /// frame whole; the others are undone on each band. The caller decides
 /// whether the frame is shown as it is.
 pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
-    const whole = headers.flag_noise | headers.flag_patches | headers.flag_splines;
+    const whole = headers.flag_splines;
     const d: headers.Dims = .init(fh);
     const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 5;
+    var ec_with_colors = true;
+    for (fh.ec_upsampling[0..image.num_ec]) |u| ec_with_colors = ec_with_colors and u == fh.upsampling;
     return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and
-        !upsampled(image, fh) and fh.flags & whole == 0;
+        ec_with_colors and fh.flags & whole == 0;
 }
 
 /// The rows a streamed frame's frame-sized Modular channels keep: a
 /// Modular frame writes each group row once its groups are in; a VarDCT
 /// frame's extra channels are read a group row later, when the band
-/// before is filtered.
+/// before is filtered, and upsampled, with two rows of the band before.
 fn modularRing(fh: *const headers.FrameHeader) u32 {
     const d: headers.Dims = .init(fh);
-    return if (fh.modular) d.group_dim else 2 * d.group_dim;
+    if (fh.modular) return d.group_dim;
+    return if (fh.upsampling != 1) 3 * d.group_dim else 2 * d.group_dim;
 }
 
 /// The rows a streamed frame's VarDCT planes keep: three group rows, the
@@ -432,7 +448,7 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
             @memcpy(all[3..], ecs);
             // The extra channels' planes are rows of their width, the
             // frame's here.
-            patches.apply(dict, image, ctx.refs, all, stride, w, w, h);
+            patches.apply(dict, image, ctx.refs, all, stride, w, w, h, 0, h);
         }
     }
     const base: [2]f32 = if (ctx.vd) |vd| .{ vd.base_x, vd.base_b } else .{ 0, if (image.xyb) 1 else 0 };
@@ -462,9 +478,6 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
             .w = dw,
             .h = dh,
             .group_dim = d.group_dim,
-            .groups_x = d.xsize_groups,
-            .groups_y = d.ysize_groups,
-            .upsampling = fh.upsampling,
             .visible = ctx.counts[0],
             .nonvisible = ctx.counts[1],
         }, planes, stride, base[0], base[1]);
@@ -698,29 +711,37 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
         const rows = @min(d.group_dim, d.height - y0);
         const m = arena.mark();
         defer arena.release(m);
-        const b = try bandChannels(arena, ctx, y0, rows);
+        const b = try bandChannels(arena, ctx, y0, rows, false);
         const sink = ctx.band.?;
-        sink.write(sink.ctx, null, 0, &b.img, b.y, y0, rows);
+        sink.write(sink.ctx, &.{ .planes = null, .extra = &b.img, .extra_y = b.y, .y0 = y0, .rows = rows });
         ctx.bands_out += 1;
         return;
     }
     if (ctx.rows_in == 1) {
         // The window and sigmas, once the LF groups' fields are in.
         const vd = ctx.vd.?;
-        const rows: usize = d.group_dim + 2 * band_margin;
+        const rows: usize = d.group_dim + 2 * bandMargin(ctx.fh);
         for (&ctx.window) |*p| p.* = try arena.alloc(f32, rows * vd.bw * 8);
         const rf = &ctx.fh.filter;
         if (rf.epf_iters != 0) {
             ctx.sigmas = try arena.alloc(f32, vd.bw * vd.bh);
             vardct.epfSigmas(vd, rf, ctx.sigmas);
         }
+        if (ctx.noise) |*np| ctx.noise_stream = try noise.Stream.init(arena, np, .{
+            .w = d.width_up,
+            .h = d.height_up,
+            .group_dim = d.group_dim,
+            .visible = ctx.counts[0],
+            .nonvisible = ctx.counts[1],
+        }, d.group_dim * ctx.fh.upsampling);
     }
     if (ctx.rows_in >= 2) try emitBand(arena, ctx, ctx.rows_in - 2);
     if (ctx.rows_in == d.ysize_groups) try emitBand(arena, ctx, ctx.rows_in - 1);
 }
 
-/// Filters group row `k`'s pixels on a window with `band_margin` rows of
-/// the rows around it, then hands them to the band sink.
+/// Filters group row `k`'s pixels on a window with `bandMargin` rows of
+/// the rows around it, upsamples them and adds their noise, then hands
+/// them to the band sink.
 fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const vd = ctx.vd.?;
     const d = &ctx.d;
@@ -729,8 +750,9 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     const stride = vd.bw * 8;
     const y0 = k * gd;
     const y1 = @min(h, y0 + gd);
-    const ws = y0 -| band_margin;
-    const we = @min(h, y1 + band_margin);
+    const margin = bandMargin(ctx.fh);
+    const ws = y0 -| margin;
+    const we = @min(h, y1 + margin);
     const rf = &ctx.fh.filter;
     var win: [3][]f32 = undefined;
     for (&win, ctx.window) |*o, buf| o.* = buf[0 .. (we - ws) * stride];
@@ -754,29 +776,111 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
         try filters.epf(arena, &pl, rf, 1, sig, vd.bw);
         if (rf.epf_iters >= 2) try filters.epf(arena, &pl, rf, 2, sig, vd.bw);
     }
-    var band: [3][]f32 = undefined;
-    for (&band, win) |*o, p| o.* = p[(y0 - ws) * stride ..][0 .. (y1 - y0) * stride];
     const m = arena.mark();
     defer arena.release(m);
-    const b = try bandChannels(arena, ctx, y0, y1 - y0);
+    const image = ctx.image;
+    const n: usize = ctx.fh.upsampling;
+    const w: usize = d.width;
+    const ne = image.num_ec;
+    // The rows patches and upsampling read: the band's, and with
+    // upsampling two more each side, which the window has filtered, and
+    // the extra channels' rings hold (`modularRing`).
+    const ya = if (n == 1) y0 else y0 -| 2;
+    const yb = if (n == 1) y1 else @min(h, y1 + 2);
+    var at: [3][]f32 = undefined;
+    for (&at, win) |*o, p| o.* = p[(ya - ws) * stride ..][0 .. (yb - ya) * stride];
+    var b: struct { img: modular.Image, y: usize } = undefined;
+    // The extra channels as floats, when patches or upsampling take them:
+    // read in three parts, since a ring's rows wrap at a group row and
+    // `Image.band` takes rows in order, on copies of their rows when
+    // other bands read them too.
+    var ecf: ?[][]f32 = null;
+    if (n != 1 or ctx.patches != null) {
+        const tmp = try arena.alloc([]f32, ne);
+        for (tmp) |*t| t.* = try arena.alloc(f32, (yb - ya) * w);
+        for ([_][2]usize{ .{ ya, y0 }, .{ y0, y1 }, .{ y1, yb } }) |part| {
+            if (part[1] == part[0]) continue;
+            const bc = try bandChannels(arena, ctx, part[0], part[1] - part[0], n != 1);
+            if (part[0] == y0) b = .{ .img = bc.img, .y = bc.y };
+            for (tmp, bc.img.channels(), image.ec[0..ne]) |t, *ch, info| {
+                for (part[0]..part[1]) |y| {
+                    toFloat(info.depth, ch.row(bc.y + y - part[0])[0..w], t[(y - ya) * w ..][0..w]);
+                }
+            }
+        }
+        ecf = tmp;
+    } else {
+        const bc = try bandChannels(arena, ctx, y0, y1 - y0, false);
+        b = .{ .img = bc.img, .y = bc.y };
+    }
+    if (ctx.patches) |*dict| {
+        const all = try arena.alloc([]f32, 3 + ne);
+        @memcpy(all[0..3], &at);
+        @memcpy(all[3..], ecf.?);
+        patches.apply(dict, image, ctx.refs, all, stride, w, w, h, ya, yb);
+    }
+    var out: Band = undefined;
+    if (n == 1) {
+        out = .{
+            .planes = at,
+            .stride = stride,
+            .extra = &b.img,
+            .extra_y = b.y,
+            .ec = ecf,
+            .y0 = y0,
+            .rows = y1 - y0,
+        };
+    } else {
+        const dw: usize = d.width_up;
+        const dh: usize = d.height_up;
+        const oy0 = y0 * n;
+        const rows = @min(dh, y1 * n) - oy0;
+        const kern: upsample.Kernel = .init(image, n);
+        var up: [3][]f32 = undefined;
+        for (&up, at) |*o, p| {
+            o.* = try arena.alloc(f32, rows * dw);
+            upsample.upsampleRows(&kern, p, ya, w, h, stride, y0, y1, o.*, dw, dh, dw);
+        }
+        const ec = try arena.alloc([]f32, ne);
+        for (ec, ecf.?) |*o, t| {
+            o.* = try arena.alloc(f32, rows * dw);
+            upsample.upsampleRows(&kern, t, ya, w, h, w, y0, y1, o.*, dw, dh, dw);
+        }
+        out = .{ .planes = up, .stride = dw, .extra = &b.img, .extra_y = b.y, .ec = ec, .y0 = oy0, .rows = rows };
+    }
+    if (ctx.noise_stream) |*ns| {
+        ns.band(&ctx.noise.?, out.planes.?, out.stride, out.y0, out.y0 + out.rows, vd.base_x, vd.base_b);
+    }
+    if (n != 1) {
+        // Here rather than as the rows are written: the band's rows are
+        // contiguous and start a multiple of eight samples into the frame,
+        // so the transform takes the samples eight at a time as on whole
+        // planes, and the last band's tail as the whole frame's.
+        var planes: [3][]f32 = undefined;
+        for (&planes, out.planes.?) |*o, p| o.* = p[0 .. out.rows * out.stride];
+        colorTransformPlanes(ctx.image, ctx.fh, planes);
+        out.transformed = true;
+    }
     const sink = ctx.band.?;
-    sink.write(sink.ctx, band, stride, &b.img, b.y, y0, y1 - y0);
+    sink.write(sink.ctx, &out);
     ctx.bands_out += 1;
 }
 
 /// A streamed frame's Modular channels for rows `y0 .. y0 + rows`, and
 /// the row of them that is `y0`: the rings themselves, or, when there are
-/// global transforms, the band's rows with them undone (`Image.band`),
-/// which must leave the frame's channels at its width.
+/// global transforms, the band's rows with them undone (`Image.band`,
+/// on copies of the rows with `copy`), which must leave the frame's
+/// channels at its width.
 fn bandChannels(
     arena: *Arena,
     ctx: *const Context,
     y0: usize,
     rows: usize,
+    copy: bool,
 ) Error!struct { img: modular.Image, y: usize } {
     const full = &ctx.full;
     if (full.transforms.len == 0) return .{ .img = full.*, .y = y0 };
-    const b = try full.band(arena, y0, @intCast(rows));
+    const b = try full.band(arena, y0, @intCast(rows), copy);
     if (b.len != ctx.num_color + ctx.image.num_ec) return error.BadImage;
     for (b.channels()) |c| if (c.w != ctx.d.width or c.h != rows) return error.BadImage;
     return .{ .img = b, .y = 0 };

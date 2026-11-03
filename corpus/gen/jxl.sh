@@ -50,6 +50,19 @@ cj --lossless_jpeg=1 "$tmp/tall-420.jpg" "$out/jxl/jpeg-tall-420.jxl"
 # The same, streamed with its alpha.
 im "$rgba" -resize '8x1100!' "$tmp/tall-alpha.png"
 cj -d 2 --epf=3 --gaborish=1 "$tmp/tall-alpha.png" "$out/jxl/vardct-tall-alpha.jxl"
+# Streamed with noise; upsampled twice with alpha (upsampled with the
+# colors), an odd width; and with patches of a glyph repeated on a flat
+# background, which cjxl takes into a dictionary frame, and alpha.
+cj -d 2 --photon_noise_iso=6400 "$tmp/tall.png" "$out/jxl/vardct-tall-noise.jxl"
+im "$rgba" -resize '17x2100!' "$tmp/tall-alpha-2x.png"
+cj -d 2 --resampling=2 "$tmp/tall-alpha-2x.png" "$out/jxl/vardct-tall-upsampling.jxl"
+im "$grey" -resize '12x16!' -threshold 50% -background white -gravity northwest -extent 14x20 \
+  -colorspace sRGB -type TrueColor -fill '#204080' -opaque black "$tmp/glyph.png"
+im -size 14x20 xc:white "$tmp/blank.png"
+im "$tmp/glyph.png" "$tmp/glyph.png" "$tmp/blank.png" +append "$tmp/glyphs.png"
+im -size 41x1100 "tile:$tmp/glyphs.png" -alpha set -channel A -fx 'j<550?1:0.5' +channel \
+  -type TrueColorAlpha "$tmp/text.png"
+cj -d 1 --patches=1 "$tmp/text.png" "$out/jxl/vardct-tall-patches.jxl"
 # Two-level alpha, which cjxl palettes over the whole frame: the palette
 # is undone on each band.
 im "$tmp/tall-alpha.png" -channel A -threshold 50% +channel "$tmp/tall-alpha2.png"

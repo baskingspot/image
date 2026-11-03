@@ -119,8 +119,8 @@ writing past it. Its terms, in `Decoder.workBound`:
 
 **Streaming.** A shown VarDCT frame that replaces the canvas and is never
 referenced, in one pass with its groups in order (the TOC not permuted),
-without upsampling, patches, splines, or noise, and at least five group
-rows tall, keeps a ring of three group rows of pixels
+without splines or extra channels upsampled by another factor than the
+colors, and at least five group rows tall, keeps a ring of three group rows of pixels
 instead of whole planes (`vardct.Shared.ring_rows`). Once a
 group row is in, the one before it is copied with eight rows of each
 neighbor into a window, filtered there (Gaborish reads one row each side,
@@ -131,10 +131,26 @@ written to the caller's rows. Subsampled chroma (a recompressed JPEG's) is
 upsampled into the window: each ring row of a subsampled channel is
 upsampled across in place once, when the first window needs it, and the
 window's rows are blended down from those, as `vardct.upsampleChroma` does
-on whole planes, before Gaborish, which then filters the window in place. Extra channels (alpha) are Modular channels
-read as each band is written: groups decode in order, so a group row's
-extra channels are final once its groups are in, and they keep two group
-rows (`Channel.ring`), the band being written and the row after it. A
+on whole planes, before Gaborish, which then filters the window in place.
+After the filters, a band takes the patches that cross its rows, in the
+dictionary's order, which is each pixel's order whatever the rows
+(`patches.apply` takes a row range); with upsampling, the window's margin
+is sixteen rows, so that two filtered rows each side of the band remain,
+which the patches and the upsampling of the band (`upsample.upsampleRows`)
+read, the extra channels' too, and the band is color-transformed into
+contiguous rows of the frame's width, which start a multiple of eight
+samples into the frame, so the transform's vector and scalar parts fall on
+the same samples as on whole planes. Noise is drawn per tile of a group's
+size after upsampling, each tile's generator filling one plane after
+another, so its random rows are made a tile row at a time into a ring that
+reaches two rows past the band (`noise.Stream`), and the whole frame's
+noise goes through the same code. Extra channels (alpha) are Modular
+channels read as each band is written: groups decode in order, so a group
+row's extra channels are final once its groups are in, and they keep two
+group rows (`Channel.ring`), the band being written and the row after it,
+or three with upsampling, whose band reads two rows of the band before
+(and undoes their global transforms on copies, since two bands read
+them). A
 Modular frame under the same conditions, drawn in integers (no XYB,
 filters, or YCbCr: `frame.needsFloat` false) and at least two group rows
 tall, keeps one group row of each channel and writes each group row as
@@ -153,7 +169,7 @@ are known: rings, or whole planes and channels. Pixels are the whole
 frame's bit for bit (the unit tests and the fuzz target's `checkStream`
 compare them, and `vardct-tall*.jxl`, `jpeg-tall-420.jxl`, and
 `modular-tall*.jxl` in the generated corpus cover the plain, permuted,
-alpha, palette, 4:2:0, and squeezed cases). `decodeConfig` peeks the TOC's permutation bit
+alpha, palette, 4:2:0, noise, upsampling, patches, and squeezed cases). `decodeConfig` peeks the TOC's permutation bit
 after the frame header, so the bound shrinks only when the frame will
 stream; for VarDCT with extra channels it keeps the larger of the ring and
 whole planes, since the transforms are not known until the frame is read,
@@ -408,9 +424,12 @@ noise at about ±1.5%.
 
 ## Next
 
-1. **Memory, further**: stream more frames (noise and upsampling, which
-   need a few more rows each); keep two
-   group rows plus the margin instead of three. `work_len` for Modular
+1. **Memory, further**: reference slots sized by the frames saved in
+   them: a frame with patches keeps four slots of the canvas's size (12
+   bytes a pixel each), though cjxl's patch dictionary frame is a strip,
+   which is most of the 699 MB peak of a 4000×2667 `--resampling=2` file
+   (results/jxl-noiseup-20261103.md); streaming frames with splines; keep
+   two group rows plus the margin instead of three. `work_len` for Modular
    stays the whole frame's until `decodeConfig` can learn the transforms,
    which come after the tree (`results/jxl-mstream2-20261103.md`).
 2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no

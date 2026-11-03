@@ -164,8 +164,10 @@ fn clamp01(v: f32) f32 {
     return std.math.clamp(v, 0, 1);
 }
 
-/// Blends every patch, in order, into `planes` (three colors, rows of
-/// `stride`, then the extra channels, rows of `ec_stride`; `w` by `h`).
+/// Blends every patch, in order, into rows `y0 .. y1` of a frame `w` by
+/// `h`, which `planes` holds from row `y0` (three colors, rows of
+/// `stride`, then the extra channels, rows of `ec_stride`). Each pixel
+/// takes the patches that cover it in the same order, whatever the rows.
 pub fn apply(
     dict: *const Dictionary,
     image: *const headers.ImageHeader,
@@ -175,6 +177,8 @@ pub fn apply(
     ec_stride: usize,
     w: usize,
     h: usize,
+    y0: usize,
+    y1: usize,
 ) void {
     const ne = image.num_ec;
     var has_alpha = false;
@@ -184,22 +188,23 @@ pub fn apply(
         const src = refs[ref.slot].?;
         const bl = dict.blendings[pi * dict.stride ..][0..dict.stride];
         const x1 = @min(w, @as(usize, pos.x) + ref.w);
-        const y1 = @min(h, @as(usize, pos.y) + ref.h);
+        const py1 = @min(@min(h, y1), @as(usize, pos.y) + ref.h);
         if (pos.x >= x1) continue;
-        var y: usize = pos.y;
-        while (y < y1) : (y += 1) {
+        var y: usize = @max(pos.y, y0);
+        while (y < py1) : (y += 1) {
             const sy = ref.y0 + (y - pos.y);
+            const at = y - y0;
             for (pos.x..x1) |x| {
                 const sx = ref.x0 + (x - pos.x);
                 var bg: [3 + headers.max_extra_channels]f32 = undefined;
                 var fg: [3 + headers.max_extra_channels]f32 = undefined;
                 for (0..3 + ne) |c| {
-                    bg[c] = planes[c][y * (if (c < 3) stride else ec_stride) + x];
+                    bg[c] = planes[c][at * (if (c < 3) stride else ec_stride) + x];
                     fg[c] = src.planes[c][sy * src.w + sx];
                 }
                 var out = bg;
                 blendPixel(image, bl, has_alpha, &bg, &fg, &out);
-                for (0..3 + ne) |c| planes[c][y * (if (c < 3) stride else ec_stride) + x] = out[c];
+                for (0..3 + ne) |c| planes[c][at * (if (c < 3) stride else ec_stride) + x] = out[c];
             }
         }
     }

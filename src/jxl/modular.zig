@@ -207,8 +207,10 @@ pub const Image = struct {
     /// Rows `y0 .. y0 + rows` of a `ringed` image, which its rings hold
     /// in order, with its transforms undone: the rings' rows as channels
     /// of `rows`, and new channels from `arena` where the transforms add
-    /// them. The meta channels are shared; `img` is not changed.
-    pub fn band(img: *const Image, arena: *Arena, y0: usize, rows: u32) Error!Image {
+    /// them. The meta channels are shared. The transforms are undone in
+    /// place, on the rings' rows, unless `copy`, which takes the rows
+    /// into `arena` first, so that they can be read again.
+    pub fn band(img: *const Image, arena: *Arena, y0: usize, rows: u32, copy: bool) Error!Image {
         var b: Image = img.*;
         b.buf = try arena.alloc(Channel, img.buf.len);
         @memcpy(b.buf[0..img.len], img.channels());
@@ -222,6 +224,11 @@ pub const Image = struct {
                 .vshift = from.vshift,
                 .data = from.data[at * from.w ..][0 .. rows * from.w],
             };
+            if (copy) {
+                const d = try arena.alloc(i32, c.data.len);
+                @memcpy(d, c.data);
+                c.data = d;
+            }
         }
         try b.undoTransforms(arena);
         return b;

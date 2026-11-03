@@ -30,6 +30,7 @@ const vardct = @import("vardct.zig");
 const icc = @import("icc.zig");
 const patches = @import("patches.zig");
 const splines = @import("splines.zig");
+const noise = @import("noise.zig");
 
 const Decoder = @This();
 
@@ -308,7 +309,7 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
         if (stream) {
             const fh = f.?;
             const dims: headers.Dims = .init(fh);
-            const rows: u128 = frame.ringRows(fh) + dims.group_dim + 16;
+            const rows: u128 = frame.ringRows(fh) + dims.group_dim + 2 * frame.bandMargin(fh);
             const ring = @min(pad_px, @as(u128, dims.xsize_blocks) * 8 * rows) + pad_px / 64;
             // With extra channels, global transforms found in the frame
             // take whole planes instead (`frame.lfGlobal`).
@@ -327,10 +328,21 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
         total += pre_px * 12 + pre_px / 16;
     }
     // Upsampled planes, the extra channels as floats, the noise's planes,
-    // and patches and splines at their budgets.
-    if (upsampled or flags & headers.flag_patches != 0) total += ne * up_px * 4 + pre_px * 4;
-    if (upsampled) total += up_px * 12;
-    if (flags & headers.flag_noise != 0) total += up_px * 12 + 64 * @as(u128, h.width) * 4;
+    // and patches and splines at their budgets; a streamed frame's
+    // upsampled planes and extra channels are a band's, and its noise a
+    // band and a group row of random rows.
+    var band_px = up_px;
+    var noise_bytes = up_px * 12 + 64 * @as(u128, h.width) * 4;
+    if (stream) {
+        const fh = f.?;
+        const dims: headers.Dims = .init(fh);
+        const rows = @as(u64, dims.group_dim) * fh.upsampling;
+        band_px = @min(up_px, @as(u128, rows) * fh.width);
+        noise_bytes = @min(noise_bytes, noise.Stream.bytes(fh.width, rows, dims.group_dim));
+    }
+    if (upsampled or flags & headers.flag_patches != 0) total += ne * band_px * 4 + pre_px * 4;
+    if (upsampled) total += band_px * 12;
+    if (flags & headers.flag_noise != 0) total += noise_bytes;
     if (flags & headers.flag_patches != 0) total += patches.budgetBytes(@intCast(pad_px), h.num_ec);
     if (flags & headers.flag_splines != 0) total += splines.budgetBytes(@intCast(pre_px));
     return total;
@@ -836,32 +848,24 @@ const BandOut = struct {
     fh: *const headers.FrameHeader,
     dst: PixelBuffer,
 
-    fn write(
-        ctx: *anyopaque,
-        planes: ?[3][]f32,
-        stride: usize,
-        extra: *const modular.Image,
-        extra_y: usize,
-        y0: usize,
-        rows: usize,
-    ) void {
+    fn write(ctx: *anyopaque, b: *const frame.Band) void {
         const o: *BandOut = @ptrCast(@alignCast(ctx));
         const image = &o.d.image;
         const f: Frame = .{
             .d = o.d,
-            .img = extra,
-            .img_y = extra_y,
+            .img = b.extra,
+            .img_y = b.extra_y,
             .num_color = colourPlanes(image),
-            .color = planes,
-            .color_stride = stride,
-            .transform = if (planes != null) o.fh else null,
-            .ec = null,
+            .color = b.planes,
+            .color_stride = b.stride,
+            .transform = if (b.planes != null and !b.transformed) o.fh else null,
+            .ec = b.ec,
             .w = image.width,
-            .h = @intCast(rows),
+            .h = @intCast(b.rows),
             .x0 = 0,
             .y0 = 0,
         };
-        f.writeRows(o.dst, y0, rows);
+        f.writeRows(o.dst, b.y0, b.rows);
     }
 };
 
@@ -1345,7 +1349,7 @@ test "a streamed frame's pixels are the whole frame's" {
         "\x13\xf0\xe3\x7c\x20\x1c\x05\x3a\xb4\xba\x7c\xbe\xc3\x00\xf0\x6f\x26\xce\x8c\x0a\x01\x19\xc4\x1d" ++
         "\x4c\xf0\x00\x55\xaa\x07\x99\x13\x8c\xae\xb4\x77\xd2\x58\x10\xd0\xd0\x37\x27\x0c\x99\x0d\x0e\xf0" ++
         "\x61\xc0\x6d\xda\x4e\x02\x36\xab\x63\x71\xe9\x29\x4d\x19\x90\x39\x94\x20\x1b";
-    try expectStreamsSame(file, 1100);
+    try expectStreamsSame(file, 1100, true);
 }
 
 test "a streamed Modular frame's pixels are the whole frame's" {
@@ -1375,7 +1379,7 @@ test "a streamed Modular frame's pixels are the whole frame's" {
         "\xc3\xc3\x7a\x91\xf0\x48\x8d\x04\x07\x80\x90\xa4\xd8\x80\x48\x51\x2e\xb3\x94\xa2\x68\xea\x6b\xcb" ++
         "\x88\xb1\xb4\xac\x55\x89\x4e\xa6\x64\x04\x67\x3a\xae\x44\xf4\xff\x7f\x39\x1e\xba\x01\x15\x10\x05" ++
         "\x45\x8b\x45\xc0\x5c\x09\x90";
-    try expectStreamsSame(file, 300);
+    try expectStreamsSame(file, 300, true);
 }
 
 test "a streamed Modular frame with global transforms is the whole frame" {
@@ -1414,7 +1418,7 @@ test "a streamed Modular frame with global transforms is the whole frame" {
         "\x80\x0f\x60\x00\xac\xa5\x02\x17\x88\x15\x00\xfa\x87\x05\x80\x7d\xe9\xd3\xb2\xec\x4f\xfc\x9f\xfd" ++
         "\xff\xfc\xde\xfd\xec\xff\x74\x2f\xed\x7a\xff\xbd\xc1\x47\x91\x38\x71\x43\x4c\x3e\x16\x20\x1d\x96" ++
         "\x84\x2e\x00\x67\x0c";
-    try expectStreamsSame(file, 300);
+    try expectStreamsSame(file, 300, true);
 }
 
 test "a streamed frame with subsampled chroma is the whole frame" {
@@ -1463,7 +1467,7 @@ test "a streamed frame with subsampled chroma is the whole frame" {
         "\xd2\x38\x94\x20\x83\x10\xe7\x33\x00\xe8\x02\xe5\x5e\x07\x24\x00\xa1\x79\x1d\xb6\xae\x45\xcf\x80" ++
         "\x2d\x25\xc0\xc9\x03\xac\x28\x40\xf9\x1b\x88\xf9\x00\xa8\x12\x80\x5b\x34\xc0\xbc\x13\x86\x05\x00" ++
         "\x84\x16\x00\x3d\x13\x08\x0b\x18\x0c\x47\x6b\x03\x80\x02\x01\xa2\x06\x5c\x25\x01\x00\xd0\x07";
-    try expectStreamsSame(file, 1100);
+    try expectStreamsSame(file, 1100, true);
 }
 
 test "patches blend into the extra channels at their own stride" {
@@ -1551,9 +1555,37 @@ test "patches blend into the extra channels at their own stride" {
     }
 }
 
+test "a streamed upsampled frame with noise is the whole frame" {
+    // basn6a08.png resized to 8 by 2200, `cjxl -d 2 --resampling=2
+    // --photon_noise_iso=6400`: five group rows stored at half the size,
+    // whose bands are upsampled, with their alpha, from two rows of the
+    // bands around them, and whose noise's random rows cross bands.
+    const file =
+        "\xff\x0a\xba\x44\xe0\x00\xd8\x50\xb4\x08\x10\xd4\x04\x48\x00\x74\xc1\x38\x0c\x40\x02\x24\x40\x02" ++
+        "\x24\xc0\x01\x00\x08\x30\x00\x01\x06\x1c\x90\xc0\x02\xd3\x4f\x12\x00\x80\x0a\x95\x51\xc6\x0d\x5e" ++
+        "\xce\xf5\x7c\xf9\xa1\xc3\x62\xda\xc6\x75\x86\xb6\xda\xb6\xb0\x84\x22\xd3\xcd\x3e\x68\x62\x1e\x0d" ++
+        "\x05\x07\x09\x05\x25\x93\x08\x8c\x1b\xf2\x8f\x12\x52\x25\x92\x58\x0b\x20\x44\x8c\x46\x8c\x75\x8c" ++
+        "\x6a\x8c\x97\x31\x98\x96\x31\x38\xf2\x02\x40\x00\x04\xc6\x04\x00\x00\x08\x70\x01\x80\x80\x40\x00" ++
+        "\xcd\x80\x5f\x00\x00\x61\xbc\x0e\x40\x1a\x04\xa1\x7f\x08\xeb\xff\x1f\x28\x43\xfc\x90\xf1\x33\x9f" ++
+        "\x33\x8f\xf8\x6d\xcc\x4f\x06\x24\x57\xb0\x82\x5f\x5b\xdc\xa0\xd8\x62\xd4\x6e\xcb\x44\xdb\x78\x43" ++
+        "\x7b\x19\x7e\xf3\x7b\xcb\xc0\xa8\xc0\xbc\xc1\x8c\x8b\xb4\x20\x73\xee\x9d\x3c\xbb\x3c\x23\x45\xc4" ++
+        "\x11\x78\xc5\x10\x0f\x11\x61\x61\xa6\x28\x63\x06\x96\x45\xa9\xc5\x15\x4f\x3f\x87\xbb\x14\x64\xc8" ++
+        "\x3e\xc0\x44\x40\xc5\x1a\x09\x05\xc8\x9d\xe4\x9c\xe4\x9b\x24\x9c\x8c\x9c\x64\x38\xe4\xb9\x72\x59" ++
+        "\xb0\xdb\x8d\x5c\xaf\xda\x3e\x45\x9c\x29\xaa\xd0\xa8\x64\x90\xce\x4a\xc4\x6b\x13\x82\xbd\x88\x3e" ++
+        "\x25\x0b\x09\x2d\x40\xa5\x30\x83\x5e\xf3\xb7\x6e\x97\x72\x87\xf5\x86\x74\xf0\x5e\x7b\xda\xb6\xd3" ++
+        "\x9e\x0e\xff\x75\xd8\x6e\x07\x98\xc1\x6d\x20\x1a\x81\x80\x08\x00\xe2\x8f\x0b\xf1\x0b\x40\xdd\x97" ++
+        "\x81\x21\x46\xa5\xa8\xc7\xa4\x41\x10\xa1\x42\x9a\x88\x08\x28\xc2\xc4\x56\xc3\xf0\x5a\x33\xa1\x0c" ++
+        "\xcd\xc5\x40\xa2\xa6\x3e\xc3\xc6\x23\xb0\x1d\xa1\x24\x01\x33\x3b\x39\x00\xd0\x08\xe2\x20\x05\x33" ++
+        "\x3b\x39\x00\xd0\x08\xe2\x20\x05\x33\x3b\x39\x00\xd0\x08\xe2\x20\x05\x33\x3b\x39\x00\xd0\x08\xe2" ++
+        "\x20\x05\xe3\xde\xf4\xf8\xa4\x08\x0c";
+    try expectStreamsSame(file, 2200, false);
+}
+
 /// Decodes the 8 pixels wide `file` streamed and whole, and expects the
-/// same pixels from less memory streamed.
-fn expectStreamsSame(file: []const u8, comptime h: u32) !void {
+/// same pixels from less memory streamed, or with `smaller` false (where
+/// so narrow a frame's whole planes are smaller than a band's buffers),
+/// from different memory, which shows that it streamed.
+fn expectStreamsSame(file: []const u8, comptime h: u32, smaller: bool) !void {
     var out: [2][8 * h * 8]u8 = undefined;
     var peak: [2]usize = undefined;
     for (0..2) |i| {
@@ -1567,7 +1599,7 @@ fn expectStreamsSame(file: []const u8, comptime h: u32) !void {
         peak[i] = d.store.arena.peak;
     }
     try testing.expectEqualSlices(u8, &out[1], &out[0]);
-    try testing.expect(peak[0] < peak[1]);
+    try testing.expect(if (smaller) peak[0] < peak[1] else peak[0] != peak[1]);
 }
 
 test "signature" {
