@@ -307,8 +307,16 @@ Running beside wave 1's tail, started early by the owner:
   libjxl before, 1 now). Open: a fuzzed far-out-of-gamut XYB frame
   (27366ec7…) is 5 steps off libjxl; fused multiply-adds in the XYB
   transform don't close it (the inputs already differ in their last bits),
-  so it is the reference's float freedom. Next: noise and upsampled frames, then two group rows
-  instead of three.
+  so it is the reference's float freedom (row 76 open). Streaming also
+  covers noise, upsampling (extra channels at the same factor), and patches
+  (`wave4-jxl-noiseup`, results/jxl-noiseup-20261103.md); only splines and
+  extra channels upsampled by another factor keep a frame whole. A 4000×2667
+  noise photo peaks at 81 MB instead of 260. A streamed VarDCT frame keeps
+  two group rows and a margin's tail, and streams from four group rows
+  (results/jxl-tworows-20261103.md; that photo 81.4 → 69.4 MB). Next:
+  check whether reference slots sized to their frames save RSS as well as
+  arena before doing it; splines streaming; extra-channel rings at one
+  group row plus the margin.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
