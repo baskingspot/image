@@ -99,7 +99,7 @@ fn params(effort: Effort) Params {
             .wp_prop = true,
             .samples = 1 << 18,
             .thresholds = 32,
-            .max_leaves = 2048,
+            .max_leaves = 1024,
             .split_cost = 48,
             .palette_max = 1024,
             .rct_pixels = 1 << 15,

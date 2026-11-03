@@ -1,0 +1,4 @@
+effort default [m0-1]: 14630805 bytes, 28271.5 ms; icons<=64x64: 23449 bytes, 116.4 ms
+effort default [m1-1]: 14652929 bytes, 25782.2 ms; icons<=64x64: 23449 bytes, 115.3 ms
+effort default [m0-2]: 14630805 bytes, 27968.5 ms; icons<=64x64: 23449 bytes, 115.9 ms
+effort default [m1-2]: 14652929 bytes, 26052.0 ms; icons<=64x64: 23449 bytes, 118.9 ms

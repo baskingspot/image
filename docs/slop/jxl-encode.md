@@ -19,6 +19,9 @@ tree learning faster on small images and in a third of the memory up to a
 megapixel, and larger trees at fast and default, which closed most of the
 gap on photos.
 
+Stage 3 (`wave5-jxl-encode3`, `results/jxl-encode3-20261102.md`):
+default's tree stops at 1024 leaves (decision 71).
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -119,7 +122,7 @@ are kept between the passes; otherwise the second pass makes them again.
 | reference channels                | 0        | 2                             | 3      |
 | samples                           | 2^15     | 2^18                          | 2^19   |
 | thresholds per property           | 16       | 32                            | 64     |
-| leaves                            | 256      | 2048                          | 2048   |
+| leaves                            | 256      | 1024                          | 2048   |
 | split cost (bits)                 | 64       | 48                            | 40     |
 | split judged on                   | 4096     | 16384                         | 16384  |
 | predictors a split is judged with | 1        | 2                             | 14     |
@@ -128,7 +131,8 @@ are kept between the passes; otherwise the second pass makes them again.
 
 Against cjxl, on the 43-file corpus (stage 2): fast is 2.3% smaller than
 e3 at 0.89 and 0.71 of its speed up to and above a megapixel; default is
-e7's size (1.003 of its total) at 0.82 and 1.01 of its speed; best is
+e7's size (1.003 of its total) at 0.82 and 1.01 of its speed (stage 3,
+at 1024 leaves, decision 71: 1.005 at 0.89 and 1.15); best is
 e8's size (0.998) at 0.59 and 1.55 of its speed. Icons run at 0.46, 0.60,
 and 0.20 of those efforts' speed. The results files have the per-class
 tables.
