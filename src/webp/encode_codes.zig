@@ -3,6 +3,7 @@
 //! codes, and how a code's lengths are themselves written.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 
@@ -80,7 +81,7 @@ pub const Histogram = struct {
     dist: [40]u32,
 
     pub fn clear(h: *Histogram) void {
-        @memset(std.mem.asBytes(h), 0);
+        vfill(u8, std.mem.asBytes(h), 0);
     }
 
     pub fn add(h: *Histogram, o: *const Histogram) void {
@@ -197,7 +198,7 @@ pub const Scratch = struct {
 /// `counts`, a complete code when two or more symbols occur. Returns how
 /// many symbols occur; a lone symbol gets length 1, and none, all zeros.
 pub fn buildLengths(counts: []const u32, limit: u5, lens: []u8, s: *Scratch) usize {
-    @memset(lens, 0);
+    vfill(u8, lens, 0);
     var n: usize = 0;
     for (counts, 0..) |c, i| {
         if (c == 0) continue;
@@ -285,7 +286,8 @@ fn sortKeys(keys: []u64, spare: []u64) void {
     var shift: u6 = 0;
     while (true) : (shift += 8) {
         if (@as(u8, @truncate((all_or ^ all_and) >> shift)) != 0) {
-            var at: [256]u32 = @splat(0);
+            var at: [256]u32 = undefined;
+            vfill(u32, &at, 0);
             for (from) |k| at[@as(u8, @truncate(k >> shift))] += 1;
             var sum: u32 = 0;
             for (&at) |*c| {

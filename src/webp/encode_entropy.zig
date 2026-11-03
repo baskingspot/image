@@ -7,6 +7,7 @@
 //! others.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const codes = @import("encode_codes.zig");
 const lz77 = @import("encode_lz77.zig");
@@ -162,8 +163,8 @@ pub fn cluster(in: Input) usize {
     // its own as its feature. A token belongs to the tile of its first
     // pixel. Each row of tiles is counted in one walk over its tokens,
     // with a dense count array per tile of the row.
-    @memset(m.dense, 0);
-    @memset(m.seen, @splat(0));
+    vfill(u16, m.dense, 0);
+    vfill(u8, std.mem.sliceAsBytes(m.seen), 0);
     var at: usize = 0;
     var t: usize = 0;
     var p: usize = 0;
@@ -435,7 +436,8 @@ const xlog_table = blk: {
 
 /// Renumbers the groups in use from 0, returning how many there are.
 fn compact(in: Input, tiles: usize) usize {
-    var map: [1024]u32 = @splat(std.math.maxInt(u32));
+    var map: [1024]u32 = undefined;
+    vfill(u32, &map, std.math.maxInt(u32));
     var next: u32 = 0;
     for (in.tile_group[0..tiles]) |*g| {
         if (map[g.*] == std.math.maxInt(u32)) {

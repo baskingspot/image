@@ -12,6 +12,7 @@
 //! simple (one VP8L chunk) unless metadata needs VP8X.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const builtin = @import("builtin");
 const testing = std.testing;
 const Io = std.Io;
@@ -572,7 +573,7 @@ const Encoding = struct {
         const base = std.mem.alignForward(usize, @intFromPtr(work.ptr), 16) - @intFromPtr(work.ptr);
         const wk: Work = .{ .mem = @alignCast(work[base..][0 .. l.total - 16]) };
         const n = @as(usize, width) * height;
-        @memset(wk.chain(l).head, lz77.none);
+        vfill(u32, wk.chain(l).head, lz77.none);
 
         const argb = wk.slice(u32, l.argb, n);
         source.fill(argb);
@@ -630,7 +631,7 @@ fn rankModes(
     colors: *?usize,
 ) usize {
     const h = wk.one(Analysis, l.analysis);
-    @memset(std.mem.asBytes(h), 0);
+    vfill(u8, std.mem.asBytes(h), 0);
     const w: usize = width;
     var y: usize = 0;
     // The column by `i % w`: with a counter instead, flat images rank 1.8x
@@ -678,7 +679,8 @@ fn rankModes(
         if (table.find(argb, palette[0..256])) |count| {
             colors.* = count;
             // The indices' entropy over the same pixels, and the palette.
-            var idx: [256]u32 = @splat(0);
+            var idx: [256]u32 = undefined;
+            vfill(u32, &idx, 0);
             y = 0;
             while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w, 0..) |i, x| {
                 const p = argb[i];
@@ -962,13 +964,13 @@ fn toArgb(src: PixelBuffer, argb: []u32) void {
 /// entropy and a rough cost for the larger codes.
 fn chooseCache(px: []const u32, tokens: []const u32, cs: *CacheScratch, cache: []u32) u5 {
     const max = codes.max_cache_bits;
-    @memset(std.mem.asBytes(cs), 0);
+    vfill(u8, std.mem.asBytes(cs), 0);
     // One cache for each size, side by side: size 2^b starts at 2^b. Every
     // cache sees the same pixels, and a cache's slot holds the last pixel
     // whose hash starts with its index, so a pixel that one cache holds,
     // every larger one does too: a literal's channels are counted once, by
     // the smallest cache that holds it.
-    @memset(cache[0 .. 2 << max], 0);
+    vfill(u32, cache[0 .. 2 << max], 0);
     var p: usize = 0;
     var t: usize = 0;
     while (t < tokens.len) {

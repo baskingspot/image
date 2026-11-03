@@ -10,6 +10,7 @@
 //! outnumber the pixels.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const builtin = @import("builtin");
 const testing = std.testing;
 const codes = @import("encode_codes.zig");
@@ -256,7 +257,7 @@ pub fn findMatches(px: []const u32, width: u32, params: Params, chain: Chain, ma
     if (params.chain == 0) return;
     if (n * 32 < chain.head.len) {
         for (0..n - 1) |i| chain.head[chain.hash(px[i], px[i + 1])] = none;
-    } else @memset(chain.head, none);
+    } else vfill(u32, chain.head, none);
 }
 
 inline fn insert(chain: Chain, px: []const u32, i: usize, mask: usize) void {

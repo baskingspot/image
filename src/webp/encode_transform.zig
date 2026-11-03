@@ -5,6 +5,7 @@
 //! searched coarse to fine).
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 
 /// Adds two pixels channel by channel, modulo 256.
@@ -70,7 +71,7 @@ pub const ColorTable = struct {
 
     /// The image's colors into `palette`, sorted, or null past 256.
     pub fn find(t: *ColorTable, px: []const u32, palette: *[256]u32) ?usize {
-        @memset(&t.vals, empty);
+        vfill(u16, &t.vals, empty);
         var n: usize = 0;
         var last: u32 = px[0] +% 1;
         for (px) |c| {
@@ -258,11 +259,11 @@ pub fn predict(
     s: *PredictScratch,
 ) void {
     std.debug.assert(bits <= 5);
-    if (cost == .entropy) for (&s.hist) |*c| @memset(c, 0);
+    if (cost == .entropy) for (&s.hist) |*c| vfill(u16, c, 0);
     const tw = divRoundUp(w, bits);
     const th = divRoundUp(h, bits);
     const W: usize = w;
-    for (&s.acc) |*a| @memset(a, 0);
+    for (&s.acc) |*a| vfill(u32, a, 0);
     var acc_total: u32 = 0;
     // The first pass chooses each tile's mode against the residuals of the
     // tiles before it; each refining pass again, against all the others'.
@@ -443,7 +444,8 @@ fn channelCost(
     acc: *const [256]u32,
     acc_total: u32,
 ) f32 {
-    var hist: [256]u16 = @splat(0);
+    var hist: [256]u16 = undefined;
+    vfill(u16, &hist, 0);
     for (base, c, other) |b, x, o| {
         const v: u8 = @truncate(@as(u32, @bitCast(@as(i32, b) - delta(t, x) - delta(t2, o))));
         hist[v] += 1;
@@ -517,7 +519,7 @@ pub fn crossColor(px: []u32, w: u32, h: u32, bits: u5, sample: u32, out: []u32, 
     const tw = divRoundUp(w, bits);
     const th = divRoundUp(h, bits);
     const W: usize = w;
-    for (&s.acc) |*a| @memset(a, 0);
+    for (&s.acc) |*a| vfill(u32, a, 0);
     var acc_total: u32 = 0;
     for (0..th) |ty| {
         for (0..tw) |tx| {
