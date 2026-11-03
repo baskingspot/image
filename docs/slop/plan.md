@@ -250,8 +250,17 @@ Running beside wave 1's tail, started early by the owner:
   (`float_direct`): all 40 conformance files are within their peak bounds
   against libjxl's floats. Open: 135 of bike's 21 M samples, blue below
   −0.13, are less negative than libjxl's unclamped output (outside the
-  clamped reference's bounds). Next: speed (decodeJpeg and VarDCT, a
-  tighter `jpegWorkLen`), the Modular properties for the encoder, and
+  clamped reference's bounds). Decode speed (`wave4-jxl-speed`,
+  results/jxl-speed-20261103.md): decodeJpeg's coefficients +48% (range
+  checked once a block), VarDCT +21% (separable LLF DCT, coefficients kept
+  zero, Gaborish vectorized in place, a cheaper cube root), Modular +16%
+  (two-level tree walk, scalar weighted-predictor table reads, inlined
+  symbol reads). Over ede392a: lossy +32%, lossless +16%, baseline rebuild
+  +54%, peak RSS unchanged; about 0.76× libjxl lossy, 0.89× lossless, 0.59×
+  rebuilding the mosaic. `jpegWorkLen` 9.2 MB at 16×16 (from 10.0), 25 MB
+  at 768×512 (from 37). `modular.pixelProps` and `modular.walk` are pub for
+  the encoder. Next: speed pass 2 (EPF, the coefficient loop specialized on
+  the code's kind, comptime default quant tables, no plane clearing), then
   render by group row.
 
 Started at once by the owner ("anything we can do in parallel"), each
