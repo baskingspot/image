@@ -39,6 +39,7 @@ const tables = @import("vp8_encode_tables.zig");
 const dsp = @import("vp8_encode_dsp.zig");
 const coder = @import("vp8_encode_bool.zig");
 const trellis = @import("vp8_encode_trellis.zig");
+const vfill = @import("../fill.zig").fill;
 
 /// How hard the encoder works to make the file small for its quality.
 pub const Effort = enum {
@@ -1339,13 +1340,10 @@ const Enc = struct {
     }
 };
 
-/// Zeroes `h` sixteen counts to a store. A plain zeroing becomes a call
-/// to `memset`, which without libc is compiler_rt's, a byte at a time:
-/// 7% of a 16x16 image's time for the two histograms.
+/// Zeroes `h`. A plain zeroing becomes a call to compiler_rt's
+/// byte-wise `memset`: 7% of a 16x16 image's time for the two histograms.
 fn zeroHist(h: *coder.Hist) void {
-    const V = @Vector(16, u32);
-    const vs: *align(4) volatile [@sizeOf(coder.Hist) / @sizeOf(V)]V = @ptrCast(h);
-    for (vs) |*v| v.* = @splat(0);
+    vfill(u32, @as(*[@sizeOf(coder.Hist) / 4]u32, @ptrCast(h)), 0);
 }
 
 /// The probability of a 0 for a branch taken `zeros` and `ones` times,

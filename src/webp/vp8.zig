@@ -26,6 +26,7 @@ const std = @import("std");
 const testing = std.testing;
 const Io = std.Io;
 const tables = @import("vp8_tables.zig");
+const vfill = @import("../fill.zig").fill;
 
 pub const Error = error{
     ReadFailed,
@@ -1379,6 +1380,12 @@ pub fn decode(reader: *Io.Reader, len: u64, after: ?u64, fh: FrameHeader, work: 
     return .{ .unread = last.left, .over = over };
 }
 
+/// Zeroes a macroblock's coefficients. A plain zeroing of the 768 bytes
+/// becomes a call to compiler_rt's byte-wise `memset`.
+fn clearCoef(coef: *[24][16]i16) void {
+    vfill(i16, @as(*[24 * 16]i16, @ptrCast(coef)), 0);
+}
+
 fn decodeFrame(st: *State, sink: Sink) Error!void {
     const l = st.l;
     const h = &st.h;
@@ -1407,7 +1414,8 @@ fn decodeFrame(st: *State, sink: Sink) Error!void {
     var mb: Mb = .{};
     // Kept zero between macroblocks: a block is cleared after use only if
     // it had coefficients, which a zero code rules out.
-    var coef: [24][16]i16 = @splat(@splat(0));
+    var coef: [24][16]i16 = undefined;
+    clearCoef(&coef);
     var y2: [16]i16 = undefined;
 
     for (0..l.mbh) |mby| {
@@ -1508,7 +1516,7 @@ fn decodeFrame(st: *State, sink: Sink) Error!void {
 
             reconstruct(&sc, &mb, &coef, codes_y, codes_uv, mbx, mby, mbw, top_y, top_u, top_v);
             // All 24 blocks: cheaper than a branch per block on its code.
-            if (!skip) coef = @splat(@splat(0));
+            if (!skip) clearCoef(&coef);
 
             // Into the frame rows, and the bottom row kept for prediction.
             for (0..16) |r| @memcpy(ybuf[(8 + r) * w16 + 16 * mbx ..][0..16], sc.y[y0 + r * ys ..][0..16]);
