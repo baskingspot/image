@@ -99,7 +99,11 @@ pub fn Generic(comptime Png: type) type {
         /// one-entry file's PNG.
         pick: ?u16 = null,
         /// The picked entry's header, read by `decodeConfig`.
-        picked: union(enum) { none, bmp: dib.Header, png: if (has_png) Png else void } = .none,
+        picked: union(enum) { none, bmp: dib.Header, png } = .none,
+        /// A picked PNG entry's decoder and config. Kept out of `picked`,
+        /// whose initial value would otherwise zero it, 1.6 KB a decoder
+        /// (docs/slop/results/memset-20261103.md).
+        png: if (has_png) Png else void = undefined,
         png_config: if (has_png) decode.Config else void = undefined,
         directory: [max_entries][16]u8 = undefined,
 
@@ -244,8 +248,9 @@ pub fn Generic(comptime Png: type) type {
                 var o: Png.Options = .{};
                 o.limits = d.options.limits;
                 o.blob_sink = d.options.blob_sink;
-                d.picked = .{ .png = .init(d.in.r, o) };
-                d.png_config = try d.picked.png.decodeConfig();
+                d.picked = .png;
+                d.png = .init(d.in.r, o);
+                d.png_config = try d.png.decodeConfig();
                 d.canvas = .{ d.png_config.width, d.png_config.height };
             } else {
                 const b = try dib.readHeader(&d.in, .ico, 0);
@@ -275,7 +280,8 @@ pub fn Generic(comptime Png: type) type {
                 switch (d.picked) {
                     .none => unreachable,
                     .bmp => |h| try decodeBmp(&d.in, h, dst),
-                    .png => |*p| if (has_png) {
+                    .png => if (has_png) {
+                        const p = &d.png;
                         _ = (try p.decodeFrame(dst, work)) orelse return error.Truncated;
                         // A still image ends with IEND, which the next call
                         // reads and checks, as a PNG file's caller would.
