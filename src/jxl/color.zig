@@ -52,19 +52,28 @@ pub const Xyb = struct {
         return x;
     }
 
-    /// Converts `n` samples of the X, Y, B planes in place.
+    /// Converts the X, Y, B planes in place.
     pub fn apply(x: *const Xyb, planes: [3][]f32) void {
-        const px = planes[0];
-        const py = planes[1];
-        const pb = planes[2];
+        x.applyTo(planes, planes);
+    }
+
+    /// Converts the X, Y, B samples of `in` into R, G, B in `to`, the
+    /// same length, which may be `in`.
+    pub fn applyTo(x: *const Xyb, in: [3][]const f32, to: [3][]f32) void {
+        const ix = in[0];
+        const iy = in[1];
+        const ib = in[2];
+        const px = to[0];
+        const py = to[1];
+        const pb = to[2];
         var i: usize = 0;
         {
             // Eight at a time.
             const m = &x.matrix;
             while (i + 8 <= px.len) : (i += 8) {
-                const xv: V = px[i..][0..8].*;
-                const yv: V = py[i..][0..8].*;
-                const bv: V = pb[i..][0..8].*;
+                const xv: V = ix[i..][0..8].*;
+                const yv: V = iy[i..][0..8].*;
+                const bv: V = ib[i..][0..8].*;
                 const gr = yv + xv - @as(V, @splat(x.bias_cbrt[0]));
                 const gg = yv - xv - @as(V, @splat(x.bias_cbrt[1]));
                 const gb = bv - @as(V, @splat(x.bias_cbrt[2]));
@@ -81,10 +90,10 @@ pub const Xyb = struct {
                 pb[i..][0..8].* = out[2];
             }
         }
-        for (px[i..], py[i..], pb[i..]) |*xv, *yv, *bv| {
-            const gr = yv.* + xv.* - x.bias_cbrt[0];
-            const gg = yv.* - xv.* - x.bias_cbrt[1];
-            const gb = bv.* - x.bias_cbrt[2];
+        for (ix[i..px.len], iy[i..px.len], ib[i..px.len], px[i..], py[i..], pb[i..]) |xi, yi, bi, *xv, *yv, *bv| {
+            const gr = yi + xi - x.bias_cbrt[0];
+            const gg = yi - xi - x.bias_cbrt[1];
+            const gb = bi - x.bias_cbrt[2];
             const mr = gr * gr * gr + x.bias[0];
             const mg = gg * gg * gg + x.bias[1];
             const mb = gb * gb * gb + x.bias[2];

@@ -24,6 +24,8 @@ const entropy = @import("entropy.zig");
 const Arena = @import("Arena.zig");
 const modular = @import("modular.zig");
 const frame = @import("frame.zig");
+const color = @import("color.zig");
+const vfill = @import("../fill.zig").fill;
 const vardct = @import("vardct.zig");
 const icc = @import("icc.zig");
 const patches = @import("patches.zig");
@@ -784,12 +786,17 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
     const blend = needsBlending(fh, image.num_ec);
     const refd = canBeReferenced(fh);
     if ((blend or refd) and !d.needs_refs) return error.TooComplex;
+    // A frame only written takes its color transform as it is written,
+    // when its rows are whole vectors (VarDCT's are whole blocks), so
+    // that it is the whole planes' bit for bit.
+    const fuse = shown and !blend and !refd and dec.color != null and dec.color_stride % 8 == 0;
     const src: Frame = .{
         .d = d,
         .img = &dec.img,
         .num_color = dec.num_color,
         .color = dec.color,
         .color_stride = dec.color_stride,
+        .transform = if (fuse) fh else null,
         .ec = dec.ec,
         .w = dec.w,
         .h = dec.h,
@@ -798,7 +805,7 @@ fn oneFrame(d: *Decoder, fh: *const headers.FrameHeader, dst: PixelBuffer, blend
     };
     if (dec.color != null) d.float_frames = true;
     if (refd and fh.save_before_ct) try d.saveFrame(fh, &src);
-    frame.colorTransform(image, fh, &dec);
+    if (!fuse) frame.colorTransform(image, fh, &dec);
     if (blend) {
         blended.* = true;
         try d.composite(fh, &src);
@@ -830,7 +837,6 @@ const BandOut = struct {
     ) void {
         const o: *BandOut = @ptrCast(@alignCast(ctx));
         const image = &o.d.image;
-        frame.colorTransformPlanes(image, o.fh, planes);
         const f: Frame = .{
             .d = o.d,
             .img = extra,
@@ -838,6 +844,7 @@ const BandOut = struct {
             .num_color = image.colourChannels(),
             .color = planes,
             .color_stride = stride,
+            .transform = o.fh,
             .ec = null,
             .w = image.width,
             .h = @intCast(rows),
@@ -856,6 +863,10 @@ const Frame = struct {
     /// The color channels as floats, when not in `img` (VarDCT).
     color: ?[3][]f32,
     color_stride: usize,
+    /// The frame whose color transform the color planes still need, done
+    /// as they are written: a streamed band's, while its chunk is in
+    /// cache.
+    transform: ?*const headers.FrameHeader = null,
     /// The extra channels as floats, rows of `w`, when not in `img`
     /// (upsampled).
     ec: ?[]const []f32,
@@ -902,18 +913,44 @@ const Frame = struct {
         const h = &f.d.image;
         const p = through(dst.format, h, f.d.native_format);
         const conv: Converter = .init(dst.format, p);
+        // Packed straight into `dst` when converting would only copy the
+        // samples or add an opaque alpha.
+        const direct = packsDirect(dst.format, p, h);
+        const bpp = dst.format.bytesPerPixel();
         var buf: [chunk * 16]u8 align(4) = undefined;
         var fl: [max_planes][chunk]f32 = undefined;
         const alpha = h.alphaChannel();
+        // The transform takes all three planes (a grey XYB image has
+        // three), eight samples at a time: the planes' rows are whole
+        // blocks wide, so it never takes the scalar tail, and its samples
+        // are the whole planes' bit for bit.
+        const xyb: ?color.Xyb = if (f.transform != null and h.xyb) color.Xyb.init(h) catch null else null;
+        const ycbcr = if (f.transform) |fh| fh.ycbcr and !h.xyb else false;
+        const nc_in: usize = if (xyb != null or ycbcr) 3 else f.num_color;
         for (0..rows) |y| {
             const out = dst.row(@intCast(y0 + y));
             var x: usize = 0;
             while (x < h.width) {
                 const n = @min(chunk, h.width - x);
-                for (0..f.num_color) |c| f.row(c, y, x, fl[c][0..n]);
+                const n8 = if (nc_in == 3 and f.transform != null) (n + 7) / 8 * 8 else n;
+                const into: [3][]f32 = .{ fl[0][0..n8], fl[1][0..n8], fl[2][0..n8] };
+                if (xyb) |*t| {
+                    // Read from the planes, written to the chunk.
+                    var from: [3][]const f32 = undefined;
+                    for (&from, f.color.?) |*o, plane| o.* = plane[y * f.color_stride + x ..][0..n8];
+                    t.applyTo(from, into);
+                } else if (ycbcr) {
+                    const planes = f.color.?;
+                    for (0..3) |c| @memcpy(into[c], planes[c][y * f.color_stride + x ..][0..n8]);
+                    color.ycbcrToRgb(into);
+                } else for (0..f.num_color) |c| f.row(c, y, x, fl[c][0..n]);
                 if (alpha) |a| f.row(f.num_color + a, y, x, fl[f.num_color + a][0..n]);
-                packPivot(p, &fl, f.num_color, alpha, n, &buf, !isFloat(h));
-                conv.run(out[x * dst.format.bytesPerPixel() ..], &buf, n);
+                if (direct) {
+                    packPivot(dst.format, &fl, f.num_color, alpha, n, out[x * bpp ..][0 .. n * bpp], !isFloat(h));
+                } else {
+                    packPivot(p, &fl, f.num_color, alpha, n, &buf, !isFloat(h));
+                    conv.run(out[x * bpp ..], &buf, n);
+                }
                 x += n;
             }
         }
@@ -921,6 +958,21 @@ const Frame = struct {
 };
 
 const chunk = 256;
+
+/// Whether `packPivot` can write format `dst` itself, the samples of the
+/// integer pivot `p` with nothing changed but an opaque alpha added, as
+/// converting `p` to `dst` would write them.
+fn packsDirect(dst: PixelFormat, p: PixelFormat, h: *const headers.ImageHeader) bool {
+    if (p.sample() == .f32 or (isFloat(h) and dst.sample() == .f32)) return false;
+    if (dst == p) return true;
+    return switch (p) {
+        .rgb16 => dst == .rgba16 or dst == .rgba16_premul,
+        .rgb8 => dst == .rgba8 or dst == .rgba8_premul,
+        .gray16 => dst == .gray_alpha16 or dst == .gray_alpha16_premul,
+        .gray8 => dst == .gray_alpha8 or dst == .gray_alpha8_premul,
+        else => false,
+    };
+}
 
 /// Rounds to nearest, ties to even, as the reference's output stage does.
 fn nearestEven(x: f32) u32 {
@@ -971,6 +1023,11 @@ fn packPivot(
     switch (p.channelCount()) {
         inline 1...4 => |nc| {
             for (0..nc) |k| {
+                if (k >= num_color and ai == null) {
+                    // An alpha the pivot lacks: opaque.
+                    vfill(u16, q[k][0..n], @intFromFloat(max));
+                    continue;
+                }
                 const c = if (k < num_color) k else ai.?;
                 quantize(fl[c][0..n], q[k][0..n], max);
             }
