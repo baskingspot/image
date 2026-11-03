@@ -1021,6 +1021,8 @@ const Plan = struct {
     start: u32,
     num_props: usize,
     uses_wp: bool,
+    /// Reachable splits on properties other than the static ones.
+    splits: u32,
 };
 
 fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
@@ -1032,6 +1034,7 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
     var uses_wp = false;
     var start: u32 = 0;
     var first = true;
+    var splits: u32 = 0;
     while (sp > 0) {
         sp -= 1;
         var cur = stack[sp];
@@ -1048,6 +1051,7 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
         }
         max_prop = @max(max_prop, nd.property);
         uses_wp = uses_wp or nd.property == wp_prop;
+        splits += 1;
         // The tree is less than 2048 deep, so the stack holds the pending
         // second children of one path.
         stack[sp] = nd.child + 1;
@@ -1059,7 +1063,7 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
         const extra: usize = @intCast(max_prop + 1 - num_nonref);
         num_props = num_nonref + (extra + 3) / 4 * 4;
     }
-    return .{ .start = start, .num_props = num_props, .uses_wp = uses_wp };
+    return .{ .start = start, .num_props = num_props, .uses_wp = uses_wp, .splits = splits };
 }
 
 inline fn makePixel(v: u32, mul: i32, guess: i64) i32 {
@@ -1105,6 +1109,9 @@ fn decodeChannel(
 
     const props = try arena.alloc(i32, ft.num_props);
     @memset(props, 0);
+    const statics = [2]i32{ @intCast(ci), @bitCast(stream_id) };
+    const flattened = ft.splits <= flat_max_splits and w * h >= flat_min_pixels;
+    const flat: ?[]Flat = if (flattened) try flatten(arena, nodes, ft, statics) else null;
     const nref = ft.num_props - num_nonref;
     const refs = try arena.alloc(i32, nref * w);
     var wp: Wp = undefined;
@@ -1124,7 +1131,7 @@ fn decodeChannel(
                 props[15] = @truncate(max_err);
             }
             if (nref > 0) @memcpy(props[num_nonref..], refs[x * nref ..][0..nref]);
-            const leaf = nodes[walk(nodes, ft.start, props)];
+            const leaf = nodes[if (flat) |f| walkFlat(f, props) else walk(nodes, ft.start, props)];
             const g = predictOne(leaf.predictor, n, wp_pred) +% leaf.value;
             const v = makePixel(try r.readInline(br, leaf.child), leaf.multiplier, g);
             ch.data[y * w + x] = v;
@@ -1175,6 +1182,100 @@ pub inline fn walk(nodes: []const Node, start: u32, props: []const i32) u32 {
         pos = next[go];
     }
     return pos;
+}
+
+/// Channels of at least `flat_min_pixels` whose tree has at most
+/// `flat_max_splits` splits after the static ones walk it flattened
+/// (`flatten`), in at most `flat_bytes` of work memory. Larger trees,
+/// which encoders do not write, walk the nodes, and so do small channels,
+/// where flattening costs more than it saves (a 16×16 icon decoded 10%
+/// slower).
+pub const flat_max_splits = 4096;
+const flat_min_pixels = 4096;
+pub const flat_bytes = (1 + 4 * flat_max_splits) * @sizeOf(Flat);
+
+/// A split and both its children's tests, with its four grandchildren
+/// next to each other from `base`; or a leaf (`leaf` 1), `base` its node.
+/// A leaf child tests property 0 against the largest value, which always
+/// takes its second grandchild, the leaf.
+const Flat = struct {
+    p: [3]u16,
+    leaf: u16,
+    v: [3]i32,
+    base: u32,
+};
+
+/// The node that `n` reaches past splits on the static properties.
+fn resolve(nodes: []const Node, n: u32, statics: [2]i32) u32 {
+    var cur = n;
+    while (nodes[cur].property >= 0 and nodes[cur].property < num_static) {
+        const nd = nodes[cur];
+        cur = nd.next(statics[@intCast(nd.property)]);
+    }
+    return cur;
+}
+
+/// The tree a channel reaches (`ft`), flattened two levels to an entry,
+/// which `walkFlat` walks with one load a step where `walk` takes two
+/// dependent ones.
+fn flatten(arena: *Arena, nodes: []const Node, ft: Plan, statics: [2]i32) Error![]Flat {
+    const last: u16 = @intCast(ft.num_props - 1);
+    const flat = try arena.alloc(Flat, 1 + 4 * @as(usize, ft.splits));
+    var next: u32 = 1;
+    var head: u32 = 0;
+    // Entries are filled in order, so the unprocessed internal ones are a
+    // queue from `head`.
+    const Set = struct {
+        fn entry(nds: []const Node, f: *Flat, n: u32, l: u16) void {
+            const nd = nds[n];
+            if (nd.property < 0) {
+                f.* = .{ .p = .{ 0, 0, 0 }, .leaf = 1, .v = .{ 0, 0, 0 }, .base = n };
+            } else {
+                const p = @min(@as(u16, @intCast(nd.property)), l);
+                f.* = .{ .p = .{ p, 0, 0 }, .leaf = 0, .v = .{ nd.value, 0, 0 }, .base = n };
+            }
+        }
+    };
+    Set.entry(nodes, &flat[0], ft.start, last);
+    while (head < next) : (head += 1) {
+        const f = &flat[head];
+        if (f.leaf != 0) continue;
+        const x = nodes[f.base];
+        const base = next;
+        next += 4;
+        for (0..2) |k| {
+            const c = resolve(nodes, x.child + @as(u32, @intCast(k)), statics);
+            const cn = nodes[c];
+            if (cn.property < 0) {
+                f.p[1 + k] = 0;
+                f.v[1 + k] = std.math.maxInt(i32);
+                Set.entry(nodes, &flat[base + 2 * k], c, last);
+                Set.entry(nodes, &flat[base + 2 * k + 1], c, last);
+            } else {
+                f.p[1 + k] = @min(@as(u16, @intCast(cn.property)), last);
+                f.v[1 + k] = cn.value;
+                for (0..2) |j| {
+                    const g = resolve(nodes, cn.child + @as(u32, @intCast(j)), statics);
+                    Set.entry(nodes, &flat[base + 2 * k + j], g, last);
+                }
+            }
+        }
+        f.base = base;
+    }
+    return flat[0..next];
+}
+
+/// The leaf node that `props` reach in `flat`.
+inline fn walkFlat(flat: []const Flat, props: []const i32) u32 {
+    var i: u32 = 0;
+    while (flat[i].leaf == 0) {
+        const f = flat[i];
+        const a: u32 = @intFromBool(props[f.p[0]] <= f.v[0]);
+        const t1: u32 = @intFromBool(props[f.p[1]] <= f.v[1]);
+        const t2: u32 = @intFromBool(props[f.p[2]] <= f.v[2]);
+        i = f.base + 2 * a + (if (a == 1) t2 else t1);
+    }
+    return flat[i].base;
 }
 
 /// The reference properties of row `y`: for each earlier channel shaped
@@ -1239,4 +1340,48 @@ test "a one-channel palette with no stored colors" {
     try img.invPalette(&arena, &.{ .kind = .palette, .num_c = 1 });
     try testing.expectEqual(1, img.len);
     try testing.expectEqualSlices(i32, &.{ 0, 0, 0 }, img.buf[0].data);
+}
+
+test "a flattened tree reaches the leaves the tree does" {
+    // Random trees with splits on the static properties among the others
+    // and leaves at every depth, walked both ways on random properties.
+    var prng: std.Random.DefaultPrng = .init(11);
+    const rand = prng.random();
+    var mem: [1 << 20]u8 align(16) = undefined;
+    var arena: Arena = .init(&mem);
+    for (0..300) |_| {
+        var nodes: [255]Node = undefined;
+        var depth: [255]u8 = undefined;
+        nodes[0] = .{ .property = -1 };
+        depth[0] = 0;
+        var n: u32 = 1;
+        var i: u32 = 0;
+        while (i < n) : (i += 1) {
+            if (n + 2 > nodes.len or depth[i] > 9 or rand.uintLessThan(u8, 4) == 0) {
+                nodes[i] = .{ .property = -1, .child = i };
+                continue;
+            }
+            const prop = rand.intRangeAtMost(i16, 0, 17);
+            nodes[i] = .{ .property = prop, .value = rand.intRangeAtMost(i32, -4, 4), .child = n };
+            for (0..2) |_| {
+                depth[n] = depth[i] + 1;
+                n += 1;
+            }
+        }
+        const chan = rand.intRangeAtMost(i32, -4, 4);
+        const stream = rand.intRangeAtMost(i32, -4, 4);
+        const ft = plan(nodes[0..n], chan, stream);
+        const m = arena.mark();
+        defer arena.release(m);
+        const flat = try flatten(&arena, nodes[0..n], ft, .{ chan, stream });
+        try testing.expect(flat.len <= 1 + 4 * @as(usize, ft.splits));
+        var props: [20]i32 = undefined;
+        for (0..200) |_| {
+            for (&props) |*p| p.* = rand.intRangeAtMost(i32, -6, 6);
+            props[0] = chan;
+            props[1] = stream;
+            const np = ft.num_props;
+            try testing.expectEqual(walk(nodes[0..n], ft.start, props[0..np]), walkFlat(flat, props[0..np]));
+        }
+    }
 }

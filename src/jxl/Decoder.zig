@@ -234,6 +234,8 @@ fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
     const node: u128 = @sizeOf(modular.Node);
     total += @as(u128, @min(1 << 22, 1024 + frame_scale * px * c / 16)) * node;
     total += @as(u128, @min(1 << 20, 1024 + group_px * c)) * node;
+    // A channel's tree, flattened.
+    total += modular.flat_bytes;
     // Entropy codes: three live at once, each with tables and a window.
     // A window lasts one stream, and a JPEG's frame decodes one stream at
     // a time, so it needs one.
