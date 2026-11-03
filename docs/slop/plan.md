@@ -484,7 +484,7 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   nothing that gained on both PSNR and SSIM. `default` is 2.7%/4.4% smaller
   than -m 4 at equal PSNR/SSIM, at 1.28–1.38× its speed (0.96× on icons);
   `fast` is 0.92× -m 0's speed over 1 MP with 17.5% smaller files; `best` is
-  0.6× -m 6. Next: icon speed at `default`, and trellis speed at `best`.
+  0.6× -m 6. Pass 3 (`wave5-webp-lossy4`, results/webp-lossy-speed-20261103.md): token costs from each class's tree path plus a constant table, both partitions coded once into the level store's spare room (`Counter` removed), and the token histograms zeroed with vector stores (compiler_rt's memset is byte-wise without libc), for the same files; `best`'s first pass searches as `default` does, while its coding pass keeps trellis in every choice (decision 73), for the same size. `default` runs at 1.30–1.44× libwebp -m 4 in every class (icons from 0.95×), `fast` at 2.74× -m 2 on icons, and `best` at 0.83–0.97× -m 6, 1.7%/4.8% smaller at equal PSNR/SSIM. Next: trellis is half of `best`'s time; `fast` is 0.93× -m 0 over 1 MP.
 - **Shared types for JPEG XL** (landed; results/convert-f32-20261102.md):
   decision 29's metadata fields (`Transfer` bt709, dci, pq, and hlg;
   `Metadata.primaries` replacing `chromaticities`; `intensity_target`;
@@ -1056,3 +1056,8 @@ not yet made:
 - An `artifacts` key per job in baskingspot/gh-actions' ci.yml (a
   gh-actions change, release, and pin bump), so oracle-ci can move back into
   `.github/ci.yaml` from its own job in `.github/workflows/ci.yml`.
+- `@memset` lowers to Zig 0.16 compiler_rt's `memset`, a byte-store loop,
+  even in bench-image, which links libc (the symbol is local, so glibc's is
+  never called); users' binaries get the same. Measure where large fills
+  cost time across the bench rows and give `src/` a vector fill where they
+  do (the WebP lossy orb found it in its token histograms).
