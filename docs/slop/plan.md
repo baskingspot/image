@@ -283,8 +283,12 @@ Running beside wave 1's tail, started early by the owner:
   weighted-predictor, fused-filter, IDCT-copy and AVX-512 changes measured
   inside an A/A noise floor of about 1.5% or slower. What's left needs a
   different algorithm (a cheaper XYB power function, tables for
-  single-property trees). Next: streaming Modular, whose frame-sized
-  channels are the lossless peak RSS.
+  single-property trees). Streaming Modular (`wave4-jxl-mstream`,
+  results/jxl-mstream-20261103.md): integer Modular frames without global
+  transforms stream a group row at a time, and streamed VarDCT alpha keeps
+  two group rows: the 50 MP lossless arena peak falls 608 → 29 MB (peak RSS
+  989 → 437 MiB with the 384 MiB output), same pixels and speed; work_len
+  is unchanged. Next: global RCTs and palettes undone per band.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
