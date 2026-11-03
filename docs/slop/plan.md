@@ -278,7 +278,13 @@ Running beside wave 1's tail, started early by the owner:
   lossless +8.9%, rebuild +2.7%, bit for bit, same peak RSS; about 0.9×
   libjxl lossy on the 1200×1200 photo. Next: coefficient decoding (30% of
   lossy), the XYB transform (13%, op-bound), EPF (11%), the weighted
-  predictor and symbol reads in lossless, then render by group row.
+  predictor and symbol reads in lossless, then render by group row. Speed
+  pass 4 (results/jxl-speed4-20261103.md): nothing kept; ANS,
+  weighted-predictor, fused-filter, IDCT-copy and AVX-512 changes measured
+  inside an A/A noise floor of about 1.5% or slower. What's left needs a
+  different algorithm (a cheaper XYB power function, tables for
+  single-property trees). Next: streaming Modular, whose frame-sized
+  channels are the lossless peak RSS.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
