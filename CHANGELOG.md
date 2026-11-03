@@ -103,3 +103,7 @@ All notable changes to image are recorded here. The format follows
 - `image.webp.Decoder` decodes lossy (VP8) files about 5% faster again, and lossy animations about 4%, by clearing coefficients with vector stores.
 - `image.webp.Decoder` decodes lossy (VP8) files about 1.25× faster (1.31× on icons, 1.20× over 1 MP), with a faster boolean decoder and YUV-to-RGB conversion in 16-bit lanes that keeps the CPU out of 512-bit vectors; pixels are unchanged.
 - `image.netpbm.Decoder` reads plain (ASCII) PBM, PGM, and PPM samples about 1.75× faster, and headers about 1.4× faster, which shows on 16×16 files.
+
+### Fixed
+
+- `image.jxl.Decoder` no longer reads past the alpha channel when a lossy (VarDCT) frame with patches and alpha is not a multiple of 8 pixels wide; it read the wrong rows there, or panicked in safe builds.

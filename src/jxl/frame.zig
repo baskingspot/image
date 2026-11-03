@@ -430,7 +430,9 @@ fn toPlanes(arena: *Arena, ctx: *Context) Error!Decoded {
             const all = try arena.alloc([]f32, 3 + ne);
             @memcpy(all[0..3], &planes);
             @memcpy(all[3..], ecs);
-            patches.apply(dict, image, ctx.refs, all, stride, w, h);
+            // The extra channels' planes are rows of their width, the
+            // frame's here.
+            patches.apply(dict, image, ctx.refs, all, stride, w, w, h);
         }
     }
     const base: [2]f32 = if (ctx.vd) |vd| .{ vd.base_x, vd.base_b } else .{ 0, if (image.xyb) 1 else 0 };

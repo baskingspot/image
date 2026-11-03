@@ -164,14 +164,15 @@ fn clamp01(v: f32) f32 {
     return std.math.clamp(v, 0, 1);
 }
 
-/// Blends every patch, in order, into `planes` (three colors then the
-/// extra channels, `w` by `h`, rows of `stride`).
+/// Blends every patch, in order, into `planes` (three colors, rows of
+/// `stride`, then the extra channels, rows of `ec_stride`; `w` by `h`).
 pub fn apply(
     dict: *const Dictionary,
     image: *const headers.ImageHeader,
     refs: *const [4]?Source,
     planes: []const []f32,
     stride: usize,
+    ec_stride: usize,
     w: usize,
     h: usize,
 ) void {
@@ -193,12 +194,12 @@ pub fn apply(
                 var bg: [3 + headers.max_extra_channels]f32 = undefined;
                 var fg: [3 + headers.max_extra_channels]f32 = undefined;
                 for (0..3 + ne) |c| {
-                    bg[c] = planes[c][y * stride + x];
+                    bg[c] = planes[c][y * (if (c < 3) stride else ec_stride) + x];
                     fg[c] = src.planes[c][sy * src.w + sx];
                 }
                 var out = bg;
                 blendPixel(image, bl, has_alpha, &bg, &fg, &out);
-                for (0..3 + ne) |c| planes[c][y * stride + x] = out[c];
+                for (0..3 + ne) |c| planes[c][y * (if (c < 3) stride else ec_stride) + x] = out[c];
             }
         }
     }
