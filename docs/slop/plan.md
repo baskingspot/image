@@ -590,7 +590,12 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   Stage 5 (`wave5-jxl-encode5`, results/jxl-encode5-20261103.md): the
   encoder uses the decoder's `pixelProps`, with the same files and speed.
   The decoder's `walk` was measured slower for the encoder (fast 0.91 above
-  a megapixel) and isn't used; `Flat` stays.
+  a megapixel) and isn't used; `Flat` stays. Stage 6
+  (results/jxl-encode6-20261103.md): `workLen` sizes leaves, histograms,
+  samples, and learning counts by the image. At 16×16 that is 0.5 / 0.8 /
+  3.8 MiB at fast / default / best, down from 3.8 / 5.6 / 8.1. The files
+  and the speed are the same. Best keeps 3.1 MiB of counts at any size,
+  because it judges each split with all 14 predictors.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
