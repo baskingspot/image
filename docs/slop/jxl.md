@@ -99,7 +99,8 @@ writing past it. Its terms, in `Decoder.workBound`:
 - A group's channels with their transforms, at the first frame's group
   size when it is known.
 - Two trees and three live entropy codes, each code's tables within a 1 MiB
-  budget plus its LZ77 window.
+  budget plus its LZ77 window, and a channel's tree flattened for the walk
+  (393 KB, `modular.flat_bytes`; larger trees walk the nodes).
 - Reference-property rows and the weighted predictor's rows.
 
 - With VarDCT: three padded planes, the coefficients kept between passes
@@ -355,6 +356,19 @@ unchanged, bit for bit, peak RSS unchanged. EPF's differences shared
 between offset pairs measured −0.9% on `cjxl -d 1` files (one iteration)
 and were not kept.
 
+`results/jxl-speed3-20261103.md`: a frame's color transform and packing
+done as its rows are written, into the destination when it is the native
+format with at most an opaque alpha added (+1.5% lossy); EPF's output
+stored a vector at a time (+2.0%); large clears with the shared vector
+fill (+1.5% lossy, +2.8% rebuilding, +2.2% lossless); output pixels
+interleaved eight at a time (+1.4%); and each channel's Modular tree
+flattened two levels to an entry, one load a step (+6.5% lossless, the
+photos +7–14%). Over pass 2: lossy +6.2%, lossless +8.9%, rebuilding +2.7%,
+bit for bit, peak RSS unchanged, `work_len` 393 KB larger. A cheaper sRGB
+power (two square roots, no division) measured +0.5% and moved 0.1% of
+16-bit samples, so it was not kept: the transform is bound by its
+operation count, not the divider.
+
 ## Next
 
 1. **Memory, further**: stream more frames (chroma subsampling, noise,
@@ -362,14 +376,15 @@ and were not kept.
    group rows plus the margin instead of three; and Modular, whose
    frame-sized channels (12 bytes a pixel for RGB) are the lossless peak,
    once global transforms can be undone a group row at a time.
-2. **Speed**, after `results/jxl-speed2-20261103.md`: the XYB to sRGB
-   transform (14% of lossy); the output's 16-bit packing and the shared
-   converter's RGB to RGBA step (about 7%); the band copies streaming makes
-   (5%); and Modular's common trees (the weighted predictor alone,
-   gradient with few contexts). On a 16×16 lossy icon, the global Modular
-   image (15%) and the HF code's context map (11% before its 7 KB fill
-   moved to the shared vector fill) lead. EPF's shared
-   differences would pay only on files with three iterations.
+2. **Speed**, after `results/jxl-speed3-20261103.md`. Lossy: the
+   coefficients and their entropy decoding (about 30%), the XYB to sRGB
+   transform (13%, bound by its operation count: wider vectors where the
+   target has them, or fewer operations per sample), EPF (11%, of which
+   its ring's row copies are 2%: removing them needs a second window of
+   planes), and Modular's LF and HF metadata (11%). Lossless: the tree
+   walk (28%), the weighted predictor (24%), and symbol reads (14%);
+   trees on one property could become a table. An 8-bit destination
+   still converts from the 16-bit native format.
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
    `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
    of a baseline rebuild. Shrinking `jpegWorkLen` on small files further
