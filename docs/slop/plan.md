@@ -288,7 +288,11 @@ Running beside wave 1's tail, started early by the owner:
   transforms stream a group row at a time, and streamed VarDCT alpha keeps
   two group rows: the 50 MP lossless arena peak falls 608 → 29 MB (peak RSS
   989 → 437 MiB with the 384 MiB output), same pixels and speed; work_len
-  is unchanged. Next: global RCTs and palettes undone per band.
+  is unchanged. Global RCTs and palettes without deltas stream too
+  (`wave4-jxl-mstream2`, results/jxl-mstream2-20261103.md): each band's
+  rows have those transforms undone on their own (`modular.Image.band`).
+  Only squeezes and delta palettes keep a frame whole. `work_len` still
+  covers the whole frame.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
