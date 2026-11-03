@@ -645,15 +645,26 @@ inline fn xlog(c: u32) f32 {
 
 /// The memory `learn` takes for `s`.
 pub fn learnMemory(cap: usize, options: LearnOptions) usize {
-    const np = options.predictors.len;
     const nprops = num_props + 4 * options.refs;
+    const nb = bucketsMax(&options);
     return cap * 4 + // indices
-        nprops * max_buckets * np * learn_tokens * 2 + // counts
-        nprops * max_buckets * 4 + // samples per bucket
+        nprops * nb * judgedMax(&options) * learn_tokens * 2 + // counts
+        nprops * nb * 4 + // samples per bucket
         (2 * options.max_leaves + 1) * (@sizeOf(Node) + @sizeOf(Range)) + 1024;
 }
 
 const Range = struct { begin: u32, end: u32 };
+
+/// A property's most buckets: its thresholds and one.
+fn bucketsMax(options: *const LearnOptions) usize {
+    return @min(options.max_thresholds, max_buckets - 1) + 1;
+}
+
+/// The most predictors a split is judged with.
+fn judgedMax(options: *const LearnOptions) usize {
+    const np = options.predictors.len;
+    return if (options.search_predictors == 0) np else @min(np, options.search_predictors);
+}
 
 /// Learns a tree from `s`. `scale` is the pixels each sample stands for.
 pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []Node) !Tree {
@@ -679,8 +690,8 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     for (idx, 0..) |*v, i| v.* = @intCast(i);
     // A node judges at most `split_samples` samples, so u16 counts hold.
     std.debug.assert(options.split_samples <= std.math.maxInt(u16));
-    const counts = try mem.alloc(u16, nprops * max_buckets * np * learn_tokens);
-    const bucket_n = try mem.alloc(u32, nprops * max_buckets);
+    const counts = try mem.alloc(u16, nprops * bucketsMax(&options) * judgedMax(&options) * learn_tokens);
+    const bucket_n = try mem.alloc(u32, nprops * bucketsMax(&options));
     @memset(bucket_n, 0);
     // `counts` is zero up to here, and each node clears what it counted,
     // so a small node costs little.
@@ -717,7 +728,7 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
             while (b > 0 and pcost[sel[b]] < pcost[sel[b - 1]]) : (b -= 1) std.mem.swap(u8, &sel[b], &sel[b - 1]);
         }
         leaf_cost = pcost[sel[0]];
-        const ns: usize = if (options.search_predictors == 0) np else @min(np, options.search_predictors);
+        const ns = judgedMax(&options);
         nodes[cur] = .{ .predictor = options.predictors[sel[0]] };
         if (leaves >= options.max_leaves or num_nodes + 2 > nodes.len or items.len < 2) continue;
         // No split saves more than the whole node costs.

@@ -31,6 +31,10 @@ Stage 5 (`wave5-jxl-encode5`, `results/jxl-encode5-20261103.md`): the
 decoder's `pixelProps` replaces the encoder's copy, the same files; its
 `walk` measured slower for the encoder and is not used.
 
+Stage 6 (`wave5-jxl-encode6`, `results/jxl-encode6-20261103.md`): work
+tables sized by the image, the same files; `workLen` at 16×16 is about a
+seventh of what it was at fast and default.
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -180,10 +184,26 @@ for the worst source, 16-bit RGBA. The parts:
 
 That comes to about 25 B/px for large images at every effort (50–80 B/px
 at a megapixel, where the token store is not yet capped). Small images pay
-for fixed tables, sized by the most leaves the image's tree may have: 3.8,
-5.7, and 8.3 MiB at 16×16 for fast, default, and best, and 5.5, 8.9, and
-12 MiB at 64×64. Most of it is never touched; the bench reports peak RSS. A bump allocator (`encode_mem.zig`) hands it out, and
-running out returns `error.WorkTooSmall`, which would be a bug in `Sizes`.
+for tables sized by the image (stage 6):
+
+- leaves: the effort's, the decoder's limit, and one per 64 samples, at
+  least 16 (`maxLeaves`); the corpus's 16×16 icons grow 3 to 7, its
+  64×64 ones 17 to 57;
+- histograms: one per 1024 samples, from 16 to 256 (`maxClusters`); the
+  corpus's icons use 2 to 6, kodim03 76, and each costs the
+  code's tables 11 KiB;
+- samples: four a pixel at most (`sampleRoom`), without the palette's
+  room on top, which a palette never needs (its channel is one sample a
+  pixel, its entries at most an eighth of the pixels in four);
+- tree learning's counts: the effort's thresholds plus one buckets and
+  the predictors a split is judged with, not 65 buckets and every
+  predictor.
+
+At 16×16 that is 0.5, 0.8, and 3.8 MiB for fast, default, and best (it
+was 3.8, 5.6, and 8.1), and at 64×64 2.5, 3.4, and 6.8 MiB (5.4, 8.8, and
+11.8). Most of it is never touched; the bench reports peak RSS. A bump
+allocator (`encode_mem.zig`) hands it out, and running out returns
+`error.WorkTooSmall`, which would be a bug in `Sizes`.
 
 The output bound: a sample costs at most 45 bits. That is a prefix code's
 15 bits (an ANS symbol's frequency is at least 1/4096, so 12) plus at most
@@ -247,5 +267,5 @@ above a megapixel and 27% on apple.com, so `Flat` stays.
 - LZ77, if it comes back: it needs an exact cost guard (a second write
   pass) and pays only on synthetic images (`lz77.patch` in the stage 1
   results).
-- Small images: tables sized by the image rather than the effort (the
-  histogram codes' alias tables are 8 KiB a cluster).
+- Best's tree-learning counts are 3.1 MiB at any size (14 predictors,
+  65 buckets, 28 properties).

@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   before   libjxl     ±   <1    ~   slowest vs before
+JxlEncodeE3/icon                  13        0.8     1.00     0.57    3%    0   13   0.98 [0.97, 1.00] textures_pk-_0mod_button1-64x64.raw
+JxlEncodeE3/1mp                   23        5.2     1.00     0.96    4%    6   15   0.89 [0.81, 1.00] screenshot_game-3dcursedlabyrinth_mazegame-343x480.raw
+JxlEncodeE3/large                  7        4.3     0.98     0.78    6%    2    3   0.79 [0.71, 1.00] photo_wikipedia-001-1276x850.raw
+JxlEncodeE7/icon                  13        0.3     0.99     0.87    3%    2   11   0.92 [0.84, 1.06] icon_16-actions_bookmark_new-16x16.raw
+JxlEncodeE7/1mp                   23        1.1     0.97     1.12    4%    3   19   0.66 [0.65, 0.98] pngimg-air_pump_PNG5-999x772.raw
+JxlEncodeE7/large                  7        1.5     1.01     1.32    1%    2    4   0.95 [0.93, 0.97] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE8/icon                  13        0.0     0.99     0.32    6%    0   13   0.67 [0.67, 1.50] icon_16-actions_appointment_new-16x16.raw
+JxlEncodeE8/1mp                   23        0.3     0.97     0.79    3%    3   20   0.76 [0.75, 0.94] icon_512-actions_appointment_new-512x512.raw
+JxlEncodeE8/large                  7        0.7     1.03     1.91    2%    0    6   0.98 [0.94, 1.02] textures_plants-plant_02-1024x1316.raw
+all                              129        0.7     0.99     0.84         18  104

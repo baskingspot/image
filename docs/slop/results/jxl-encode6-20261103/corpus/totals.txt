@@ -1,0 +1,3 @@
+effort fast [m6]: 15575114 bytes, 7126.3 ms; icons<=64x64: 24916 bytes, 24.9 ms
+effort default [m6]: 14441994 bytes, 22501.8 ms; icons<=64x64: 23449 bytes, 73.0 ms
+effort best [m6]: 14140396 bytes, 63598.8 ms; icons<=64x64: 22798 bytes, 453.6 ms

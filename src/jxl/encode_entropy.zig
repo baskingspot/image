@@ -110,16 +110,17 @@ pub const BuildOptions = struct {
     max_clusters: usize = max_clusters,
 };
 
-/// The most memory `Code.build` takes for `num_contexts` contexts.
-pub fn buildMemory(num_contexts: usize) usize {
-    const clusters: usize = @min(num_contexts, max_clusters);
+/// The most memory `Code.build` takes for `num_contexts` contexts in at
+/// most `max_clusters_in` clusters.
+pub fn buildMemory(num_contexts: usize, max_clusters_in: usize) usize {
+    const clusters: usize = @min(num_contexts, max_clusters_in, max_clusters);
     const per_cluster = 2 * alphabet * 4 + 2 * alphabet * 2 + alphabet + 2 * tab_size + @sizeOf(Config);
     return num_contexts * 13 + clusters * per_cluster + 256;
 }
 
 /// The most memory `Code.write` takes for `num_contexts` contexts.
 pub fn writeMemory(num_contexts: usize) usize {
-    return num_contexts * 2 * @sizeOf(Token) + 2 * (alphabet * 4 + buildMemory(1)) + 256;
+    return num_contexts * 2 * @sizeOf(Token) + 2 * (alphabet * 4 + buildMemory(1, 1)) + 256;
 }
 
 pub const Code = struct {

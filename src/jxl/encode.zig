@@ -229,14 +229,14 @@ const Sizes = struct {
         const stream_samples = @max(max_channels * gw * gh + pal * max_channels, 2 * max_channels * group_dim);
         const pixels = @as(u64, w) * h;
         const all_samples = std.math.mul(u64, pixels, max_channels) catch return null;
-        // The tree the decoder allows a small image is smaller than the
-        // effort's.
-        const leaves: usize = @min(p.max_leaves, (lay.treeLimit() + 1) / 2);
-        // Sections: six bytes a sample at most (see `encodeImpl`), the tree
-        // and histograms, and each stream's header and padding.
+        const leaves: usize = maxLeaves(p, &lay);
+        const clusters = maxClusters(w, h);
+        // Sections: six bytes a sample at most (see `encodeImpl`), the tree,
+        // its context map and histograms, and each stream's header and
+        // padding.
         const sample_bytes = std.math.mul(u64, all_samples + pal * max_channels, 6) catch return null;
         const fixed = 64 * (@as(u64, lay.num_groups) + 2) + leaves * 2 * 5 * 8 + 7 * 256 * 4 +
-            leaves * (256 * 3 + 4) + 4096;
+            leaves * 8 + clusters * (256 * 3 + 4) + 4096;
         const out = std.math.add(u64, sample_bytes, fixed) catch return null;
         if (out > std.math.maxInt(usize)) return null;
         return .{
@@ -247,10 +247,10 @@ const Sizes = struct {
             .tokens = stream_samples * @sizeOf(Token) + @max(stream_samples, (2 * leaves + 1) * 5) * 4,
             .hash = hash_size * 2 + pal * max_channels * 4 + pal * 4,
             .samples = samplesMemory(p, w, h),
-            .learn = mod.learnMemory(sampleCap(p, w, h), learnOptions(p, @intCast(leaves))),
+            .learn = mod.learnMemory(sampleRoom(p, w, h), learnOptions(p, @intCast(leaves))),
             .nodes = (2 * leaves + 1) * (@sizeOf(mod.Node) + @sizeOf(mod.Flat)) + (2 * leaves + 1) * 5 * @sizeOf(Token),
             .histograms = leaves * ent.alphabet * 4 + 6 * ent.alphabet * 4,
-            .code = ent.buildMemory(leaves) + ent.buildMemory(6),
+            .code = ent.buildMemory(leaves, clusters) + ent.buildMemory(6, 6),
             .write = ent.writeMemory(leaves),
             .wp = mod.Wp.memory(@max(gw, pal)),
             .store = @as(usize, @intCast(@min(all_samples + pal * max_channels, store_tokens))) * 4,
@@ -267,10 +267,36 @@ const Sizes = struct {
     }
 };
 
+/// The most leaves an image's tree may have: the effort's, the decoder's
+/// limit, and one in 64 of its samples (at least 16), since a split must
+/// pay for itself and a small image's trees are small. Work tables are
+/// sized by it.
+fn maxLeaves(p: Params, lay: *const Layout) u32 {
+    const samples = @as(u64, lay.w) * lay.h * max_channels;
+    return @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2, @max(16, samples / 64)));
+}
+
+/// The most histograms an image's code may have: one in 1024 of its
+/// samples, from 16 to the coder's 256. Few tokens do not pay for many
+/// histograms, and each costs the code 11 KiB of tables.
+fn maxClusters(w: u32, h: u32) usize {
+    const samples = @as(u64, w) * h * max_channels;
+    return @intCast(std.math.clamp(samples / 1024, 16, ent.max_clusters));
+}
+
 fn samplesMemory(p: Params, w: u32, h: u32) usize {
     const cap = sampleCap(p, w, h);
+    const room = sampleRoom(p, w, h);
     const whole = if (cap <= single_pass_samples) cap else mod.thresholdSamples(cap);
-    return mod.Samples.memory(cap, whole, p.predictors.len, p.refs);
+    return mod.Samples.memory(room, @min(whole, room), p.predictors.len, p.refs);
+}
+
+/// The samples an image can give, at most: its channels hold at most four
+/// samples a pixel, and a palette's channel is one a pixel plus at most an
+/// eighth of the pixels' colors in four (`usePalette`). `sampleCap`
+/// allows for the palette on top, so this is what its samples need.
+fn sampleRoom(p: Params, w: u32, h: u32) usize {
+    return @intCast(@min(sampleCap(p, w, h), @as(u64, w) * h * max_channels));
 }
 
 /// Images with at most this many samples choose thresholds from all of
@@ -981,7 +1007,7 @@ fn encodeImpl(
     const ns = numStreams(&lay);
     const stream_samples = sizes.planes / 4;
     const tokens = try mem.alloc(Token, stream_samples);
-    const leaves: u32 = @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2));
+    const leaves = maxLeaves(p, &lay);
     const scratch = try mem.alloc(u32, @max(stream_samples, (2 * @as(usize, leaves) + 1) * 5));
     var plane_list: [max_channels + 1]Plane = undefined;
 
@@ -998,7 +1024,8 @@ fn encodeImpl(
         // the samples keep only buckets.
         const single = cap <= single_pass_samples;
         const whole = if (single) cap else mod.thresholdSamples(cap);
-        var smp: mod.Samples = try .init(mem, cap, whole, p.predictors.len, p.refs);
+        const room = sampleRoom(p, lay.w, lay.h);
+        var smp: mod.Samples = try .init(mem, room, @min(whole, room), p.predictors.len, p.refs);
         // A band of rows from every stream, as tall as the share of the
         // image the samples can cover.
         const budget: u64 = @as(u64, cap) * 4;
@@ -1019,7 +1046,7 @@ fn encodeImpl(
                 .thr = &thr,
                 .num_pred = smp.num_pred,
                 .nprops = smp.nprops,
-                .cap = cap,
+                .cap = room,
             };
         }
         smp.stride = stride;
@@ -1061,7 +1088,7 @@ fn encodeImpl(
             stored += n;
         }
     }
-    const code = try ent.Code.build(mem, &hist, .{});
+    const code = try ent.Code.build(mem, &hist, .{ .max_clusters = maxClusters(lay.w, lay.h) });
 
     // The sections.
     var bw: BitWriter = .init(out_buf);
