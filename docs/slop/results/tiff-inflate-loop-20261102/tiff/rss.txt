@@ -1,0 +1,2 @@
+peak RSS (MiB)            image   before  libtiff image-rs       go
+tiff-decode-deflate       253.9    253.9    256.7    593.2    620.3

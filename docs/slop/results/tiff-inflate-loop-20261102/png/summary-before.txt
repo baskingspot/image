@@ -1,0 +1,6 @@
+image/arm, geomean              rows image MP/s    wuffs     spng   libpng     ±   <1    ~   slowest vs wuffs
+PngDecode/icon                    17      121.0     1.44     2.42     2.67    1%    0    0   1.19 [1.13, 1.30] variant_gray-actions_address_book_new-64x64.png
+PngDecode/1mp                     27      194.9     1.31     2.33     2.48    1%    0    1   1.07 [0.99, 1.11] photo_kodak-kodim01-768x512.png
+PngDecode/large                    8      160.9     1.31     2.07     2.18    2%    0    0   1.09 [1.04, 1.20] photo_wikipedia-001-1276x850.png
+PngDecodeIcons/icon                3       85.4     1.57     2.80     2.99    4%    0    0   1.36 [1.34, 1.50] rotate64-64x64
+all                               55      156.4     1.36     2.34     2.51          0    1

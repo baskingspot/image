@@ -1,0 +1,5 @@
+image/arm, geomean              rows image MP/s  libtiff image-rs       go     ±   <1    ~   slowest vs libtiff
+TiffDecodeDeflate/icon            13      119.4     2.15     2.03     4.50    2%    0    0   1.26 [1.21, 1.32] textures_pk-_0mod_button1-64x64.tif
+TiffDecodeDeflate/1mp             23      202.7     1.13     2.51     5.04    1%   10    2   0.80 [0.74, 0.85] photo_wikipedia-002-1260x806.tif
+TiffDecodeDeflate/large            8      156.6     1.05     2.31     4.30    2%    4    1   0.79 [0.78, 0.81] photo_mosaic-50mp-8192x6144.tif
+all                               44      165.4     1.35     2.32     4.74         14    3

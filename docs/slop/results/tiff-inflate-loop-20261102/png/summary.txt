@@ -1,0 +1,6 @@
+image/arm, geomean              rows image MP/s   before    wuffs     spng   libpng     ±   <1    ~   slowest vs before
+PngDecode/icon                    17      122.1     1.01     1.45     2.43     2.68    2%    0   17   0.99 [0.94, 1.06] icon_64-actions_contact_new-64x64.png
+PngDecode/1mp                     27      199.6     1.03     1.34     2.38     2.53    1%    0   26   0.97 [0.91, 1.07] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.png
+PngDecode/large                    8      165.7     1.03     1.34     2.15     2.26    2%    0    8   1.01 [0.97, 1.04] photo_mosaic-50mp-8192x6144.png
+PngDecodeIcons/icon                3       87.6     1.03     1.62     2.88     3.07    2%    0    3   1.00 [0.99, 1.07] rotate64-32x32
+all                               55      159.6     1.02     1.39     2.39     2.56          0   54
