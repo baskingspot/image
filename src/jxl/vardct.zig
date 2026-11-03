@@ -719,8 +719,18 @@ fn readOrders(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, used_order
     var code: entropy.Code = undefined;
     var reader: entropy.Reader = undefined;
     if (used_orders != 0) {
+        // Each coded class's permutations: per channel, a length and at
+        // most a value a coefficient (which bounds the LZ77 window).
+        var symbols: usize = 0;
+        var counted: u32 = 0;
+        for (0..Strategy.count) |k| {
+            const bit = @as(u32, 1) << @intCast(Strategy.order_class[k]);
+            if (used_orders & bit == 0 or counted & bit != 0) continue;
+            counted |= bit;
+            symbols += 3 * (1 + 64 * @as(usize, @as(Strategy, @enumFromInt(k)).covered()));
+        }
         code = try entropy.Code.read(br, arena, 8);
-        reader = try .init(&code, br, arena, 0, 1 << 20);
+        reader = try .init(&code, br, arena, 0, symbols);
     }
     var done: u32 = 0;
     for (0..Strategy.count) |k| {
@@ -761,6 +771,23 @@ fn readOrders(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, used_order
 
 /// Reads one channel's coefficient permutation into `perm` (the first
 /// `skip` entries stay in place), with `tree` as scratch of `perm.len`.
+/// The most bytes one pass's coefficient orders take in a frame of `bw`
+/// by `bh` blocks: orders are kept for the classes the frame uses, and a
+/// strategy is used only where it fits in the frame and a group.
+pub fn ordersBytes(bw: u64, bh: u64) u64 {
+    var counted: u32 = 0;
+    var total: u64 = 0;
+    for (0..Strategy.count) |k| {
+        const st: Strategy = @enumFromInt(k);
+        if (st.bx() > @min(group_blocks, bw) or st.by() > @min(group_blocks, bh)) continue;
+        const bit = @as(u32, 1) << @intCast(Strategy.order_class[k]);
+        if (counted & bit != 0) continue;
+        counted |= bit;
+        total += 3 * 64 * @as(u64, st.covered()) * @sizeOf(u16);
+    }
+    return total;
+}
+
 fn readCoeffPermutation(br: *BitReader, r: *entropy.Reader, skip: usize, perm: []u32, tree: []u32) Error!void {
     const size = perm.len;
     const end = @as(usize, try r.read(br, permContext(@intCast(size)))) + skip;

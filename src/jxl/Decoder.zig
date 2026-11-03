@@ -226,14 +226,18 @@ fn boundFor(d: *const Decoder, kind: enum { frames, jpeg }) Error!usize {
     // group size or the largest.
     const gd: u128 = if (d.next_frame) |f| @as(u128, 128) << @intCast(f.group_size_shift) else 1024;
     const group_px: u128 = @min(gd * gd, px);
-    total += 4 * c * 4 * group_px;
+    // A JPEG's frame, VarDCT without extra channels, has none.
+    if (kind == .frames) total += 4 * c * 4 * group_px;
     // The global tree and one local tree.
     const node: u128 = @sizeOf(modular.Node);
     total += @as(u128, @min(1 << 22, 1024 + frame_scale * px * c / 16)) * node;
     total += @as(u128, @min(1 << 20, 1024 + group_px * c)) * node;
     // Entropy codes: three live at once, each with tables and a window.
+    // A window lasts one stream, and a JPEG's frame decodes one stream at
+    // a time, so it needs one.
     const window: u128 = entropy.window_size;
-    total += 3 * (entropy_budget + 4 * @as(u128, @min(px * c, window)));
+    const windows: u128 = if (kind == .jpeg) 1 else 3;
+    total += 3 * entropy_budget + windows * 4 * @as(u128, @min(px * c, window));
     // Rows of reference properties and the weighted predictor.
     total += 1088 * @as(u128, h.width) + 65536;
     if (d.icc_size) |s| total = @max(total, icc.workLen(s) + entropy_budget + 4 * @as(u128, @min(s, window)) + 65536);
@@ -301,7 +305,12 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
         }
         total += planes_px * 12 + (if (passes > 1) pad_px * 12 else 0) + pad_px / 64 * 24;
         total += 4 << 20;
-        total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + 786_432);
+        // Each pass's orders, for the strategies that fit the frame.
+        const orders = if (f) |fh| blk: {
+            const dims: headers.Dims = .init(fh);
+            break :blk vardct.ordersBytes(dims.xsize_blocks, dims.ysize_blocks);
+        } else vardct.ordersBytes(std.math.maxInt(u32), std.math.maxInt(u32));
+        total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + orders);
     } else if (drawn) {
         // A Modular frame's colors as float planes, and EPF's sigmas.
         total += pre_px * 12 + pre_px / 16;
@@ -322,17 +331,23 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
 fn jpegFrameBound(h: *const headers.ImageHeader, f: ?headers.FrameHeader) u128 {
     var pad_px: u128 = paddedCanvas(h);
     var passes: u128 = 11;
+    // The frame's size in blocks, which bounds the strategies it uses.
+    var bw: u64 = (@as(u64, h.width) + 15) / 16 * 2;
+    var bh: u64 = (@as(u64, h.height) + 15) / 16 * 2;
     if (f) |fh| {
         const dims: headers.Dims = .init(&fh);
         pad_px = @min(pad_px, @as(u128, dims.xsize_blocks) * dims.ysize_blocks * 64);
         passes = fh.passes.num;
+        bw = dims.xsize_blocks;
+        bh = dims.ysize_blocks;
     }
     // Block fields, coefficients kept between passes, a pass group's
     // coefficients, the LF group's channels, the dequantization tables,
-    // each pass's orders and code, and the empty Modular image's palette.
+    // each pass's orders (for the strategies that fit) and code, and the
+    // empty Modular image's palette.
     const window: u128 = entropy.window_size;
     var total: u128 = pad_px / 64 * 24 + (if (passes > 1) pad_px * 12 else 0) + (4 << 20);
-    total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + 786_432);
+    total += passes * (entropy_budget + 4 * @as(u128, @min(3 * pad_px, window)) + vardct.ordersBytes(bw, bh));
     return total + 4 * 137_728;
 }
 
