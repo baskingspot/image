@@ -345,6 +345,16 @@ ede392a: lossy +32%, lossless +16%, baseline rebuild +54%, with peak RSS
 unchanged. On the 1200×1200 photo that is about 0.76× libjxl lossy and
 0.89× lossless, and 0.59× rebuilding the mosaic's JPEG.
 
+`results/jxl-speed2-20261103.md`: VarDCT's coefficient loop specialized on
+the code's kind (+1.3% lossy, +1.6% rebuilding JPEGs), the default
+dequantization tables up to DCT32 computed at compile time (+8.8% lossy,
+16×16 icons +20–28%), and the planes left uncleared without chroma
+subsampling (+3.1%). Over the first pass: lossy +13.8% (16×16 icons +23–31%,
+the 1200×1200 photo +6%, about 0.81× libjxl), rebuilding +2.4%, lossless
+unchanged, bit for bit, peak RSS unchanged. EPF's differences shared
+between offset pairs measured −0.9% on `cjxl -d 1` files (one iteration)
+and were not kept.
+
 ## Next
 
 1. **Memory, further**: stream more frames (chroma subsampling, noise,
@@ -352,15 +362,14 @@ unchanged. On the 1200×1200 photo that is about 0.76× libjxl lossy and
    group rows plus the margin instead of three; and Modular, whose
    frame-sized channels (12 bytes a pixel for RGB) are the lossless peak,
    once global transforms can be undone a group row at a time.
-2. **Speed**, after `results/jxl-speed-20261103.md`: EPF's SAD from
-   per-direction differences shared by the offsets that reuse them (about
-   a third of the work in pass 0; it changes float order and needs ring
-   rows in the bound); the XYB to sRGB transform (13% of lossy); the
-   coefficient loop specialized on the code's kind (ANS or prefix, LZ77 or
-   not); the band copies streaming makes; and Modular's common trees
-   (the weighted predictor alone, gradient with few contexts). Small
-   images' fixed setup (44 µs for a 16×16 lossy icon, and 41 µs to rebuild
-   a 16×16 JPEG, about half of it in `decodeJpeg`) has not been profiled.
+2. **Speed**, after `results/jxl-speed2-20261103.md`: the XYB to sRGB
+   transform (14% of lossy); the output's 16-bit packing and the shared
+   converter's RGB to RGBA step (about 7%); the band copies streaming makes
+   (5%); and Modular's common trees (the weighted predictor alone,
+   gradient with few contexts). On a 16×16 lossy icon, the global Modular
+   image (15%) and the HF code's context map (11% before its 7 KB fill
+   moved to the shared vector fill) lead. EPF's shared
+   differences would pay only on files with three iterations.
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
    `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
    of a baseline rebuild. Shrinking `jpegWorkLen` on small files further
