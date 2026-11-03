@@ -33,16 +33,18 @@ cj -d 2 --epf=3 --gaborish=1 --group_order=1 "$tmp/tall.png" "$out/jxl/vardct-ta
 # The same, streamed with its alpha.
 im "$rgba" -resize '8x1100!' "$tmp/tall-alpha.png"
 cj -d 2 --epf=3 --gaborish=1 "$tmp/tall-alpha.png" "$out/jxl/vardct-tall-alpha.jxl"
-# Two-level alpha, which cjxl palettes over the whole frame, so the frame
-# is decoded whole after all.
+# Two-level alpha, which cjxl palettes over the whole frame: the palette
+# is undone on each band.
 im "$tmp/tall-alpha.png" -channel A -threshold 50% +channel "$tmp/tall-alpha2.png"
 cj -d 2 "$tmp/tall-alpha2.png" "$out/jxl/vardct-tall-alpha-palette.jxl"
 # Lossless Modular, five group rows: streamed a group row at a time; with
-# alpha, which cjxl palettes over the whole frame, decoded whole; and with
-# alpha in 128-pixel groups (nine group rows), streamed.
+# alpha, which cjxl palettes over the whole frame, streamed with the
+# palette undone on each band; with alpha in 128-pixel groups (nine group
+# rows), streamed; and squeezed (`-R 1`), which needs the whole frame.
 cj -d 0 "$tmp/tall.png" "$out/jxl/modular-tall.jxl"
 cj -d 0 "$tmp/tall-alpha.png" "$out/jxl/modular-tall-alpha.jxl"
 cj -d 0 -g 0 "$tmp/tall-alpha.png" "$out/jxl/modular-tall-alpha-g128.jxl"
+cj -d 0 -R 1 "$tmp/tall-alpha.png" "$out/jxl/modular-tall-squeeze.jxl"
 # Three frames of animation.
 im -delay 10 "$rgb" "$src/basn2c16.png" "$src/basn3p08.png" "$tmp/anim.gif"
 cj -d 1 "$tmp/anim.gif" "$out/jxl/vardct-animation.jxl"

@@ -134,17 +134,20 @@ filters, or YCbCr: `frame.needsFloat` false) and at least two group rows
 tall, keeps one group row of each channel and writes each group row as
 soon as its groups are in, since no filter reads past it.
 
-Global Modular transforms (cjxl palettes a two-level alpha over the whole
-frame, and channels with few distinct values) are undone only on the whole
-frame, so a streaming frame's memory is taken at the end of `lfGlobal`,
-once its transforms are known: rings, or whole planes and channels when
-there are transforms, and the frame is decoded whole. The large lossless
-files in the benchmark corpus (the mosaic, the photos, the tall
-screenshots) have none; those with palettes are at most two group rows.
-Pixels are the whole frame's bit for bit (the unit tests and the fuzz
-target's `checkStream` compare them, and `vardct-tall*.jxl` and
-`modular-tall*.jxl` in the generated corpus cover the plain, permuted,
-alpha, and palette cases). `decodeConfig` peeks the TOC's permutation bit
+Global Modular transforms that take each pixel on its own
+(`Transform.pointwise`: RCTs, and palettes without deltas or a predictor,
+which is what cjxl writes for a two-level alpha and for channels with few
+distinct values) are undone on each band as it is written:
+`Image.band` takes the band's rows from the rings as channels of their
+own, shares the meta channels (the palettes), undoes the transforms on
+them, and the result must have the frame's channels at its width. Squeezes
+and delta palettes read across bands, so a frame with one is decoded
+whole; its memory is taken at the end of `lfGlobal`, once its transforms
+are known: rings, or whole planes and channels. Pixels are the whole
+frame's bit for bit (the unit tests and the fuzz target's `checkStream`
+compare them, and `vardct-tall*.jxl` and `modular-tall*.jxl` in the
+generated corpus cover the plain, permuted, alpha, palette, and squeezed
+cases). `decodeConfig` peeks the TOC's permutation bit
 after the frame header, so the bound shrinks only when the frame will
 stream; for VarDCT with extra channels it keeps the larger of the ring and
 whole planes, since the transforms are not known until the frame is read,
@@ -162,8 +165,7 @@ is 127 MB of a 243 MB bound for `cjxl -d 1`, streamed (627 MB of 948 MB
 whole), and 608 MB for `-d 0`. Memory the decoder never touches costs a
 caller nothing when it comes from `mmap`, but a caller that fills it, as
 Zig's safe allocators do, pays for all of it. Further cuts: undoing
-squeezes row by row (one extra channel instead of three), and global RCTs
-and palettes undone a band at a time, so that frames with them stream.
+squeezes row by row (one extra channel instead of three).
 
 ## Decisions
 
@@ -393,11 +395,9 @@ noise at about ±1.5%.
 
 1. **Memory, further**: stream more frames (chroma subsampling, noise,
    upsampling, which need a few more rows each); keep two
-   group rows plus the margin instead of three; and Modular frames with
-   global RCTs or palettes (without delta entries), by undoing them a
-   band at a time (`results/jxl-mstream-20261103.md`). `work_len` for
-   Modular stays the whole frame's until `decodeConfig` can learn the
-   transforms, which come after the tree.
+   group rows plus the margin instead of three. `work_len` for Modular
+   stays the whole frame's until `decodeConfig` can learn the transforms,
+   which come after the tree (`results/jxl-mstream2-20261103.md`).
 2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no
    tuning left that measures: what remains needs another algorithm. The
    XYB to sRGB transform (13% of lossy) with a power function of fewer

@@ -84,6 +84,17 @@ pub const Transform = struct {
 
     pub const Kind = enum { rct, palette, squeeze };
 
+    /// Whether undoing the transform takes each pixel on its own, so that
+    /// it can be undone on any rows: an RCT, or a palette without deltas
+    /// or a predictor (whose negative indices would be predicted too).
+    pub fn pointwise(t: *const Transform) bool {
+        return switch (t.kind) {
+            .rct => true,
+            .palette => t.nb_deltas == 0 and t.predictor == 0,
+            .squeeze => false,
+        };
+    }
+
     fn read(br: *BitReader, arena: *Arena) Error!Transform {
         const id = try br.bits(2);
         var t: Transform = .{ .kind = switch (id) {
@@ -184,6 +195,36 @@ pub const Image = struct {
 
     pub fn channels(img: *const Image) []Channel {
         return img.buf[0..img.len];
+    }
+
+    /// Whether `decodeStream` gave the channels that are not meta rings
+    /// (as `StreamOptions.ring` says when), or there are none.
+    pub fn ringed(img: *const Image) bool {
+        for (img.channels()[img.nb_meta..]) |*c| if (c.ring == 0) return false;
+        return true;
+    }
+
+    /// Rows `y0 .. y0 + rows` of a `ringed` image, which its rings hold
+    /// in order, with its transforms undone: the rings' rows as channels
+    /// of `rows`, and new channels from `arena` where the transforms add
+    /// them. The meta channels are shared; `img` is not changed.
+    pub fn band(img: *const Image, arena: *Arena, y0: usize, rows: u32) Error!Image {
+        var b: Image = img.*;
+        b.buf = try arena.alloc(Channel, img.buf.len);
+        @memcpy(b.buf[0..img.len], img.channels());
+        for (img.channels()[img.nb_meta..], b.channels()[img.nb_meta..]) |*from, *c| {
+            const at = y0 % from.ring;
+            if (at + rows > from.ring) return error.BadImage;
+            c.* = .{
+                .w = from.w,
+                .h = rows,
+                .hshift = from.hshift,
+                .vshift = from.vshift,
+                .data = from.data[at * from.w ..][0 .. rows * from.w],
+            };
+        }
+        try b.undoTransforms(arena);
+        return b;
     }
 
     fn insert(img: *Image, at: usize, c: Channel) Error!void {
@@ -766,10 +807,11 @@ pub const StreamOptions = struct {
     global: ?*const Tree = null,
     /// Undo the stream's transforms after decoding.
     undo: bool = true,
-    /// When nonzero and the stream has no transforms, the channels too
-    /// large for it (which groups fill) get rings of this many rows
-    /// instead of all their rows: a frame that streams keeps only the
-    /// group rows it has not written yet.
+    /// When nonzero, the channels that are not meta get rings of this
+    /// many rows instead of all their rows, if every one is too large for
+    /// the stream (groups fill them), taller than the ring, and every
+    /// transform is `pointwise`: a frame that streams keeps only the group
+    /// rows it has not written yet.
     ring: u32 = 0,
 };
 
@@ -786,11 +828,18 @@ pub fn decodeStream(br: *BitReader, arena: *Arena, img: *Image, stream_id: u32, 
     for (img.transforms) |*t| t.* = try .read(br, arena);
     for (img.transforms) |*t| try img.metaApply(arena, t);
     try img.validateDims(opt.group_dim);
-    const ring = opt.ring != 0 and nt == 0;
+    // Rings for every channel that is not meta, or for none: then the
+    // transforms are undone on each band's rows (`Image.ringed`).
+    var ring = opt.ring != 0;
+    for (img.transforms) |*t| ring = ring and t.pointwise();
+    for (img.channels()[img.nb_meta..]) |*c| {
+        const large = c.w > opt.max_chan_size or c.h > opt.max_chan_size;
+        ring = ring and large and c.data.len == 0 and opt.ring < c.h;
+    }
     for (img.channels(), 0..) |*c, i| {
         if (c.data.len != 0) continue;
         var rows = c.h;
-        if (ring and i >= img.nb_meta and (c.w > opt.max_chan_size or c.h > opt.max_chan_size) and opt.ring < c.h) {
+        if (ring and i >= img.nb_meta) {
             rows = opt.ring;
             c.ring = opt.ring;
         }

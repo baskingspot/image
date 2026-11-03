@@ -162,9 +162,9 @@ pub const Context = struct {
 /// A VarDCT frame's colors come filtered but before the color transform,
 /// in three planes of rows of `stride` (at least the frame's width), and
 /// `extra` holds the extra channels; a Modular frame's planes are null
-/// and `extra` holds its colors, then its extra channels. `extra`'s
-/// channels are final through those rows, which `Channel.row` finds
-/// (they may be rings). The planes may be changed.
+/// and `extra` holds its colors, then its extra channels, with the
+/// frame's layout and its rows from row `extra_y` (`Channel.row` finds
+/// them, in rings or not). The planes may be changed.
 pub const BandSink = struct {
     ctx: *anyopaque,
     write: *const fn (
@@ -172,6 +172,7 @@ pub const BandSink = struct {
         planes: ?[3][]f32,
         stride: usize,
         extra: *const modular.Image,
+        extra_y: usize,
         y0: usize,
         rows: usize,
     ) void,
@@ -187,9 +188,9 @@ const band_margin = 8;
 /// subsampling), not an LF frame, and VarDCT taller than the ring and a
 /// window (`ringRows`), or Modular in integers (`needsFloat` false) of at
 /// least two group rows, below which streaming saves nothing. Global
-/// Modular transforms make `lfGlobal` decode the frame whole: they are
-/// undone on the whole frame. The caller decides whether the frame is
-/// shown as it is.
+/// Modular transforms that are not `pointwise` make `lfGlobal` decode the
+/// frame whole; the others are undone on each band. The caller decides
+/// whether the frame is shown as it is.
 pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
     const whole = headers.flag_noise | headers.flag_patches | headers.flag_splines;
     const d: headers.Dims = .init(fh);
@@ -567,14 +568,15 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
         .group_dim = ctx.d.group_dim,
         .global = if (ctx.tree) |*t| t else null,
         .undo = false,
-        // Without transforms, a streaming frame's channels are rings.
+        // A streaming frame's channels are rings, unless its transforms
+        // need the whole frame.
         .ring = if (ctx.band != null) modularRing(fh) else 0,
     });
     ctx.full = img;
     if (ctx.band != null) {
-        // Global transforms are undone on the whole frame, so then it is
-        // decoded whole (and its channels were given all their rows).
-        if (img.transforms.len != 0) ctx.band = null;
+        // Without rings (transforms that are not pointwise), it is
+        // decoded whole: its channels were given all their rows.
+        if (!img.ringed()) ctx.band = null;
         if (ctx.vd) |vd| {
             if (ctx.band == null) vd.ring_rows = 0;
             try vd.allocPlanes(arena);
@@ -690,8 +692,11 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
         const k = ctx.rows_in - 1;
         const y0 = k * d.group_dim;
         const rows = @min(d.group_dim, d.height - y0);
+        const m = arena.mark();
+        defer arena.release(m);
+        const b = try bandChannels(arena, ctx, y0, rows);
         const sink = ctx.band.?;
-        sink.write(sink.ctx, null, 0, &ctx.full, y0, rows);
+        sink.write(sink.ctx, null, 0, &b.img, b.y, y0, rows);
         ctx.bands_out += 1;
         return;
     }
@@ -744,9 +749,30 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
     }
     var band: [3][]f32 = undefined;
     for (&band, win) |*o, p| o.* = p[(y0 - ws) * stride ..][0 .. (y1 - y0) * stride];
+    const m = arena.mark();
+    defer arena.release(m);
+    const b = try bandChannels(arena, ctx, y0, y1 - y0);
     const sink = ctx.band.?;
-    sink.write(sink.ctx, band, stride, &ctx.full, y0, y1 - y0);
+    sink.write(sink.ctx, band, stride, &b.img, b.y, y0, y1 - y0);
     ctx.bands_out += 1;
+}
+
+/// A streamed frame's Modular channels for rows `y0 .. y0 + rows`, and
+/// the row of them that is `y0`: the rings themselves, or, when there are
+/// global transforms, the band's rows with them undone (`Image.band`),
+/// which must leave the frame's channels at its width.
+fn bandChannels(
+    arena: *Arena,
+    ctx: *const Context,
+    y0: usize,
+    rows: usize,
+) Error!struct { img: modular.Image, y: usize } {
+    const full = &ctx.full;
+    if (full.transforms.len == 0) return .{ .img = full.*, .y = y0 };
+    const b = try full.band(arena, y0, @intCast(rows));
+    if (b.len != ctx.num_color + ctx.image.num_ec) return error.BadImage;
+    for (b.channels()) |c| if (c.w != ctx.d.width or c.h != rows) return error.BadImage;
+    return .{ .img = b, .y = 0 };
 }
 
 fn passGroup(br: *BitReader, arena: *Arena, ctx: *Context, pass: u32, g: u32) Error!void {
