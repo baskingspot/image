@@ -254,7 +254,7 @@ const Sizes = struct {
             .write = ent.writeMemory(leaves),
             .wp = mod.Wp.memory(@max(gw, pal)),
             .store = @as(usize, @intCast(@min(all_samples + pal * max_channels, store_tokens))) * 4,
-            .streams = (lay.num_groups + 1) * 4,
+            .streams = (lay.num_groups + 1) * 4 + 2 * lay.num_groups,
         };
     }
 
@@ -289,12 +289,10 @@ fn sampleStreams(
     plane_list: *[max_channels + 1]Plane,
     share: f64,
 ) !void {
-    const lay = &c.lay;
-    const ns = numStreams(lay);
-    const has_pal = c.tr.palette != null;
+    const ns = numStreams(&c.lay);
     var k: u32 = 0;
     while (k < ns) : (k += 1) {
-        const s = streamAt(lay, k, has_pal);
+        const s = streamAt(c, k);
         const n = buildPlanes(c, s, plane_list);
         for (plane_list[0..n], 0..) |pl, ci| {
             // The palette is sampled whole.
@@ -370,6 +368,11 @@ const Palette = struct {
         p.len += 1;
         p.slots[i] = @intCast(p.len);
         return true;
+    }
+
+    fn reset(p: *Palette) void {
+        @memset(p.slots, 0);
+        p.len = 0;
     }
 
     inline fn index(p: *const Palette, key: u64) i32 {
@@ -479,55 +482,95 @@ const rct_channels = blk: {
     }{ .unique = unique_final, .of = of_final };
 };
 
-/// The transform whose sampled gradient residuals cost least, over about
-/// `pixels` pixels: row segments as many as they are wide, spread over
-/// the image.
-fn chooseRct(lay: *const Layout, rr: *const RowReader, rows: *[2][max_channels][]i32, pixels: usize) u32 {
-    const w = lay.w;
-    if (lay.h < 2 or w < 2) return 6;
-    const n_rows: u32 = @intCast(@max(1, @min(lay.h - 1, std.math.sqrt(pixels))));
+/// Estimated bits of a region's channels: their clamped-gradient residuals
+/// on row segments, as many as they are wide, spread over the region, about
+/// `pixels` pixels in all.
+const Costs = struct {
+    /// Each RCT's three channels, for RGB.
+    rct: [42]f64 = @splat(0),
+    /// The channels no RCT takes: gray, and alpha.
+    rest: f64 = 0,
+    /// The palette's indices, when there is a palette.
+    pal: f64 = 0,
+    /// Pixels sampled.
+    pixels: f64 = 0,
+
+    /// The RCT that costs least.
+    fn best(c: *const Costs) u32 {
+        var b: u32 = 6;
+        for (0..42) |t| {
+            // Prefer YCoCg on ties.
+            if (c.rct[t] < c.rct[b]) b = @intCast(t);
+        }
+        return b;
+    }
+};
+
+fn regionCosts(c: *Ctx, r: Rect, rows: *[2][max_channels][]i32, pixels: usize, pal: ?*const Palette) Costs {
+    const w = r.w;
+    var out: Costs = .{};
+    if (r.h < 2 or w < 2) return out;
+    const lay = &c.lay;
+    const nch = lay.channels();
+    const n_rows: u32 = @intCast(@max(1, @min(r.h - 1, std.math.sqrt(pixels))));
     const seg: u32 = @intCast(@max(2, @min(w, group_dim, pixels / n_rows)));
-    const step = (lay.h - 1) / n_rows;
+    const step = (r.h - 1) / n_rows;
     var counts: [rct_channels.unique.len][64]u32 = @splat(@splat(0));
+    var rest: [max_channels][64]u32 = @splat(@splat(0));
+    var idx: [64]u32 = @splat(0);
     const cfg: ent.Config = .{};
     var k: u32 = 0;
     while (k < n_rows) : (k += 1) {
-        const y = 1 + k * step;
-        const x0: u32 = @intCast((@as(u64, k) * 2654435761) % (w - seg + 1));
+        const y = r.y0 + 1 + k * step;
+        const x0: u32 = r.x0 + @as(u32, @intCast((@as(u64, k) * 2654435761) % (w - seg + 1)));
         const n = seg;
-        rr.read(x0, y - 1, n, &rows[0]);
-        rr.read(x0, y, n, &rows[1]);
-        // Each distinct transformed channel, specialized, over the two
-        // rows at once.
-        inline for (rct_channels.unique, 0..) |tc, e| {
-            var tr: [2][group_dim]i32 = undefined;
-            for (0..2) |r| {
-                for (0..n) |x| tr[r][x] = rct(tc[0], .{ rows[r][0][x], rows[r][1][x], rows[r][2][x] })[tc[1]];
-            }
-            const up = tr[0][0..n];
-            const cur = tr[1][0..n];
-            const hist = &counts[e];
-            for (1..n) |x| {
-                const g = mod.clampedGradient(up[x], cur[x - 1], up[x - 1]);
-                const tok = cfg.split(ent.packSigned(@truncate(cur[x] - g))).token;
-                hist[@min(tok, 63)] += 1;
+        c.rr.read(x0, y - 1, n, &rows[0]);
+        c.rr.read(x0, y, n, &rows[1]);
+        if (lay.nc == 3) {
+            // Each distinct transformed channel, specialized, over the two
+            // rows at once.
+            inline for (rct_channels.unique, 0..) |tc, e| {
+                var tr: [2][group_dim]i32 = undefined;
+                for (0..2) |i| {
+                    for (0..n) |x| tr[i][x] = rct(tc[0], .{ rows[i][0][x], rows[i][1][x], rows[i][2][x] })[tc[1]];
+                }
+                gradientHist(tr[0][0..n], tr[1][0..n], &counts[e], cfg);
             }
         }
-    }
-    var cost: [rct_channels.unique.len]f64 = undefined;
-    for (&cost, &counts) |*c, *h| c.* = histCost(h, cfg);
-    var best: u32 = 6;
-    var best_cost: f64 = std.math.inf(f64);
-    for (0..42) |t| {
-        var bits: f64 = 0;
-        for (0..3) |c| bits += cost[rct_channels.of[t][c]];
-        // Prefer YCoCg on ties.
-        if (bits < best_cost or (bits == best_cost and t == 6)) {
-            best_cost = bits;
-            best = @intCast(t);
+        // The rest only matters next to a palette.
+        if (pal == null) continue;
+        for (if (lay.nc == 3) 3 else 0..nch) |ch| gradientHist(rows[0][ch][0..n], rows[1][ch][0..n], &rest[ch], cfg);
+        if (pal) |p| {
+            var ix: [2][group_dim]i32 = undefined;
+            var px: [max_channels]i32 = undefined;
+            for (0..2) |i| {
+                for (0..n) |x| {
+                    for (0..nch) |ch| px[ch] = rows[i][ch][x];
+                    ix[i][x] = p.index(colorKey(&px, nch));
+                }
+            }
+            gradientHist(ix[0][0..n], ix[1][0..n], &idx, cfg);
         }
     }
-    return best;
+    out.pixels = @floatFromInt(@as(u64, n_rows) * (seg - 1));
+    if (lay.nc == 3) {
+        var cost: [rct_channels.unique.len]f64 = undefined;
+        for (&cost, &counts) |*o, *h| o.* = histCost(h, cfg);
+        for (0..42) |t| {
+            for (0..3) |ch| out.rct[t] += cost[rct_channels.of[t][ch]];
+        }
+    }
+    for (&rest) |*h| out.rest += histCost(h, cfg);
+    out.pal = histCost(&idx, cfg);
+    return out;
+}
+
+fn gradientHist(up: []const i32, cur: []const i32, hist: *[64]u32, cfg: ent.Config) void {
+    for (1..cur.len) |x| {
+        const g = mod.clampedGradient(up[x], cur[x - 1], up[x - 1]);
+        const tok = cfg.split(ent.packSigned(@truncate(cur[x] - g))).token;
+        hist[@min(tok, 63)] += 1;
+    }
 }
 
 fn histCost(c: *const [64]u32, cfg: ent.Config) f64 {
@@ -549,15 +592,36 @@ fn histCost(c: *const [64]u32, cfg: ent.Config) f64 {
 
 // Streams.
 
-/// What the global stream declares, which every stream's channels follow.
+/// The transforms a stream declares, or that its channels follow.
 const Transforms = struct {
     palette: ?*const Palette = null,
     rct: u32 = 0,
 };
 
+/// A group's own transform: an RCT type, or a palette of its colors.
+const local_palette = 255;
+/// How much cheaper, estimated, a group's best RCT must be than the
+/// image's for the group to take it. The tree is shared, and channels
+/// that differ from group to group fit it worse.
+const rct_margin = 0.03;
+/// Estimated bits of a palette entry's sample.
+const pal_entry_bits = 5.0;
+/// A group with at most this many colors takes a palette whatever the
+/// estimate says.
+const few_colors = 8;
+/// When this share of the groups can take a palette, they all do. The
+/// estimate, without the tree's contexts, undervalues palettes on text.
+const pal_majority = 0.7;
+
 const Ctx = struct {
     lay: Layout,
+    /// The global stream's transforms.
     tr: Transforms,
+    /// Each group's own transform, when the global stream declares none
+    /// and there are several groups; else empty.
+    local: []u8 = &.{},
+    /// A group's palette, made again whenever the group is.
+    local_pal: *Palette,
     rr: RowReader,
     /// Channel buffers for one stream.
     planes: []i32,
@@ -565,36 +629,67 @@ const Ctx = struct {
     pal_plane: []i32,
 };
 
-/// A stream: the global one (with the palette, and with the image's
-/// channels when there is one group) or a group's.
-const Stream = struct {
-    id: u32,
+const Rect = struct {
     x0: u32,
     y0: u32,
     w: u32,
     h: u32,
-    /// Whether the palette's meta channel comes first.
-    meta: bool,
 };
 
-fn streamAt(lay: *const Layout, k: u32, has_palette: bool) Stream {
+/// A stream: the global one (with the palette, and with the image's
+/// channels when there is one group) or a group's.
+const Stream = struct {
+    id: u32,
+    rect: Rect,
+    /// Whether the palette's meta channel comes first.
+    meta: bool,
+    /// The transforms the stream's channels follow.
+    tr: Transforms,
+    /// Whether the stream declares `tr` itself.
+    declares: bool,
+};
+
+fn groupRect(lay: *const Layout, g: u32) Rect {
+    const x0 = (g % lay.xg) * group_dim;
+    const y0 = (g / lay.xg) * group_dim;
+    return .{ .x0 = x0, .y0 = y0, .w = @min(group_dim, lay.w - x0), .h = @min(group_dim, lay.h - y0) };
+}
+
+/// Stream `k`, with a group's palette made in `c.local_pal` when it has
+/// one.
+fn streamAt(c: *Ctx, k: u32) Stream {
+    const lay = &c.lay;
+    const has_palette = c.tr.palette != null;
     if (k == 0) {
-        if (lay.single()) return .{ .id = 0, .x0 = 0, .y0 = 0, .w = lay.w, .h = lay.h, .meta = has_palette };
-        return .{ .id = 0, .x0 = 0, .y0 = 0, .w = 0, .h = 0, .meta = has_palette };
+        // With several groups, the global stream holds no pixels.
+        const r: Rect = .{ .x0 = 0, .y0 = 0, .w = if (lay.single()) lay.w else 0, .h = if (lay.single()) lay.h else 0 };
+        return .{ .id = 0, .rect = r, .meta = has_palette, .tr = c.tr, .declares = true };
     }
     const g = k - 1;
-    const gx = g % lay.xg;
-    const gy = g / lay.xg;
-    const x0 = gx * group_dim;
-    const y0 = gy * group_dim;
-    return .{
+    const r = groupRect(lay, g);
+    var s: Stream = .{
         .id = 1 + 3 * lay.num_lf_groups + num_quant_tables + g,
-        .x0 = x0,
-        .y0 = y0,
-        .w = @min(group_dim, lay.w - x0),
-        .h = @min(group_dim, lay.h - y0),
+        .rect = r,
         .meta = false,
+        .tr = c.tr,
+        .declares = false,
     };
+    if (c.local.len != 0) {
+        s.declares = true;
+        s.tr = .{};
+        if (c.local[g] == local_palette) {
+            const p = c.local_pal;
+            p.reset();
+            const fits = findPalette(c, p, r);
+            std.debug.assert(fits);
+            sortPalette(p);
+            s.tr.palette = p;
+            s.meta = true;
+        } else {
+            s.tr.rct = c.local[g];
+        }
+    }
+    return s;
 }
 
 fn numStreams(lay: *const Layout) u32 {
@@ -606,7 +701,7 @@ fn numStreams(lay: *const Layout) u32 {
 fn buildPlanes(c: *Ctx, s: Stream, out: *[max_channels + 1]Plane) usize {
     var n: usize = 0;
     if (s.meta) {
-        const p = c.tr.palette.?;
+        const p = s.tr.palette.?;
         const nch = c.lay.channels();
         for (0..p.len) |i| {
             const ord = p.order[i];
@@ -615,20 +710,21 @@ fn buildPlanes(c: *Ctx, s: Stream, out: *[max_channels + 1]Plane) usize {
         out[0] = .{ .w = @intCast(p.len), .h = nch, .data = c.pal_plane[0 .. p.len * nch] };
         n = 1;
     }
-    if (s.w == 0 or s.h == 0) return n;
-    const area = @as(usize, s.w) * s.h;
+    const r = s.rect;
+    if (r.w == 0 or r.h == 0) return n;
+    const area = @as(usize, r.w) * r.h;
     const nch = c.lay.channels();
-    const n_img: usize = if (c.tr.palette != null) 1 else nch;
-    for (0..n_img) |k| out[n + k] = .{ .w = s.w, .h = s.h, .data = c.planes[k * area ..][0..area] };
+    const n_img: usize = if (s.tr.palette != null) 1 else nch;
+    for (0..n_img) |k| out[n + k] = .{ .w = r.w, .h = r.h, .data = c.planes[k * area ..][0..area] };
     var px: [max_channels]i32 = undefined;
-    for (0..s.h) |y| {
-        c.rr.read(s.x0, s.y0 + @as(u32, @intCast(y)), s.w, &c.rows);
-        const row = y * s.w;
-        if (c.tr.palette) |p| {
-            const d = out[n].data[row..][0..s.w];
+    for (0..r.h) |y| {
+        c.rr.read(r.x0, r.y0 + @as(u32, @intCast(y)), r.w, &c.rows);
+        const row = y * r.w;
+        if (s.tr.palette) |p| {
+            const d = out[n].data[row..][0..r.w];
             var last_key: u64 = undefined;
             var last: i32 = -1;
-            for (0..s.w) |x| {
+            for (0..r.w) |x| {
                 for (0..nch) |ch| px[ch] = c.rows[ch][x];
                 const key = colorKey(&px, nch);
                 if (last < 0 or key != last_key) {
@@ -639,13 +735,13 @@ fn buildPlanes(c: *Ctx, s: Stream, out: *[max_channels + 1]Plane) usize {
             }
             continue;
         }
-        for (0..nch) |ch| @memcpy(out[n + ch].data[row..][0..s.w], c.rows[ch][0..s.w]);
-        if (c.tr.rct != 0) {
-            const a = out[n].data[row..][0..s.w];
-            const b = out[n + 1].data[row..][0..s.w];
-            const cc = out[n + 2].data[row..][0..s.w];
+        for (0..nch) |ch| @memcpy(out[n + ch].data[row..][0..r.w], c.rows[ch][0..r.w]);
+        if (s.tr.rct != 0) {
+            const a = out[n].data[row..][0..r.w];
+            const b = out[n + 1].data[row..][0..r.w];
+            const cc = out[n + 2].data[row..][0..r.w];
             for (a, b, cc) |*x0, *x1, *x2| {
-                const v = rct(c.tr.rct, .{ x0.*, x1.*, x2.* });
+                const v = rct(s.tr.rct, .{ x0.*, x1.*, x2.* });
                 x0.* = v[0];
                 x1.* = v[1];
                 x2.* = v[2];
@@ -749,14 +845,11 @@ fn writeFrameHeader(bw: *BitWriter, lay: *const Layout) void {
 }
 
 /// The stream header every stream has: the global tree, the default
-/// weighted predictor, and the transforms (only in the global stream).
-fn writeStreamHeader(bw: *BitWriter, tr: ?*const Transforms, nch: u32) void {
+/// weighted predictor, and the transforms the stream declares.
+fn writeStreamHeader(bw: *BitWriter, s: *const Stream, nch: u32) void {
     bw.boolean(true);
     bw.boolean(true);
-    const t = tr orelse {
-        bw.u32Dist(0, .{ .v(0), .v(1), .bo(4, 2), .bo(8, 18) });
-        return;
-    };
+    const t: Transforms = if (s.declares) s.tr else .{};
     const n: u32 = @intFromBool(t.palette != null or t.rct != 0);
     bw.u32Dist(n, .{ .v(0), .v(1), .bo(4, 2), .bo(8, 18) });
     const begin: [4]BitWriter.Dist = .{ .b(3), .bo(6, 8), .bo(10, 72), .bo(13, 1096) };
@@ -814,12 +907,14 @@ fn encodeImpl(
         .planes = try mem.alloc(i32, sizes.planes / 4),
         .rows = undefined,
         .pal_plane = try mem.alloc(i32, p.palette_max * max_channels),
+        .local_pal = undefined,
     };
     c.rr.lay = &c.lay;
     const row_w = @max(@min(lay.w, group_dim), p.palette_max);
     for (&c.rows) |*r| r.* = try mem.alloc(i32, row_w);
 
-    // A palette when the image has few colors.
+    // A palette when the image has few colors; otherwise each group's
+    // own palette or color transform, or with one group, the image's.
     var pal: Palette = .{
         .slots = try mem.alloc(u16, hash_size),
         .keys = try mem.alloc(u64, p.palette_max),
@@ -829,21 +924,61 @@ fn encodeImpl(
         .max = p.palette_max,
     };
     @memset(pal.slots, 0);
+    c.local_pal = &pal;
     const pixels = @as(u64, lay.w) * lay.h;
-    if (findPalette(&c, &pal) and usePalette(&lay, pal.len, pixels)) {
+    // Two rows of channels in the stream planes, as scratch.
+    var rows2: [2][max_channels][]i32 = undefined;
+    for (0..2) |r| {
+        for (0..max_channels) |ch| rows2[r][ch] = c.planes[(r * max_channels + ch) * group_dim ..][0..group_dim];
+    }
+    const image: Rect = .{ .x0 = 0, .y0 = 0, .w = lay.w, .h = lay.h };
+    // The samples the image's channels hold, after the transforms.
+    var total_px: u64 = pixels * nch;
+    if (findPalette(&c, &pal, image) and usePalette(&lay, pal.len, pixels)) {
         sortPalette(&pal);
         c.tr.palette = &pal;
-    } else if (lay.nc == 3) {
-        // Two rows of channels in the stream planes, as scratch.
-        var rows2: [2][max_channels][]i32 = undefined;
-        for (0..2) |r| {
-            for (0..max_channels) |ch| rows2[r][ch] = c.planes[(r * max_channels + ch) * group_dim ..][0..group_dim];
+        total_px = pixels;
+    } else if (lay.single()) {
+        if (lay.nc == 3) c.tr.rct = regionCosts(&c, image, &rows2, p.rct_pixels, null).best();
+    } else {
+        const local = try mem.alloc(u8, lay.num_groups);
+        const g_rct: u32 = if (lay.nc == 3) regionCosts(&c, image, &rows2, p.rct_pixels, null).best() else 0;
+        const qual = try mem.alloc(bool, lay.num_groups);
+        var n_qual: usize = 0;
+        for (local, qual, 0..) |*t, *q, g| {
+            const r = groupRect(&lay, @intCast(g));
+            const area = @as(u64, r.w) * r.h;
+            pal.reset();
+            const has_pal = findPalette(&c, &pal, r) and usePalette(&lay, pal.len, area);
+            if (has_pal) sortPalette(&pal);
+            q.* = has_pal;
+            n_qual += @intFromBool(has_pal);
+            const cost = regionCosts(&c, r, &rows2, p.rct_pixels, if (has_pal) &pal else null);
+            var rgb: u32 = g_rct;
+            if (lay.nc == 3) {
+                const b = cost.best();
+                if (cost.rct[b] < cost.rct[g_rct] * (1 - rct_margin)) rgb = b;
+            }
+            const plain = cost.rct[rgb] + cost.rest;
+            // The palette's samples, in the sampled pixels' terms.
+            const share = cost.pixels / @as(f64, @floatFromInt(area));
+            const meta = @as(f64, @floatFromInt(pal.len * nch)) * pal_entry_bits * share;
+            t.* = if (has_pal and (pal.len <= few_colors or cost.pal + meta < plain)) local_palette else @intCast(rgb);
         }
-        c.tr.rct = chooseRct(&lay, &c.rr, &rows2, p.rct_pixels);
+        const all_pal = @as(f64, @floatFromInt(n_qual)) >= pal_majority * @as(f64, @floatFromInt(lay.num_groups));
+        var any = false;
+        total_px = 0;
+        for (local, qual, 0..) |*t, q, g| {
+            if (all_pal and q) t.* = local_palette;
+            const r = groupRect(&lay, @intCast(g));
+            const area = @as(u64, r.w) * r.h;
+            total_px += if (t.* == local_palette) area else area * nch;
+            any = any or t.* != 0;
+        }
+        if (any) c.local = local;
     }
 
     const ns = numStreams(&lay);
-    const has_pal = c.tr.palette != null;
     const stream_samples = sizes.planes / 4;
     const tokens = try mem.alloc(Token, stream_samples);
     const leaves: u32 = @intCast(@min(p.max_leaves, (lay.treeLimit() + 1) / 2));
@@ -864,7 +999,6 @@ fn encodeImpl(
         const single = cap <= single_pass_samples;
         const whole = if (single) cap else mod.thresholdSamples(cap);
         var smp: mod.Samples = try .init(mem, cap, whole, p.predictors.len, p.refs);
-        const total_px = pixels * (if (has_pal) 1 else nch);
         // A band of rows from every stream, as tall as the share of the
         // image the samples can cover.
         const budget: u64 = @as(u64, cap) * 4;
@@ -911,7 +1045,7 @@ fn encodeImpl(
     {
         var k: u32 = 0;
         while (k < ns) : (k += 1) {
-            const s = streamAt(&lay, k, has_pal);
+            const s = streamAt(&c, k);
             const n = try streamTokens(mem, &c, s, &tree, flat, tokens, &plane_list);
             hist.addTokens(tokens[0..n], .{});
             stream_len[k] = @intCast(n);
@@ -952,8 +1086,8 @@ fn encodeImpl(
     var start_token: usize = 0;
     var k: u32 = 0;
     while (k < ns) : (k += 1) {
-        const s = streamAt(&lay, k, has_pal);
-        writeStreamHeader(&bw, if (k == 0) &c.tr else null, nch);
+        const s = streamAt(&c, k);
+        writeStreamHeader(&bw, &s, nch);
         const n = stream_len[k];
         if (keep) {
             for (tokens[0..n], store[start_token..][0..n]) |*t, v| t.* = .{ .ctx = v & 0x7ff, .value = v >> 11 };
@@ -1036,16 +1170,15 @@ fn refsOf(planes: []const Plane, ci: usize, meta: bool, max: usize, buf: *[mod.m
 
 /// Collects the image's colors into `pal`; false if there are more than
 /// it holds.
-fn findPalette(c: *Ctx, pal: *Palette) bool {
-    const lay = &c.lay;
-    const nch = lay.channels();
+fn findPalette(c: *Ctx, pal: *Palette, r: Rect) bool {
+    const nch = c.lay.channels();
     var px: [max_channels]i32 = undefined;
     var color: [max_channels]u16 = undefined;
-    var y: u32 = 0;
-    while (y < lay.h) : (y += 1) {
-        var x0: u32 = 0;
-        while (x0 < lay.w) : (x0 += group_dim) {
-            const n = @min(group_dim, lay.w - x0);
+    var y: u32 = r.y0;
+    while (y < r.y0 + r.h) : (y += 1) {
+        var x0: u32 = r.x0;
+        while (x0 < r.x0 + r.w) : (x0 += group_dim) {
+            const n = @min(group_dim, r.x0 + r.w - x0);
             c.rr.read(x0, y, n, &c.rows);
             var last: u64 = undefined;
             for (0..n) |x| {
@@ -1191,4 +1324,21 @@ test "several groups" {
     const px2 = try testImage(gpa, .rgb8, 300, 260, 2);
     defer gpa.free(px2);
     try roundTrip(.rgb8, 300, 260, px2, .best);
+    // Groups of their own kinds: noise, few colors, and a gradient, so
+    // that groups take palettes and color transforms of their own.
+    const w = 700;
+    const h = 300;
+    const px3 = try testImage(gpa, .rgba8, w, h, 1);
+    defer gpa.free(px3);
+    for (0..h) |y| {
+        for (0..w) |x| {
+            const p = px3[(y * w + x) * 4 ..][0..4];
+            if (x >= 512) {
+                p.* = .{ @truncate(x), @truncate(y * 2), @truncate(x + y), 255 };
+            } else if (x >= 256 or y >= 256) {
+                p.* = if ((x / 3 + y / 5) % 3 == 0) .{ 250, 250, 250, 255 } else .{ @truncate(x / 40), 30, 90, 200 };
+            }
+        }
+    }
+    for ([_]Effort{ .fast, .default }) |e| try roundTrip(.rgba8, w, h, px3, e);
 }

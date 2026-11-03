@@ -20,7 +20,9 @@ megapixel, and larger trees at fast and default, which closed most of the
 gap on photos.
 
 Stage 3 (`wave5-jxl-encode3`, `results/jxl-encode3-20261102.md`):
-default's tree stops at 1024 leaves (decision 71).
+default's tree stops at 1024 leaves (decision 71), and groups take
+palettes and color transforms of their own, which closed most of the
+gap on screenshots.
 
 ## What it writes
 
@@ -58,6 +60,25 @@ default's tree stops at 1024 leaves (decision 71).
   a 768-wide photo saw one row and picked badly (Kodak +20–50%). The 42
   transforms' 126 channels are 15 distinct functions of R, G, and B; each
   is scored once, and a transform costs its three channels' sum.
+- **Per group** (stage 3), when the image has several groups and no
+  palette of its own: each group declares its own transform in its stream
+  header, a palette of its colors or an RCT, scored like the image's on
+  the group's own segments (`regionCosts`). The tree stays global, so a
+  group's channels mean different things from group to group, and the
+  rules below came from corpus runs rather than the estimate alone:
+  - A group takes its own RCT only when it scores 3% under the image's
+    (`rct_margin`). With no margin, Kodak photos and icons grew 1–3%;
+    without group RCTs, the dice photo lost most of its 10% gain.
+  - A group takes a palette (at most `palette_max` colors, at most an
+    eighth of its samples) when its indices plus five bits a palette
+    sample score under its channels, when it has at most 8 colors, or
+    when 70% of the groups can take one (`pal_majority`). The estimate has
+    no contexts and undervalues palettes on text: on cnn.com it turned
+    down groups whose palettes save 3% of the file. A cost estimate with
+    five gradient contexts judged worse, not better.
+    libjxl e7 does the same per group: on the apple.com screenshot,
+    `--modular_palette_colors=0` costs it 2.5%, and the best fixed RCT
+    (`-C 13`) 0.9%.
 
 ## Tree learning
 
@@ -129,13 +150,12 @@ are kept between the passes; otherwise the second pass makes them again.
 | palette colors                    | 256      | 1024                          | 1024   |
 | RCT pixels                        | 2^10     | 2^15                          | 2^16   |
 
-Against cjxl, on the 43-file corpus (stage 2): fast is 2.3% smaller than
-e3 at 0.89 and 0.71 of its speed up to and above a megapixel; default is
-e7's size (1.003 of its total) at 0.82 and 1.01 of its speed (stage 3,
-at 1024 leaves, decision 71: 1.005 at 0.89 and 1.15); best is
-e8's size (0.998) at 0.59 and 1.55 of its speed. Icons run at 0.46, 0.60,
-and 0.20 of those efforts' speed. The results files have the per-class
-tables.
+Against cjxl, on the 43-file corpus (stage 3): fast is 3.1% smaller than
+e3 at 0.91 and 0.78 of its speed up to and above a megapixel; default is
+1.0% smaller than e7 (0.990 of its total) at 0.87 and 1.19 of its speed;
+best is 1.7% smaller than e8 (0.983) at 0.56 and 1.44 of its speed.
+Icons run at 0.44, 0.58, and 0.20 of those efforts' speed. The results
+files have the per-class tables.
 
 ## Work memory
 

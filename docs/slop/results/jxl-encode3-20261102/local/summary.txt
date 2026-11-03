@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   before   libjxl     ±   <1    ~   slowest vs before
+JxlEncodeE3/icon                  13        0.6     0.99     0.44    5%    1   12   0.95 [0.80, 0.97] icon_16-actions_appointment_new-16x16.raw
+JxlEncodeE3/1mp                   23        5.2     1.02     0.91    1%    2   14   0.92 [0.89, 0.95] screenshot_game-20XX_Menu_picture-634x406.raw
+JxlEncodeE3/large                  7        4.8     1.10     0.78    3%    0    5   1.00 [0.86, 1.02] photo_tecnick-RGB_OR_1200x1200_001-1200x1200.raw
+JxlEncodeE7/icon                  13        0.2     0.98     0.58    2%    1   12   0.94 [0.88, 1.00] icon_16-actions_address_book_new-16x16.raw
+JxlEncodeE7/1mp                   23        1.0     0.99     0.87    4%    3   18   0.95 [0.83, 1.16] test-dice-800x600.raw
+JxlEncodeE7/large                  7        1.5     1.04     1.19    1%    1    4   0.93 [0.90, 0.94] screenshot_web-amazon_com-1313x6097.raw
+JxlEncodeE8/icon                  13        0.0     0.99     0.20    2%    0   13   0.93 [0.86, 1.00] textures_pk-_0mod_button1-64x64.raw
+JxlEncodeE8/1mp                   23        0.2     0.96     0.56    2%    3   20   0.72 [0.72, 0.79] icon_512-actions_bookmark_new-512x512.raw
+JxlEncodeE8/large                  7        0.6     0.96     1.44    2%    2    5   0.89 [0.86, 0.91] screenshot_web-amazon_com-1313x6097.raw
+all                              129        0.6     1.00     0.65         13  103

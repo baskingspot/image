@@ -1,0 +1,19 @@
+# default effort, the 13 files the local transforms move; bytes per file.
+# The rows of the results file's rule table, in order. Lines from
+# `/tmp/bc/subset.sh` (the scratch encoder on each file) or summed from the
+# whole-corpus runs in this directory.
+before   9424188 cnn=1113602 amazon=2679194 apple=1187075 air_pump=147821 20XX=84203 bookmark=28735 address_book=41635 wikipedia-001=1068790 tecnick_001=1027699 dice=145607 plant_02=541329 wikipedia_008=936804 kodim02=421694
+all-own  9262989 cnn=1086406 amazon=2555013 apple=1153509 air_pump=157588 20XX=87542 bookmark=30430 address_book=42754 wikipedia-001=1088462 tecnick_001=1042141 dice=131432 plant_02=540851 wikipedia_008=920625 kodim02=426236
+pal-only 9282660 cnn=1079990 amazon=2555815 apple=1170206 air_pump=157464 20XX=87015 bookmark=29087 address_book=41641 wikipedia-001=1083316 tecnick_001=1037009 dice=145801 plant_02=536771 wikipedia_008=936842 kodim02=421703
+rct-only 9401966 cnn=1116239 amazon=2681644 apple=1177269 air_pump=146883 20XX=84887 bookmark=29011 address_book=42754 wikipedia-001=1066779 tecnick_001=1035077 dice=133217 plant_02=541345 wikipedia_008=920625 kodim02=426236
+est      9263358 cnn=1110211 amazon=2563108 apple=1160355 air_pump=147859 20XX=84212 bookmark=27234 address_book=43449 wikipedia-001=1068819 tecnick_001=1027743 dice=134095 plant_02=537728 wikipedia_008=936842 kodim02=421703
+est-m0   9272022
+est-few8 9250504 cnn=1118515 amazon=2550179 apple=1155523 air_pump=150400 20XX=84447 bookmark=27234 address_book=43449 wikipedia-001=1068819 tecnick_001=1027743 dice=130692 plant_02=534958 wikipedia_008=936842 kodim02=421703
+kept     9211979 cnn=1079990 amazon=2550179 apple=1155523 air_pump=150400 20XX=84447 bookmark=27234 address_book=43449 wikipedia-001=1068819 tecnick_001=1027743 dice=130692 plant_02=534958 wikipedia_008=936842 kodim02=421703
+kept-m1  9251703 cnn=1121212 amazon=2553420 apple=1157749 air_pump=148146 20XX=84447 bookmark=26768 address_book=42754 wikipedia-001=1067101 tecnick_001=1027743 dice=129873 plant_02=538817 wikipedia_008=931970 kodim02=421703
+kept-m10 9242303 cnn=1079990 amazon=2564548 apple=1167984 air_pump=150401 20XX=84447 bookmark=27234 address_book=44029 wikipedia-001=1068819 tecnick_001=1027743 dice=130692 plant_02=537871 wikipedia_008=936842 kodim02=421703
+kept-norct 9241816 cnn=1079990 amazon=2557640 apple=1163468 air_pump=150401 20XX=84447 bookmark=27234 address_book=41641 wikipedia-001=1068819 tecnick_001=1027743 dice=144017 plant_02=537871 wikipedia_008=936842 kodim02=421703
+kept-maj50 9242737 cnn=1079990 amazon=2550179 apple=1173156 air_pump=157464 20XX=87015 bookmark=29087 address_book=43449 wikipedia-001=1068819 tecnick_001=1027743 dice=132332 plant_02=534958 wikipedia_008=936842 kodim02=421703
+ctx5     9286610
+pal3bits 9271648
+pal8bits 9283946

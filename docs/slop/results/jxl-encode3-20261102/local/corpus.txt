@@ -1,0 +1,3 @@
+effort fast [loc2]: 15575114 bytes, 7382.0 ms; icons<=64x64: 24916 bytes, 33.5 ms
+effort default [loc2]: 14441994 bytes, 25612.2 ms; icons<=64x64: 23449 bytes, 116.9 ms
+effort best [loc2]: 14140396 bytes, 87137.0 ms; icons<=64x64: 22798 bytes, 682.0 ms
