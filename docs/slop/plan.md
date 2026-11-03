@@ -604,7 +604,12 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   samples, and learning counts by the image. At 16×16 that is 0.5 / 0.8 /
   3.8 MiB at fast / default / best, down from 3.8 / 5.6 / 8.1. The files
   and the speed are the same. Best keeps 3.1 MiB of counts at any size,
-  because it judges each split with all 14 predictors.
+  because it judges each split with all 14 predictors. Stage 7
+  (results/jxl-encode7-20261103.md): decision 75 as decided. Images above a
+  megapixel come out 1.0% smaller at default (apple.com 1.019 of e7), at
+  0.91× their speed (1.23× e7). Peak RSS rises from 126 to 142 MiB (libjxl
+  261), because 2^20 samples add 25 MB of work memory at 32 bytes each.
+  Next: fewer bytes per sample.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
@@ -1115,7 +1120,8 @@ width)` for every file with several entries.
 75. **JPEG XL learning samples by size. Decided by the owner:** `default`
     learns from `clamp(pixels × 4 / 16, 2^18, 2^20)` samples, so only large
     images change (corpus −0.58% for +7.5% time; apple.com 1.043 → 1.019 of
-    e7). This refines decision 70.
+    e7). This refines decision 70. Landed (stage 7): default peak RSS 126 →
+    142 MiB, the trade the decision didn't state.
 76. **`fill` stays private. Decided by the owner:** `src/fill.zig` is not
     exported; callers' own `@memset` is compiler_rt's problem. The drafted
     Zig issue (results/memset-20261103.md) is not filed for now.
