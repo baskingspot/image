@@ -31,13 +31,16 @@ pub const max_added_channels = 2048;
 pub const Channel = struct {
     w: u32,
     h: u32,
-    hshift: i32 = 0,
-    vshift: i32 = 0,
-    /// `w * h` samples, row after row.
+    hshift: i16 = 0,
+    vshift: i16 = 0,
+    /// `w * h` samples, row after row; or with `ring`, `ring` rows, row
+    /// `y` at `y % ring`.
     data: []i32 = &.{},
+    ring: u32 = 0,
 
     pub fn row(c: *const Channel, y: usize) []i32 {
-        return c.data[y * c.w ..][0..c.w];
+        const at = if (c.ring == 0) y else y % c.ring;
+        return c.data[at * c.w ..][0..c.w];
     }
 
     fn sameShape(a: *const Channel, b: *const Channel) bool {
@@ -763,6 +766,11 @@ pub const StreamOptions = struct {
     global: ?*const Tree = null,
     /// Undo the stream's transforms after decoding.
     undo: bool = true,
+    /// When nonzero and the stream has no transforms, the channels too
+    /// large for it (which groups fill) get rings of this many rows
+    /// instead of all their rows: a frame that streams keeps only the
+    /// group rows it has not written yet.
+    ring: u32 = 0,
 };
 
 /// Decodes one modular stream into `img`, whose channels the caller set
@@ -778,11 +786,16 @@ pub fn decodeStream(br: *BitReader, arena: *Arena, img: *Image, stream_id: u32, 
     for (img.transforms) |*t| t.* = try .read(br, arena);
     for (img.transforms) |*t| try img.metaApply(arena, t);
     try img.validateDims(opt.group_dim);
-    for (img.channels()) |*c| {
-        if (c.data.len == 0) {
-            c.data = try arena.alloc(i32, @as(usize, c.w) * c.h);
-            vfill(i32, c.data, 0);
+    const ring = opt.ring != 0 and nt == 0;
+    for (img.channels(), 0..) |*c, i| {
+        if (c.data.len != 0) continue;
+        var rows = c.h;
+        if (ring and i >= img.nb_meta and (c.w > opt.max_chan_size or c.h > opt.max_chan_size) and opt.ring < c.h) {
+            rows = opt.ring;
+            c.ring = opt.ring;
         }
+        c.data = try arena.alloc(i32, @as(usize, c.w) * rows);
+        vfill(i32, c.data, 0);
     }
     try decodeChannels(br, arena, img, stream_id, use_global, opt);
     if (opt.undo) try img.undoTransforms(arena);

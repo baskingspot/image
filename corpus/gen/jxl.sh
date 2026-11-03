@@ -1,6 +1,6 @@
 # Sourced by corpus/generate, with $src (PngSuite) and $out
 # (corpus/vendor/generated) set and `im` running ImageMagick. Small JPEG XL
-# files from libjxl's cjxl, each exercising a VarDCT or lossy-Modular path
+# files from libjxl's cjxl, each exercising a VarDCT or Modular path
 # the conformance suite reaches only in large files: seeds the fuzzer and
 # the oracle can run quickly. One thread, so the output does not depend on
 # the machine.
@@ -37,6 +37,12 @@ cj -d 2 --epf=3 --gaborish=1 "$tmp/tall-alpha.png" "$out/jxl/vardct-tall-alpha.j
 # is decoded whole after all.
 im "$tmp/tall-alpha.png" -channel A -threshold 50% +channel "$tmp/tall-alpha2.png"
 cj -d 2 "$tmp/tall-alpha2.png" "$out/jxl/vardct-tall-alpha-palette.jxl"
+# Lossless Modular, five group rows: streamed a group row at a time; with
+# alpha, which cjxl palettes over the whole frame, decoded whole; and with
+# alpha in 128-pixel groups (nine group rows), streamed.
+cj -d 0 "$tmp/tall.png" "$out/jxl/modular-tall.jxl"
+cj -d 0 "$tmp/tall-alpha.png" "$out/jxl/modular-tall-alpha.jxl"
+cj -d 0 -g 0 "$tmp/tall-alpha.png" "$out/jxl/modular-tall-alpha-g128.jxl"
 # Three frames of animation.
 im -delay 10 "$rgb" "$src/basn2c16.png" "$src/basn3p08.png" "$tmp/anim.gif"
 cj -d 1 "$tmp/anim.gif" "$out/jxl/vardct-animation.jxl"

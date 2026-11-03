@@ -158,15 +158,18 @@ pub const Context = struct {
     sigmas: []f32 = &.{},
 };
 
-/// Receives a streamed frame's finished rows: `rows` rows from row `y0`,
-/// filtered but before the color transform, in three planes of rows of
-/// `stride` (at least the frame's width), and `extra`, the frame-sized
-/// extra channels, final through those rows. The planes may be changed.
+/// Receives a streamed frame's finished rows: `rows` rows from row `y0`.
+/// A VarDCT frame's colors come filtered but before the color transform,
+/// in three planes of rows of `stride` (at least the frame's width), and
+/// `extra` holds the extra channels; a Modular frame's planes are null
+/// and `extra` holds its colors, then its extra channels. `extra`'s
+/// channels are final through those rows, which `Channel.row` finds
+/// (they may be rings). The planes may be changed.
 pub const BandSink = struct {
     ctx: *anyopaque,
     write: *const fn (
         ctx: *anyopaque,
-        planes: [3][]f32,
+        planes: ?[3][]f32,
         stride: usize,
         extra: *const modular.Image,
         y0: usize,
@@ -179,19 +182,29 @@ pub const BandSink = struct {
 /// window starts on a block row as EPF's sigmas and border rows need.
 const band_margin = 8;
 
-/// Whether a frame can stream: VarDCT in one pass, its groups in order,
-/// without what needs the whole frame (upsampling, patches, splines,
-/// noise, chroma subsampling), not an LF frame, and taller than the ring
-/// and a window (`ringRows`), below which streaming saves nothing. Extra
-/// channels stay frame-sized Modular channels, read as each band is
-/// written; global transforms on them make `lfGlobal` decode it whole.
-/// The caller decides whether the frame is shown as it is.
+/// Whether a frame can stream: in one pass, its groups in order, without
+/// what needs the whole frame (upsampling, patches, splines, noise, chroma
+/// subsampling), not an LF frame, and VarDCT taller than the ring and a
+/// window (`ringRows`), or Modular in integers (`needsFloat` false) of at
+/// least two group rows, below which streaming saves nothing. Global
+/// Modular transforms make `lfGlobal` decode the frame whole: they are
+/// undone on the whole frame. The caller decides whether the frame is
+/// shown as it is.
 pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
     const whole = headers.flag_noise | headers.flag_patches | headers.flag_splines;
     const d: headers.Dims = .init(fh);
-    return !fh.modular and fh.passes.num == 1 and !permuted and fh.kind == .regular and
-        !upsampled(image, fh) and fh.flags & whole == 0 and fh.maxHShift() | fh.maxVShift() == 0 and
-        d.ysize_groups >= 5;
+    const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 5;
+    return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and
+        !upsampled(image, fh) and fh.flags & whole == 0 and fh.maxHShift() | fh.maxVShift() == 0;
+}
+
+/// The rows a streamed frame's frame-sized Modular channels keep: a
+/// Modular frame writes each group row once its groups are in; a VarDCT
+/// frame's extra channels are read a group row later, when the band
+/// before is filtered.
+fn modularRing(fh: *const headers.FrameHeader) u32 {
+    const d: headers.Dims = .init(fh);
+    return if (fh.modular) d.group_dim else 2 * d.group_dim;
 }
 
 /// The rows a streamed frame's VarDCT planes keep: three group rows, the
@@ -546,25 +559,26 @@ fn lfGlobal(br: *BitReader, arena: *Arena, ctx: *Context) Error!void {
         const up = fh.ec_upsampling[e];
         c.w, c.h = ecDims(&ctx.d, up);
         const s: i32 = @as(i32, std.math.log2_int_ceil(u32, up)) - std.math.log2_int_ceil(u32, fh.upsampling);
-        c.hshift = s;
-        c.vshift = s;
+        c.hshift = @intCast(s);
+        c.vshift = @intCast(s);
     }
     try modular.decodeStream(br, arena, &img, 0, .{
         .max_chan_size = ctx.d.group_dim,
         .group_dim = ctx.d.group_dim,
         .global = if (ctx.tree) |*t| t else null,
         .undo = false,
+        // Without transforms, a streaming frame's channels are rings.
+        .ring = if (ctx.band != null) modularRing(fh) else 0,
     });
     ctx.full = img;
     if (ctx.band != null) {
-        // The extra channels' transforms are undone on the whole frame,
-        // so then it is decoded whole.
-        const vd = ctx.vd.?;
-        if (img.transforms.len != 0) {
-            ctx.band = null;
-            vd.ring_rows = 0;
+        // Global transforms are undone on the whole frame, so then it is
+        // decoded whole (and its channels were given all their rows).
+        if (img.transforms.len != 0) ctx.band = null;
+        if (ctx.vd) |vd| {
+            if (ctx.band == null) vd.ring_rows = 0;
+            try vd.allocPlanes(arena);
         }
-        try vd.allocPlanes(arena);
     }
     ctx.got_global = true;
 }
@@ -670,6 +684,17 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
     const d = &ctx.d;
     if (g != ctx.rows_in * d.xsize_groups + d.xsize_groups - 1 and g + 1 != d.num_groups) return;
     ctx.rows_in += 1;
+    if (ctx.vd == null) {
+        // A Modular frame's group row is final as it is: no filter reads
+        // past it.
+        const k = ctx.rows_in - 1;
+        const y0 = k * d.group_dim;
+        const rows = @min(d.group_dim, d.height - y0);
+        const sink = ctx.band.?;
+        sink.write(sink.ctx, null, 0, &ctx.full, y0, rows);
+        ctx.bands_out += 1;
+        return;
+    }
     if (ctx.rows_in == 1) {
         // The window and sigmas, once the LF groups' fields are in.
         const vd = ctx.vd.?;
