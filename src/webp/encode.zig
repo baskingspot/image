@@ -572,6 +572,7 @@ const Encoding = struct {
         const base = std.mem.alignForward(usize, @intFromPtr(work.ptr), 16) - @intFromPtr(work.ptr);
         const wk: Work = .{ .mem = @alignCast(work[base..][0 .. l.total - 16]) };
         const n = @as(usize, width) * height;
+        @memset(wk.chain(l).head, lz77.none);
 
         const argb = wk.slice(u32, l.argb, n);
         source.fill(argb);
@@ -587,7 +588,8 @@ const Encoding = struct {
         // by encoding the likeliest few and counting their bits.
         e.s = wk.one(codes.Scratch, l.scratch);
         var order: [modes_n]Mode = undefined;
-        const candidates = rankModes(argb, width, plan, wk, l, &order);
+        var colors: ?usize = null;
+        const candidates = rankModes(argb, width, plan, wk, l, &order, &colors);
         e.st = .{ .width = width, .height = height, .alpha = alpha, .main = undefined };
         const tries = @min(plan.tries, candidates);
         if (tries > 1) {
@@ -595,7 +597,7 @@ const Encoding = struct {
             var best_bits: u64 = std.math.maxInt(u64);
             for (order[0..tries], 0..) |mode, k| {
                 if (k != 0) source.fill(argb);
-                build(wk, l, plan, mode, &e.st, &e.meta);
+                build(wk, l, plan, mode, &e.st, &e.meta, &colors);
                 const bits = e.st.bits(e.s);
                 if (bits < best_bits) {
                     best_bits = bits;
@@ -604,9 +606,9 @@ const Encoding = struct {
             }
             if (best != tries - 1) {
                 source.fill(argb);
-                build(wk, l, plan, order[best], &e.st, &e.meta);
+                build(wk, l, plan, order[best], &e.st, &e.meta, &colors);
             }
-        } else build(wk, l, plan, order[0], &e.st, &e.meta);
+        } else build(wk, l, plan, order[0], &e.st, &e.meta, &colors);
     }
 };
 
@@ -616,18 +618,30 @@ const modes_n = @typeInfo(Mode).@"enum".fields.len;
 /// The modes worth trying for `argb`, best estimate first, into `order`;
 /// returns how many there are. The estimate is each mode's entropy over
 /// the pixels that differ from their left and upper neighbors, which LZ77
-/// would mostly cover otherwise.
-fn rankModes(argb: []const u32, width: u32, plan: Plan, wk: Work, l: Layout, order: *[modes_n]Mode) usize {
+/// would mostly cover otherwise. With 256 colors or fewer, the palette and
+/// its table are left in place, and `colors` says how many there are.
+fn rankModes(
+    argb: []const u32,
+    width: u32,
+    plan: Plan,
+    wk: Work,
+    l: Layout,
+    order: *[modes_n]Mode,
+    colors: *?usize,
+) usize {
     const h = wk.one(Analysis, l.analysis);
     @memset(std.mem.asBytes(h), 0);
     const w: usize = width;
     var y: usize = 0;
-    while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w, 0..) |i, x| {
+    // The column by `i % w`: with a counter instead, flat images rank 1.8x
+    // faster but photos 1.3x slower, the compiler then vectorizing `select`
+    // (docs/slop/results/webp-encode-flat-20261102.md).
+    while (y * w < argb.len) : (y += plan.analysis_step) for (y * w..(y + 1) * w) |i| {
         const p = argb[i];
-        const left = if (x != 0) argb[i - 1] else 0xff000000;
-        if (p == left or (y != 0 and p == argb[i - w])) continue;
-        const up = if (y != 0) argb[i - w] else left;
-        const upleft = if (y != 0 and x != 0) argb[i - w - 1] else up;
+        const left = if (i % w != 0) argb[i - 1] else 0xff000000;
+        if (p == left or (i >= w and p == argb[i - w])) continue;
+        const up = if (i >= w) argb[i - w] else left;
+        const upleft = if (i > w and i % w != 0) argb[i - w - 1] else up;
         const r = transform.sub(p, select(left, up, upleft));
         const g = (p >> 8) & 0xff;
         const rg = (r >> 8) & 0xff;
@@ -662,6 +676,7 @@ fn rankModes(argb: []const u32, width: u32, plan: Plan, wk: Work, l: Layout, ord
         const table = wk.one(transform.ColorTable, l.table);
         const palette = wk.slice(u32, l.palette, 256);
         if (table.find(argb, palette[0..256])) |count| {
+            colors.* = count;
             // The indices' entropy over the same pixels, and the palette.
             var idx: [256]u32 = @splat(0);
             y = 0;
@@ -704,8 +719,9 @@ fn select(l: u32, t: u32, tl: u32) u32 {
 }
 
 /// Transforms `argb` for `mode` and codes the result into `st`, with the
-/// entropy image in `meta`.
-fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded) void {
+/// entropy image in `meta`. `colors` is the palette's size while
+/// `rankModes`' palette is still in place.
+fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded, colors: *?usize) void {
     const width = st.width;
     const height = st.height;
     const n = @as(usize, width) * height;
@@ -718,7 +734,9 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded)
     if (mode == .palette) {
         const palette = wk.slice(u32, l.palette, 256);
         const table = wk.one(transform.ColorTable, l.table);
-        const count = table.find(argb, palette[0..256]).?;
+        const count = colors.* orelse table.find(argb, palette[0..256]).?;
+        // Its entries become differences below.
+        colors.* = null;
         transform.applyPalette(argb, width, height, table, count);
         cur_w = transform.divRoundUp(width, transform.bundleBits(count));
         // Each entry as its difference from the one before.

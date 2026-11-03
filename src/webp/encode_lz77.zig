@@ -148,7 +148,8 @@ pub const Chain = struct {
     }
 };
 
-const none = std.math.maxInt(u32);
+/// An empty chain entry.
+pub const none = std.math.maxInt(u32);
 
 /// The number of pixels from `a` and `b` that match, at most `max`.
 inline fn matchLen(px: []const u32, a: usize, b: usize, max: usize) usize {
@@ -199,31 +200,63 @@ const Known = struct {
 
 /// Finds each pixel's longest reference into `matches`, as its length
 /// less one above bit 20 and its distance code below, or 0 for none.
-/// Distance codes stay below 2^20 (`max_distance`).
+/// Distance codes stay below 2^20 (`max_distance`). The chain's head
+/// starts empty, every entry `none`, and is left empty.
 pub fn findMatches(px: []const u32, width: u32, params: Params, chain: Chain, matches: []u32) void {
     const n = px.len;
     const dists = Distances.init(width);
-    @memset(chain.head, none);
     const mask = chain.ring.len - 1;
     var prev: u32 = 0;
     // The first pixel of the run of equal pixels that pixel `i` is in.
     var run_start: usize = 0;
-    var near: [2]Known = .{ .{}, .{} };
+    var left: Known = .{};
+    var up: Known = .{};
     for (0..n) |i| {
         if (i + 1 >= n) {
             matches[i] = 0;
             break;
         }
-        if (i > 0 and px[i] != px[i - 1]) run_start = i;
         // Inside a run that goes on past `i`, the chain starts with the
         // run's pixels before `i`, newest first: each matches only to the
         // run's end, as the left pixel does, so the search passes them by.
-        const skip = if (px[i + 1] == px[i]) i - run_start else 0;
-        const m = if ((prev >> 20) >= params.nice) prev - (1 << 20) else longestMatch(px, i, &dists, params, chain, &near, skip);
+        var skip: usize = 0;
+        if (params.chain != 0) {
+            if (i > 0 and px[i] != px[i - 1]) run_start = i;
+            if (px[i + 1] == px[i]) skip = i - run_start;
+        }
+        const m = if ((prev >> 20) >= params.nice) prev - (1 << 20) else m: {
+            // The left and upper pixels first, keeping them on equal
+            // lengths.
+            const max = @min(max_length, n - i);
+            var longest: usize = 1;
+            var code: u32 = 0;
+            if (i >= 1) {
+                const len = left.len(px, i, 1, max);
+                if (len > longest) {
+                    longest = len;
+                    code = dists.left;
+                }
+            }
+            if (i >= width and width != 1) {
+                const len = up.len(px, i, width, max);
+                if (len > longest) {
+                    longest = len;
+                    code = dists.up;
+                }
+            }
+            break :m longestMatch(px, i, &dists, params, chain, skip, max, longest, code);
+        };
         matches[i] = m;
         prev = m;
         if (params.chain != 0) insert(chain, px, i, mask);
     }
+    // Emptied by the entries filled, when they are few: a transform
+    // image's search is short beside clearing a head sized for the main
+    // image.
+    if (params.chain == 0) return;
+    if (n * 32 < chain.head.len) {
+        for (0..n - 1) |i| chain.head[chain.hash(px[i], px[i + 1])] = none;
+    } else @memset(chain.head, none);
 }
 
 inline fn insert(chain: Chain, px: []const u32, i: usize, mask: usize) void {
@@ -236,33 +269,24 @@ inline fn pack(len: usize, code: u32) u32 {
     return @as(u32, @intCast(len - 1)) << 20 | code;
 }
 
-/// The longest reference from pixel `i`, which has a pixel after it; of
-/// equal lengths, the left and upper pixels' first. The chain's first
-/// `skip` entries, pixels `i - 1` down to `i - skip`, cannot be longer.
+/// The longest reference from pixel `i`, which has a pixel after it, at
+/// most `max` long: the hash chain's, when longer than `longest`, the
+/// left or upper pixel's, whose code is `code`. The chain's first `skip`
+/// entries, pixels `i - 1` down to `i - skip`, cannot be longer.
 fn longestMatch(
     px: []const u32,
     i: usize,
     dists: *const Distances,
     params: Params,
     chain: Chain,
-    near: *[2]Known,
     skip: usize,
+    max: usize,
+    longest_in: usize,
+    code_in: u32,
 ) u32 {
-    const n = px.len;
-    const max = @min(max_length, n - i);
     const w = dists.width;
-    var longest: usize = 1;
-    var code: u32 = 0;
-    inline for (.{ 1, 0 }) |which| {
-        const d: usize = if (which == 1) 1 else w;
-        if (d <= i and (which == 1 or d != 1)) {
-            const len = near[which].len(px, i, d, max);
-            if (len > longest) {
-                longest = len;
-                code = if (which == 1) dists.left else dists.up;
-            }
-        }
-    }
+    var longest = longest_in;
+    var code = code_in;
     if (params.chain > skip and longest < @min(max, params.nice)) {
         const mask = chain.ring.len - 1;
         var j = if (skip != 0) chain.ring[(i - skip) & mask] else chain.head[chain.hash(px[i], px[i + 1])];
@@ -414,10 +438,16 @@ pub fn parseOptimal(
         // The nearest pixels' matches too, when not the longest: their
         // codes are the cheapest.
         const max = @min(len, n - i);
+        const longest_dist = costs.distance(m & 0xfffff);
         for (near[0..near_n], known[0..near_n]) |nd, *k| {
             if (nd.dist > i or nd.code == m & 0xfffff) continue;
             const l = k.len(px, i, nd.dist, max);
-            if (l >= 2) relaxAll(cost, from, i, @intCast(l), here, nd.code, costs);
+            if (l < 2) continue;
+            // Not when it never beats the longest match: its code costs as
+            // much or more, and the longest reaches every length it would
+            // weigh, all to 32 and past it each length prefix's longest.
+            if (costs.distance(nd.code) >= longest_dist and (l <= 32 or l == len or isTop(@intCast(l)))) continue;
+            relaxAll(cost, from, i, @intCast(l), here, nd.code, costs);
         }
     }
     // Back from the end, each token moved to where it starts; then
@@ -479,6 +509,12 @@ inline fn relaxAll(cost: []f32, from: []u32, i: usize, len: u32, here: f32, code
         relax(cost, from, i, top, dc + costs.length[top], code);
         l = top + 1;
     }
+}
+
+/// Whether `len` is the longest of the lengths its prefix code covers.
+inline fn isTop(len: u32) bool {
+    const p = codes.prefix(len);
+    return p.extra == (@as(u32, 1) << @intCast(p.bits)) - 1;
 }
 
 inline fn relax(cost: []f32, from: []u32, i: usize, len: u32, total: f32, code: u32) void {
@@ -569,7 +605,7 @@ test parse {
     for (px[0..16], 0..) |*p, k| p.* = @intCast(k * 77);
     @memcpy(px[16..32], px[0..16]);
     @memset(px[32..], 5);
-    var head: [256]u32 = undefined;
+    var head: [256]u32 = @splat(none);
     var ring: [64]u32 = undefined;
     var tokens: [64]u32 = undefined;
     var matches: [64]u32 = undefined;
