@@ -267,9 +267,18 @@ Running beside wave 1's tail, started early by the owner:
   (+3.1%). Over pass 1: lossy +13.8%, rebuilding +2.4%, lossless unchanged,
   bit for bit, same memory; about 0.81× libjxl lossy on the 1200×1200
   photo. EPF's shared differences were measured and rejected (−0.9%,
-  `cjxl -d 1` runs one iteration). Next: the XYB to sRGB transform (14% of
-  lossy), the 16-bit packing and RGB to RGBA conversion (about 7%), band
-  copies (5%), Modular's common trees, then render by group row.
+  `cjxl -d 1` runs one iteration). Speed pass 3 (`wave4-jxl-speed3`,
+  results/jxl-speed3-20261103.md): color transform and packing done per
+  chunk as rows are written, straight into native-plus-alpha destinations
+  (+1.5% lossy); EPF's output stored a vector at a time (+2.0%); large
+  clears with the vector fill (+1.5% lossy, +2.8% rebuild, +2.2% lossless);
+  output pixels interleaved eight at a time (+1.4%); Modular trees flattened
+  two levels to an entry for channels of at least 4096 pixels and at most
+  4096 splits (+6.5% lossless; work_len +393 KB). Over pass 2: lossy +6.2%,
+  lossless +8.9%, rebuild +2.7%, bit for bit, same peak RSS; about 0.9×
+  libjxl lossy on the 1200×1200 photo. Next: coefficient decoding (30% of
+  lossy), the XYB transform (13%, op-bound), EPF (11%), the weighted
+  predictor and symbol reads in lossless, then render by group row.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
