@@ -518,8 +518,8 @@ owning the files adding-a-format.md assigns to its format plus
   bmp-decode-rle 1.57×, ico-decode 1.48× (its PNG decoder left the
   `picked` union), progressive JPEG 1.26×, tiff-decode-jpeg 1.21×,
   tiff-encode-lzw 1.11×, GIF and WebP lossless encode 1.05–1.15×. TIFF
-  PackBits keeps `@memset` (runs of at most 128 bytes). Left: WebP lossy
-  decode and animation clears (WebP lossy orb), compress's
+  PackBits keeps `@memset` (runs of at most 128 bytes). Then: WebP lossy
+  decode's coefficient clear (`wave5-webp-fill`, 1.056×), compress's
   `flate.Writer.initInPlace` (done in compress 61998af with its own
   `fastmem.set`, also for `bitCounts`' leaf counts; image pins it:
   tiff-encode-deflate 1.04–1.05×, PNG encode icons 1.03–1.04×, the same
@@ -585,8 +585,8 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   (1.48–1.67×), 0.31× baseline and 0.56× progressive past icons, peak RSS
   lower in every class; decodeJpeg is 63–87% of the time. The Brotli state
   (compress's `brotli.decode.Buffer`, 6953f33) lives in the work memory.
-  Open: libjxl also refuses a colour factor other than 84, which decodeJpeg
-  doesn't check yet.
+  decodeJpeg refuses a colour factor other than 84, as libjxl does
+  (`wave4-jxl-f32`).
 - **JPEG XL lossless encode** (branch `wave5-jxl-encode`, the TGA orb):
   `src/jxl/encode.zig` and new `src/jxl/encode_*.zig` files, the jxl_encode
   fuzz and oracle files, and the jxl-encode bench rows; only its export
