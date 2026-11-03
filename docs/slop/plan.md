@@ -292,7 +292,13 @@ Running beside wave 1's tail, started early by the owner:
   (`wave4-jxl-mstream2`, results/jxl-mstream2-20261103.md): each band's
   rows have those transforms undone on their own (`modular.Image.band`).
   Only squeezes and delta palettes keep a frame whole. `work_len` still
-  covers the whole frame.
+  covers the whole frame. Subsampled chroma (recompressed JPEGs) streams too
+  (`wave4-jxl-chroma`, results/jxl-chroma-20261103.md): the chroma is
+  upsampled into each band's window from the ring. A 50 MP recompressed
+  photo peaks at 120 MB instead of 686 MB (work_len 744 → 244 MB), tall
+  screenshots decode 22–26% faster; libjxl's even rows on subsampled frames
+  with Gaborish are a documented split. Next: noise and upsampled frames,
+  then two group rows instead of three.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
