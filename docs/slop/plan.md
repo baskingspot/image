@@ -615,7 +615,13 @@ ci` at 4.65 GiB, the test compiles; the oracle pass is 16% faster. Pass 6
   megapixel come out 1.0% smaller at default (apple.com 1.019 of e7), at
   0.91× their speed (1.23× e7). Peak RSS rises from 126 to 142 MiB (libjxl
   261), because 2^20 samples add 25 MB of work memory at 32 bytes each.
-  Next: fewer bytes per sample.
+  Stage 8 (results/jxl-encode8-20261103.md): learning samples are kept as
+  rows, packed to 21 bytes at default and 36 at best wherever they would
+  outgrow the token store, and partitioned in place, so the files are the
+  same. `workLen` counts learning's memory and the parts after it once.
+  Peak RSS falls from 142.5 to 131.3 MiB at default and from 143.1 to 131.2
+  at best, so decision 75 now costs 5.5 MiB. Default runs at 1.02× and best
+  at 1.06–1.10×.
 - **Harness pass** (landed at `28b6e10`): bench arms skip inputs they fail,
   one shared `loadCorpus` with a 64 MiB limit, `Result.eql` compares error
   codes (a Zig 0.16 x86_64-backend miscompile of `?anyerror` `==`), seeds
