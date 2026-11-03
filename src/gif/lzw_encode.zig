@@ -11,6 +11,7 @@
 //! string's code is below the end code.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 
@@ -63,7 +64,7 @@ pub const Encoder = struct {
             .enc_next = clear + 2,
             .dec_next = clear + 2,
         };
-        @memset(table, 0);
+        vfill(u32, table, 0);
         try out.writeByte(min_bits);
         try e.emit(clear);
         return e;
@@ -122,7 +123,7 @@ pub const Encoder = struct {
     }
 
     fn reset(e: *Encoder) void {
-        @memset(e.table, 0);
+        vfill(u32, e.table, 0);
         e.enc_next = e.clear + 2;
         e.dec_next = e.clear + 2;
         e.since_clear = 0;

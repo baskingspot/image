@@ -37,6 +37,7 @@
 //! rows as fit there, and only rows past them are mapped again.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 const Io = std.Io;
 
@@ -113,7 +114,7 @@ const ColorSet = struct {
     last_index: u8,
 
     fn reset(s: *ColorSet) void {
-        @memset(&s.keys, std.math.maxInt(u32));
+        vfill(u32, &s.keys, std.math.maxInt(u32));
         s.len = 0;
         s.last_key = std.math.maxInt(u32);
     }

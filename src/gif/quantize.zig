@@ -26,6 +26,7 @@
 //! squared RGB difference.
 
 const std = @import("std");
+const vfill = @import("../fill.zig").fill;
 const testing = std.testing;
 
 pub const Method = enum { wu, median_cut, octree };
@@ -680,7 +681,7 @@ pub const Ditherer = struct {
 
     pub fn init(errors: [][4]i16, width: u32) Ditherer {
         const n = @as(usize, width) + 2;
-        @memset(errors[0 .. 2 * n], @splat(0));
+        vfill(u8, std.mem.sliceAsBytes(errors[0 .. 2 * n]), 0);
         return .{ .cur = errors[0..n], .next = errors[n .. 2 * n] };
     }
 
@@ -729,7 +730,7 @@ pub const Ditherer = struct {
             d.next[ahead] = narrow(@as(V, d.next[ahead]) + err);
         }
         std.mem.swap([][4]i16, &d.cur, &d.next);
-        @memset(d.next, @splat(0));
+        vfill(u8, std.mem.sliceAsBytes(d.next), 0);
         d.y += 1;
     }
 };
