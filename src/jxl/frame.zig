@@ -143,6 +143,11 @@ pub const Context = struct {
     noise: ?noise.Params = null,
     patches: ?patches.Dictionary = null,
     splines: ?splines.Splines = null,
+    /// A streamed frame's splines, readied to draw on each band, or the
+    /// error readying them found, which the frame returns where it would
+    /// have drawn them whole.
+    drawn_splines: ?splines.Prepared = null,
+    splines_err: ?Error = null,
     refs: *const [4]?PatchSource,
     /// The frame counts that seed the noise (`noise.Frame`).
     counts: [2]u32,
@@ -198,8 +203,8 @@ pub fn bandMargin(fh: *const headers.FrameHeader) usize {
 }
 
 /// Whether a frame can stream: in one pass, its groups in order, without
-/// what needs the whole frame (splines, and extra channels upsampled by
-/// another factor than the colors), not an LF frame, and
+/// extra channels upsampled by another factor than the colors (which need
+/// the whole frame), not an LF frame, and
 /// VarDCT taller than the ring and a window (`ringRows`), or Modular in
 /// integers (`needsFloat` false, so neither upsampled nor with noise) of
 /// at least two group rows, below which streaming saves nothing. Global
@@ -207,13 +212,11 @@ pub fn bandMargin(fh: *const headers.FrameHeader) usize {
 /// frame whole; the others are undone on each band. The caller decides
 /// whether the frame is shown as it is.
 pub fn streams(image: *const headers.ImageHeader, fh: *const headers.FrameHeader, permuted: bool) bool {
-    const whole = headers.flag_splines;
     const d: headers.Dims = .init(fh);
     const shape = if (fh.modular) !needsFloat(image, fh) and d.ysize_groups >= 2 else d.ysize_groups >= 4;
     var ec_with_colors = true;
     for (fh.ec_upsampling[0..image.num_ec]) |u| ec_with_colors = ec_with_colors and u == fh.upsampling;
-    return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and
-        ec_with_colors and fh.flags & whole == 0;
+    return shape and fh.passes.num == 1 and !permuted and fh.kind == .regular and ec_with_colors;
 }
 
 /// The rows a streamed frame's frame-sized Modular channels keep: a
@@ -307,6 +310,7 @@ pub fn decode(
     }
     if (ctx.band != null) {
         if (ctx.bands_out != ctx.d.ysize_groups) return error.BadImage;
+        if (ctx.splines_err) |e| return e;
         return .{ .img = ctx.full, .num_color = ctx.num_color, .w = ctx.d.width, .h = ctx.d.height, .streamed = true };
     }
     try ctx.full.undoTransforms(arena);
@@ -733,6 +737,14 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
             ctx.sigmas = try arena.alloc(f32, vd.bw * vd.bh);
             vardct.epfSigmas(vd, rf, ctx.sigmas);
         }
+        if (ctx.splines) |*sp| {
+            const px_up = @as(u64, d.width_up) * d.height_up;
+            const w = d.width;
+            const h = d.height;
+            if (splines.prepare(arena, sp, w, h, px_up, vd.base_x, vd.base_b, true)) |p| {
+                ctx.drawn_splines = p;
+            } else |e| ctx.splines_err = e;
+        }
         if (ctx.noise) |*np| ctx.noise_stream = try noise.Stream.init(arena, np, .{
             .w = d.width_up,
             .h = d.height_up,
@@ -833,6 +845,7 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
         @memcpy(all[3..], ecf.?);
         patches.apply(dict, image, ctx.refs, all, stride, w, w, h, ya, yb);
     }
+    if (ctx.drawn_splines) |*sp| sp.drawRows(at, stride, ya, yb);
     var out: Band = undefined;
     if (n == 1) {
         out = .{

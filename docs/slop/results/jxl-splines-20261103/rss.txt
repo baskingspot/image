@@ -1,0 +1,9 @@
+# bench-image (main 438fa5c, ReleaseFast) serve, one input each: peak RSS KB, and libjxl (/tmp jx: JxlDecoder to RGBA16, one thread)
+zig photo-up2-4000x2667.jxl 130936 KB
+libjxl photo-up2-4000x2667.jxl 104904 KB
+zig photo-up2alpha-4000x2667.jxl 146976 KB
+libjxl photo-up2alpha-4000x2667.jxl 108040 KB
+zig photo_tecnick-RGB_OR_1200x1200_001-1200x1200.jxl 35812 KB
+libjxl photo_tecnick-RGB_OR_1200x1200_001-1200x1200.jxl 22984 KB
+zig screenshot_web-amazon_com-1313x6097.jxl 86540 KB
+libjxl screenshot_web-amazon_com-1313x6097.jxl 84708 KB

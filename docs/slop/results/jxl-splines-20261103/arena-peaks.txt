@@ -1,0 +1,8 @@
+before sp   peak 10513792 of 45333721 (23%)
+after sp   peak 9044416 of 46833263 (19%)
+before spu   peak 40130496 of 97061891 (41%)
+after spu   peak 15294720 of 78054340 (19%)
+before spn   peak 58187072 of 131715016 (44%)
+after spn   peak 25322368 of 123603691 (20%)
+before s32   peak 2899264 of 16276251 (17%)
+after s32   peak 2809792 of 17423120 (16%)

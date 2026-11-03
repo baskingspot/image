@@ -119,7 +119,7 @@ writing past it. Its terms, in `Decoder.workBound`:
 
 **Streaming.** A shown VarDCT frame that replaces the canvas and is never
 referenced, in one pass with its groups in order (the TOC not permuted),
-without splines or extra channels upsampled by another factor than the
+without extra channels upsampled by another factor than the
 colors, and at least four group rows tall, keeps a ring of two group rows of pixels
 instead of whole planes (`vardct.Shared.ring_rows`), and a tail of the
 margin's rows above the band to come, copied before the next group row
@@ -136,7 +136,12 @@ window's rows are blended down from those, as `vardct.upsampleChroma` does
 on whole planes, before Gaborish, which then filters the window in place.
 After the filters, a band takes the patches that cross its rows, in the
 dictionary's order, which is each pixel's order whatever the rows
-(`patches.apply` takes a row range); with upsampling, the window's margin
+(`patches.apply` takes a row range), then the splines' dots that reach
+its rows: the splines are checked and readied once (`splines.prepare`,
+which also finds the rows each spline's dots cover, so a band walks only
+the splines that reach it), and every dot is added to a pixel in the
+same order as on the whole frame; an error the checks find is returned
+after the last group, where the whole frame would draw them. With upsampling, the window's margin
 is sixteen rows, so that two filtered rows each side of the band remain,
 which the patches and the upsampling of the band (`upsample.upsampleRows`)
 read, the extra channels' too, and the band is color-transformed into
@@ -281,7 +286,8 @@ squeezes row by row (one extra channel instead of three).
 - **Splines** are drawn with an exact erf and cosine; animation_spline
   differs from libjxl by up to 1.1e-3, within its 4e-3 bound.
 - **Feature budgets.** Patches are held to 65536 plus one per 16 padded
-  pixels, and splines to 1 MiB plus 4 bytes a pixel of work memory; past
+  pixels, and splines to 1 MiB plus 4 bytes a pixel of work memory as
+  read, and as much again readied to draw (`splines.workBytes`); past
   them is `TooComplex`, where the specification's own limits (references,
   control points) are `BadImage`.
 - **Errors.** `BadBox`, `BadEntropy`, `BadImage`, `BadIcc`, `NotJpeg`, and
@@ -426,12 +432,19 @@ noise at about ±1.5%.
 
 ## Next
 
-1. **Memory, further**: reference slots sized by the frames saved in
-   them: a frame with patches keeps four slots of the canvas's size (12
-   bytes a pixel each), though cjxl's patch dictionary frame is a strip,
-   which is most of the 699 MB peak of a 4000×2667 `--resampling=2` file
-   (results/jxl-noiseup-20261103.md); streaming frames with splines; the
-   extra channels' rings at one group row and the margin. `work_len` for Modular
+1. **Memory, further**: the extra channels' rings at one group row and
+   the margin; an upsampled band in parts rather than whole (a band of a
+   4000×2667 `--resampling=2` file is 512 rows of three 4000-sample
+   planes, 24.6 MB). Reference slots sized by the frames saved in them
+   would not lower peak RSS, so they are not planned: the slots take most
+   of that file's 693 MB arena peak, but `saveFrame` writes a smaller
+   frame (cjxl's patch dictionary strip) compactly at the start of its
+   slot, and a slot no frame is saved to is never written, so their pages
+   are never touched: the file's peak RSS is 128 MiB in the bench's Zig
+   arm, of which 81 MiB is the output (libjxl: 103 MiB), and the
+   1313×6097 screenshot's 85 MiB (61 MiB output; libjxl 83 MiB)
+   (results/jxl-splines-20261103.md). `work_len` would not shrink either:
+   it is a bound fixed before the frames are known. `work_len` for Modular
    stays the whole frame's until `decodeConfig` can learn the transforms,
    which come after the tree (`results/jxl-mstream2-20261103.md`).
 2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no

@@ -40,9 +40,18 @@ pub const Splines = struct {
 };
 
 /// The bytes the splines of a frame of `px` pixels may take in work
-/// memory (docs/slop/jxl.md, work memory); more is `TooComplex`.
+/// memory as read (docs/slop/jxl.md, work memory); more is `TooComplex`.
 pub fn budgetBytes(px: u64) u64 {
     return (1 << 20) + px * 4;
+}
+
+/// The bytes the splines take read and then readied to draw (`prepare`):
+/// each spline's item and its points take at most what it took read, in
+/// the ratio of their sizes.
+pub fn workBytes(px: u64) u64 {
+    comptime std.debug.assert(@sizeOf(Point) <= @sizeOf([2]i64));
+    const b = budgetBytes(px);
+    return b + b / @sizeOf(Spline) * (@sizeOf(Prepared.Item) + @sizeOf(Point)) + @sizeOf(Prepared.Item);
 }
 
 fn unpack(v: u32) i64 {
@@ -248,6 +257,9 @@ const Counter = struct {
     }
 };
 
+/// Draws a spline's dots on rows `y_lo .. y_hi` of the frame (`w` by
+/// `h`), into planes whose row 0 is frame row `y_lo`; or with `span`,
+/// only finds the rows they cover.
 const Drawer = struct {
     curve: *const Curve,
     inv_arc: f32,
@@ -256,6 +268,9 @@ const Drawer = struct {
     stride: usize,
     w: usize,
     h: usize,
+    y_lo: i64,
+    y_hi: i64,
+    span: ?*[2]i64 = null,
 
     fn dot(d: *Drawer, p: Point, intensity: f32) void {
         const progress = @min(1, @as(f32, @floatFromInt(d.k)) * d.inv_arc);
@@ -269,17 +284,24 @@ const Drawer = struct {
         for (color) |c| max_color = @max(max_color, @abs(c * intensity));
         const max_dist = @sqrt(-2 * sigma * sigma * (@log(@as(f32, 0.1)) * 3 - @log(max_color)));
         if (!std.math.isFinite(max_dist)) return;
-        const y0: i64 = @max(0, llround(p.y - max_dist));
-        const y1: i64 = @min(@as(i64, @intCast(d.h)), llround(p.y + max_dist) + 1);
+        var y0: i64 = @max(0, llround(p.y - max_dist));
+        var y1: i64 = @min(@as(i64, @intCast(d.h)), llround(p.y + max_dist) + 1);
         const x0: i64 = @max(0, llround(p.x - max_dist));
         const x1: i64 = @min(@as(i64, @intCast(d.w)), llround(p.x + max_dist) + 1);
         if (y1 <= y0 or x1 <= x0) return;
+        if (d.span) |s| {
+            s[0] = @min(s[0], y0);
+            s[1] = @max(s[1], y1);
+            return;
+        }
+        y0 = @max(y0, d.y_lo);
+        y1 = @min(y1, d.y_hi);
         const inv_sigma = 1 / sigma;
         const scale = 0.25 * sigma * intensity;
         var y = y0;
         while (y < y1) : (y += 1) {
             const dy = @as(f32, @floatFromInt(y)) - p.y;
-            const row: usize = @as(usize, @intCast(y)) * d.stride;
+            const row: usize = @as(usize, @intCast(y - d.y_lo)) * d.stride;
             var x = x0;
             while (x < x1) : (x += 1) {
                 const dx = @as(f32, @floatFromInt(x)) - p.x;
@@ -314,15 +336,69 @@ pub fn draw(
     ytox: f32,
     ytob: f32,
 ) Error!void {
+    const p = try prepare(arena, sp, w, h, px_up, ytox, ytob, false);
+    p.drawRows(planes, stride, 0, h);
+}
+
+/// Splines checked and ready to draw a band at a time, each with the rows
+/// its dots cover; their dots on a pixel are added in the same order
+/// whatever the bands.
+pub const Prepared = struct {
+    items: []Item,
+    w: usize,
+    h: usize,
+
+    const Item = struct {
+        pts: []const Point,
+        curve: Curve,
+        inv_arc: f32,
+        rows: [2]i64,
+    };
+
+    /// Adds the splines' dots on rows `y0 .. y1` of the frame to the
+    /// planes, whose row 0 is frame row `y0` (rows of `stride`).
+    pub fn drawRows(p: *const Prepared, planes: [3][]f32, stride: usize, y0: usize, y1: usize) void {
+        const lo: i64 = @intCast(y0);
+        const hi: i64 = @intCast(y1);
+        for (p.items) |*it| {
+            if (it.rows[1] <= lo or it.rows[0] >= hi) continue;
+            var drawer: Drawer = .{
+                .curve = &it.curve,
+                .inv_arc = it.inv_arc,
+                .planes = planes,
+                .stride = stride,
+                .w = p.w,
+                .h = p.h,
+                .y_lo = lo,
+                .y_hi = hi,
+            };
+            (Walker{ .pts = it.pts }).each(&drawer);
+        }
+    }
+};
+
+/// Checks the splines as the reference does, so that a bad spline draws
+/// nothing, and readies them to draw (`Prepared`); with `bands`, finds the
+/// rows each spline's dots cover, which costs a walk of its dots.
+pub fn prepare(
+    arena: *Arena,
+    sp: *const Splines,
+    w: usize,
+    h: usize,
+    px_up: u64,
+    ytox: f32,
+    ytob: f32,
+    bands: bool,
+) Error!Prepared {
     const area_limit: u64 = @min(1024 * px_up + (1 << 32), 1 << 42);
     const inv_quant = invAdjusted(sp.quant_adjustment);
     var total_area: u64 = 0;
-    // First the checks the reference makes on every spline, then the
-    // drawing, so that a bad spline draws nothing.
+    const items = try arena.alloc(Prepared.Item, sp.list.len);
+    var count: usize = 0;
     for (0..2) |pass| {
         for (sp.list) |*s| {
             const m = arena.mark();
-            defer arena.release(m);
+            defer if (pass == 0) arena.release(m);
             const pts = try arena.alloc(Point, s.n + 1);
             var cur = s.start;
             if (@abs(cur[0]) >= pos_limit or @abs(cur[1]) >= pos_limit) return error.BadImage;
@@ -383,20 +459,32 @@ pub fn draw(
             walker.each(&counter);
             const arc = @as(f32, @floatFromInt(counter.n -| 2)) + counter.last;
             if (counter.n < 2 or arc <= 0) continue;
-            var drawer: Drawer = .{
-                .curve = &curve,
-                .inv_arc = 1 / arc,
-                .planes = planes,
-                .stride = stride,
+            const it = &items[count];
+            it.* = .{ .pts = pts, .curve = curve, .inv_arc = 1 / arc, .rows = .{ 0, @intCast(h) } };
+            if (!bands) {
+                count += 1;
+                continue;
+            }
+            it.rows = .{ std.math.maxInt(i64), 0 };
+            var span: Drawer = .{
+                .curve = &it.curve,
+                .inv_arc = it.inv_arc,
+                .planes = undefined,
+                .stride = 0,
                 .w = w,
                 .h = h,
+                .y_lo = 0,
+                .y_hi = 0,
+                .span = &it.rows,
             };
-            walker.each(&drawer);
+            walker.each(&span);
+            if (it.rows[1] > it.rows[0]) count += 1;
         }
         // The reference fails a file whose splines would take too long to
         // draw only when fuzzing; this decoder always does.
         if (pass == 0 and total_area > @min(8 * px_up + (1 << 25), 1 << 30)) return error.TooComplex;
     }
+    return .{ .items = items[0..count], .w = w, .h = h };
 }
 
 test "erf" {
