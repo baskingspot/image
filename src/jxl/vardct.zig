@@ -330,7 +330,7 @@ pub const Shared = struct {
     tiles_x: usize,
     used_acs: u32 = 0,
 
-    mults: [quant.num_tables][]f32 = @splat(&.{}),
+    mults: [quant.num_tables][]const f32 = @splat(&.{}),
     /// The DCT8 table's raw entries (channels X, Y, B, each 64 in stored
     /// layout), when it is raw: a recompressed JPEG's quantization tables.
     raw_dct8: ?[]const i32 = null,
@@ -679,7 +679,7 @@ pub fn readHfGlobal(
     num_lf_groups: usize,
 ) Error!void {
     var enc: [quant.num_tables]quant.Encoding = undefined;
-    try quant.read(br, arena, .{ .tree = tree, .first_stream = @intCast(1 + 3 * num_lf_groups) }, &enc);
+    const default = try quant.read(br, arena, .{ .tree = tree, .first_stream = @intCast(1 + 3 * num_lf_groups) }, &enc);
     // A JPEG's tables are stored with the denominator 1/(8·255) (f16
     // 0x1004); with any other the table is not a JPEG's.
     s.raw_dct8 = switch (enc[0]) {
@@ -690,9 +690,16 @@ pub fn readHfGlobal(
         if (s.used_acs & (@as(u32, 1) << @intCast(k)) == 0) continue;
         const t = Strategy.quant_table[k];
         if (s.mults[t].len != 0) continue;
+        if (default & (@as(u32, 1) << @intCast(t)) != 0) {
+            if (quant.defaultMultipliers(t)) |m| {
+                s.mults[t] = m;
+                continue;
+            }
+        }
         const len = 3 * 64 * @as(usize, quant.size_x[t]) * quant.size_y[t];
-        s.mults[t] = try arena.alloc(f32, len);
-        try quant.multipliers(&enc[t], t, s.mults[t]);
+        const m = try arena.alloc(f32, len);
+        try quant.multipliers(&enc[t], t, m);
+        s.mults[t] = m;
     }
     const nbits: u6 = @intCast(std.math.log2_int_ceil(usize, s.num_groups));
     s.num_histograms = 1 + try br.bits(nbits);

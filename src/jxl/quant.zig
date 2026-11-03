@@ -64,17 +64,23 @@ pub const Context = struct {
     first_stream: u32,
 };
 
-/// Reads the 17 encodings (the all-default flag first).
-pub fn read(br: *BitReader, arena: *Arena, ctx: Context, out: *[num_tables]Encoding) Error!void {
+/// Reads the 17 encodings (the all-default flag first), and returns a mask
+/// of the ones that are the defaults.
+pub fn read(br: *BitReader, arena: *Arena, ctx: Context, out: *[num_tables]Encoding) Error!u32 {
+    const all: u32 = (1 << num_tables) - 1;
     if (try br.boolean()) {
         out.* = defaults;
-        return;
+        return all;
     }
+    var default: u32 = 0;
     for (out, 0..) |*e, i| {
         const one = size_x[i] == 1 and size_y[i] == 1;
         const mode = try br.bits(3);
         e.* = switch (mode) {
-            0 => defaults[i],
+            0 => blk: {
+                default |= @as(u32, 1) << @intCast(i);
+                break :blk defaults[i];
+            },
             1 => blk: {
                 if (!one) return error.BadImage;
                 var w: [3][3]f32 = undefined;
@@ -152,6 +158,29 @@ pub fn read(br: *BitReader, arena: *Arena, ctx: Context, out: *[num_tables]Encod
             else => unreachable,
         };
     }
+    return default;
+}
+
+/// The default tables up to DCT32's, whose multipliers are kept in the
+/// binary (30 KiB) rather than computed for every frame: a small image's
+/// frame spent a sixth of its time in `std.math.pow` on them.
+const kept_defaults = 11;
+
+const default_multipliers: [kept_defaults][]const f32 = blk: {
+    @setEvalBranchQuota(50_000_000);
+    var all: [kept_defaults][]const f32 = undefined;
+    for (0..kept_defaults) |t| {
+        var buf: [3 * 64 * @as(usize, size_x[t]) * size_y[t]]f32 = undefined;
+        multipliers(&defaults[t], t, &buf) catch unreachable;
+        const final = buf;
+        all[t] = &final;
+    }
+    break :blk all;
+};
+
+/// Table `t`'s multipliers with its default encoding, when they are kept.
+pub fn defaultMultipliers(t: usize) ?[]const f32 {
+    return if (t < kept_defaults) default_multipliers[t] else null;
 }
 
 fn mult(v: f32) f32 {
@@ -603,4 +632,14 @@ test "default DCT8 multipliers" {
 test "every default table computes" {
     var m: [3 * 256 * 256]f32 = undefined;
     for (&defaults, 0..) |*e, t| try multipliers(e, t, &m);
+}
+
+test "kept default multipliers are the ones computed at run time" {
+    for (0..kept_defaults) |t| {
+        var m: [3 * 64 * 16]f32 = undefined;
+        const n = 3 * 64 * @as(usize, size_x[t]) * size_y[t];
+        try multipliers(&defaults[t], t, m[0..n]);
+        // Bit for bit: pixels must not depend on which was used.
+        try testing.expectEqualSlices(u8, std.mem.sliceAsBytes(m[0..n]), std.mem.sliceAsBytes(defaultMultipliers(t).?));
+    }
 }
