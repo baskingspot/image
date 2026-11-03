@@ -1,0 +1,11 @@
+# Our default on screenshot_web-apple_com-1313x4755 (scratch encoder), one
+# parameter changed; bytes. Times are not comparable (four at once on
+# three cores).
+as-is            1155523
+max_leaves=4096  1165205
+thresholds=64    1143770
+samples=2^20     1128712
+# samples = clamp(pixels*4/16, 2^18, 2^20), the three screenshots
+amazon  2519308
+apple   1128712
+cnn     1065901

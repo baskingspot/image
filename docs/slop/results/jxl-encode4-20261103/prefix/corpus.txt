@@ -1,0 +1,3 @@
+effort fast [pf1]: 15575096 bytes, 8394.9 ms; icons<=64x64: 24898 bytes, 33.0 ms
+effort default [pf1]: 14441978 bytes, 26395.6 ms; icons<=64x64: 23433 bytes, 84.2 ms
+effort best [pf1]: 14140379 bytes, 71127.0 ms; icons<=64x64: 22781 bytes, 461.7 ms

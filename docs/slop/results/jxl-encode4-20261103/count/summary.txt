@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   before   libjxl     ±   <1    ~   slowest vs before
+JxlEncodeE3/icon                  13        0.8     1.30     0.58    7%    0    2   1.16 [1.15, 1.20] icon_16-actions_bookmark_new-16x16.raw
+JxlEncodeE3/1mp                   23        5.5     1.06     0.97    4%    0   11   0.96 [0.88, 1.05] test-wikipedia_008-1152x858.raw
+JxlEncodeE3/large                  7        4.7     1.02     0.79    1%    1    4   0.97 [0.87, 1.00] screenshot_web-cnn_com-1313x5241.raw
+JxlEncodeE7/icon                  13        0.3     1.45     0.84    5%    0    2   1.23 [1.20, 1.55] icon_16-actions_appointment_new-16x16.raw
+JxlEncodeE7/1mp                   23        1.2     1.22     1.08    0%    0    3   1.08 [1.01, 1.13] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+JxlEncodeE7/large                  7        1.6     1.08     1.27    3%    0    3   1.00 [0.99, 1.02] screenshot_web-amazon_com-1313x6097.raw
+JxlEncodeE8/icon                  13        0.0     1.51     0.32    8%    0    2   1.23 [1.23, 1.31] textures_pk-_0mod_button1-64x64.raw
+JxlEncodeE8/1mp                   23        0.3     1.39     0.78    1%    0    1   1.16 [1.08, 1.18] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.raw
+JxlEncodeE8/large                  7        0.7     1.21     1.77    4%    0    0   1.08 [1.07, 1.16] screenshot_web-amazon_com-1313x6097.raw
+all                              129        0.8     1.26     0.82          1   28

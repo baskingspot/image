@@ -668,7 +668,6 @@ pub fn learnMemory(cap: usize, options: LearnOptions) usize {
     const nprops = num_props + 4 * options.refs;
     return cap * 4 + // indices
         nprops * max_buckets * np * learn_tokens * 2 + // counts
-        nprops * max_buckets * np * 8 + // their masks
         nprops * max_buckets * 4 + // samples per bucket
         (2 * options.max_leaves + 1) * (@sizeOf(Node) + @sizeOf(Range)) + 1024;
 }
@@ -702,10 +701,6 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     const counts = try mem.alloc(u16, nprops * max_buckets * np * learn_tokens);
     const bucket_n = try mem.alloc(u32, nprops * max_buckets);
     @memset(bucket_n, 0);
-    // Per row of `counts`, which of its entries are not zero, so that a
-    // sweep visits only those.
-    const masks = try mem.alloc(u64, nprops * max_buckets * np);
-    @memset(masks, 0);
     // `counts` is zero up to here, and each node clears what it counted,
     // so a small node costs little.
     var clean: usize = 0;
@@ -791,22 +786,34 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
         for (judged[0]) |c| n_items += c;
         var sub_cost: f64 = std.math.inf(f64);
         for (0..ns) |j| sub_cost = @min(sub_cost, cost(&judged[j], &extra, n_items));
-        var q: usize = 0;
-        while (q < items.len) : (q += sub_step) {
-            const i = items[q];
-            const b = buckets[i * nprops ..][0..nprops];
-            const tk = toks[i * np ..][0..np];
-            for (0..nprops) |p| {
-                if (nthr[p] == 0) continue;
-                bucket_n[off[p] + b[p]] += 1;
-                const base = (off[p] + b[p]) * ns;
-                for (sel[0..ns], 0..) |k, j| {
-                    const a = amap[tk[k]];
-                    cn[(base + j) * na + a] += 1;
-                    masks[base + j] |= @as(u64, 1) << @intCast(a);
-                }
-            }
+        // The properties with thresholds, and their first rows.
+        var plist: [num_props + 4 * max_refs]u8 = undefined;
+        var poff: [num_props + 4 * max_refs]u32 = undefined;
+        var npl: usize = 0;
+        for (0..nprops) |p| {
+            if (nthr[p] == 0) continue;
+            plist[npl] = @intCast(p);
+            poff[npl] = @intCast(off[p]);
+            npl += 1;
         }
+        const job: Count = .{
+            .items = items,
+            .step = sub_step,
+            .buckets = buckets,
+            .nprops = nprops,
+            .toks = toks,
+            .np = np,
+            .sel = sel[0..ns],
+            .amap = &amap,
+            .plist = plist[0..npl],
+            .poff = poff[0..npl],
+            .na = na,
+        };
+        switch (ns) {
+            inline 1, 2 => |c| job.run(c, bucket_n, cn),
+            else => job.run(null, bucket_n, cn),
+        }
+        var q: usize = 0;
         var tot: [max_predictors][learn_tokens]u32 = undefined;
         var tot_xlog: [max_predictors]f64 = undefined;
         var tot_extra: [max_predictors]f64 = undefined;
@@ -847,7 +854,8 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
                 if (left_n == n_items) break;
                 for (0..ns) |k| {
                     const row = cn[(base + k) * na ..][0..na];
-                    var nonzero = masks[base + k];
+                    // Small nodes leave most of a row zero.
+                    var nonzero = nonzeroMask(row);
                     while (nonzero != 0) : (nonzero &= nonzero - 1) {
                         const a = @ctz(nonzero);
                         const c: u32 = row[a];
@@ -875,26 +883,28 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
                 }
             }
         }
-        // Clear the counts: sample by sample when there are few.
+        // Clear the counts, a bucket's rows at a time: found from the
+        // samples when there are few, else from the bucket sizes.
         const judged_n = (items.len + sub_step - 1) / sub_step;
-        if (judged_n * nprops * ns < cn.len) {
+        const width = ns * na;
+        if (judged_n * nprops < rows) {
             q = 0;
             while (q < items.len) : (q += sub_step) {
-                const i = items[q];
-                const b = buckets[i * nprops ..][0..nprops];
-                const tk = toks[i * np ..][0..np];
+                const b = buckets[items[q] * nprops ..][0..nprops];
                 for (0..nprops) |p| {
                     if (nthr[p] == 0) continue;
-                    bucket_n[off[p] + b[p]] = 0;
-                    const base = (off[p] + b[p]) * ns;
-                    for (sel[0..ns], 0..) |k, j| cn[(base + j) * na + amap[tk[k]]] = 0;
-                    @memset(masks[base..][0..ns], 0);
+                    const row = off[p] + b[p];
+                    if (bucket_n[row] == 0) continue;
+                    bucket_n[row] = 0;
+                    @memset(cn[row * width ..][0..width], 0);
                 }
             }
         } else {
-            @memset(cn, 0);
-            @memset(bucket_n[0..rows], 0);
-            @memset(masks[0 .. rows * ns], 0);
+            for (bucket_n[0..rows], 0..) |*bn, row| {
+                if (bn.* == 0) continue;
+                bn.* = 0;
+                @memset(cn[row * width ..][0..width], 0);
+            }
         }
         if (best_gain <= options.split_cost) continue;
         // Split: samples above the threshold first.
@@ -923,6 +933,64 @@ pub fn learn(mem: *Bump, s: *const Samples, options: LearnOptions, nodes_out: []
     var t: Tree = .{ .nodes = nodes[0..num_nodes], .num_leaves = 0 };
     t.numberLeaves();
     return t;
+}
+
+/// A node's counting: each judged sample's token, per property bucket
+/// and predictor in `sel`, and the samples per bucket.
+const Count = struct {
+    items: []const u32,
+    step: usize,
+    buckets: []const u8,
+    nprops: usize,
+    toks: []const u8,
+    np: usize,
+    sel: []const u8,
+    amap: *const [learn_tokens]u8,
+    /// The properties with thresholds, and their first rows.
+    plist: []const u8,
+    poff: []const u32,
+    na: usize,
+
+    /// `comptime_ns` is `sel.len` when it is known, so the predictor loop
+    /// unrolls.
+    fn run(j: *const Count, comptime comptime_ns: ?usize, bucket_n: []u32, cn: []u16) void {
+        const ns = comptime_ns orelse j.sel.len;
+        const width = ns * j.na;
+        var q: usize = 0;
+        while (q < j.items.len) : (q += j.step) {
+            const i = j.items[q];
+            const b = j.buckets[i * j.nprops ..][0..j.nprops];
+            // Each predictor's column for the sample's token, taken once.
+            var ta: [max_predictors]usize = undefined;
+            for (0..ns) |k| ta[k] = k * j.na + j.amap[j.toks[i * j.np + j.sel[k]]];
+            for (j.plist, j.poff) |p, o| {
+                const row = o + b[p];
+                bucket_n[row] += 1;
+                const at = cn[row * width ..];
+                if (comptime_ns) |c| {
+                    inline for (0..c) |k| at[ta[k]] += 1;
+                } else {
+                    for (ta[0..ns]) |t| at[t] += 1;
+                }
+            }
+        }
+    }
+};
+
+/// Which of `row`'s entries are not zero.
+fn nonzeroMask(row: []const u16) u64 {
+    const V = @Vector(16, u16);
+    var m: u64 = 0;
+    var i: usize = 0;
+    while (i + 16 <= row.len) : (i += 16) {
+        const v: V = row[i..][0..16].*;
+        const bits: u16 = @bitCast(v != @as(V, @splat(0)));
+        m |= @as(u64, bits) << @intCast(i);
+    }
+    while (i < row.len) : (i += 1) {
+        if (row[i] != 0) m |= @as(u64, 1) << @intCast(i);
+    }
+    return m;
 }
 
 /// Values spanning fewer than this are sorted by counting.

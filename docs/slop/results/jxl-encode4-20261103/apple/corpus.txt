@@ -1,0 +1,5 @@
+effort default [x5b]: 14441994 bytes, 24358.2 ms; icons<=64x64: 23449 bytes, 75.1 ms
+effort default [sc64]: 14436410 bytes, 24219.9 ms; icons<=64x64: 23449 bytes, 74.0 ms
+effort default [sc32]: 14388640 bytes, 24425.4 ms; icons<=64x64: 23449 bytes, 73.9 ms
+effort default [x5c]: 14441994 bytes, 23272.3 ms; icons<=64x64: 23449 bytes, 74.5 ms
+effort default [sc16]: 14358338 bytes, 25015.5 ms; icons<=64x64: 23449 bytes, 74.4 ms

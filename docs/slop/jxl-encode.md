@@ -24,6 +24,9 @@ default's tree stops at 1024 leaves (decision 71), and groups take
 palettes and color transforms of their own, which closed most of the
 gap on screenshots.
 
+Stage 4 (`wave5-jxl-encode4`, `results/jxl-encode4-20261103.md`): tree
+learning counts faster, the same files.
+
 ## What it writes
 
 - A bare codestream (`FF 0A`). No option needs the container yet: there is
@@ -109,9 +112,12 @@ the tree fit only that corner.
   token (hybrid-integer tokens, capped at 64) per property bucket and
   predictor. A scan over the buckets with running entropies finds the split
   that saves the most bits, when each side takes its best predictor. Counts
-  are u16, and each row of them has a 64-bit mask of its nonzero entries,
-  which the scan walks. A node clears what it counted, so a small node
-  costs as little as it holds.
+  are u16; the scan finds a row's nonzero entries with a vector compare
+  and walks only those (stage 3 kept a mask per row, updated per sample,
+  which cost more than it saved). Counting (`Count`) takes each
+  sample's token columns once and walks only the properties with
+  thresholds. A node clears the buckets it counted, so a small node costs
+  as little as it holds.
 - A split must save `split_cost` bits in the whole image's terms. It must
   also beat a noise penalty of one bit per token in use, in the samples'
   terms: splitting samples at random lowers their entropy by about that
@@ -150,12 +156,12 @@ are kept between the passes; otherwise the second pass makes them again.
 | palette colors                    | 256      | 1024                          | 1024   |
 | RCT pixels                        | 2^10     | 2^15                          | 2^16   |
 
-Against cjxl, on the 43-file corpus (stage 3): fast is 3.1% smaller than
-e3 at 0.91 and 0.78 of its speed up to and above a megapixel; default is
-1.0% smaller than e7 (0.990 of its total) at 0.87 and 1.19 of its speed;
-best is 1.7% smaller than e8 (0.983) at 0.56 and 1.44 of its speed.
-Icons run at 0.44, 0.58, and 0.20 of those efforts' speed. The results
-files have the per-class tables.
+Against cjxl, on the 43-file corpus (sizes stage 3, speed stage 4): fast
+is 3.1% smaller than e3 at 0.97 and 0.79 of its speed up to and above a
+megapixel; default is 1.0% smaller than e7 (0.990 of its total) at 1.08
+and 1.27 of its speed; best is 1.7% smaller than e8 (0.983) at 0.78 and
+1.77 of its speed. Icons run at 0.58, 0.84, and 0.32 of those efforts'
+speed. The results files have the per-class tables.
 
 ## Work memory
 
