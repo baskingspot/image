@@ -318,8 +318,16 @@ Running beside wave 1's tail, started early by the owner:
   (`wave4-jxl-splines`, results/jxl-splines-20261103.md), so only extra
   channels upsampled by another factor keep a frame whole. Reference slots
   sized to their frames are dropped: their untouched pages cost no RSS.
-  Next: upsampling a band in parts; extra-channel rings at one group row
-  plus the margin.
+  A streamed upsampled band is written 64 output rows at a time
+  (`wave4-jxl-upparts`, results/jxl-upparts-20261104.md): a 4000×2667 2×
+  photo peaks at 107 MiB RSS (libjxl 102), the 1313×6097 screenshot at 76
+  (libjxl 83). The extra channels' rings stay at two group rows, the
+  minimum, or three with upsampling, where a tail would save about 2 MB.
+  Streaming memory is done. Next, speed: the JPEG XL orb takes
+  single-property trees as tables (`cjxl -e 2`/`-e 3`) and the 8-bit
+  destination; the Netpbm orb takes rebuild speed (0.59× libjxl) in
+  `jbrd.zig` and `JpegReconstructor.zig`. The cheaper XYB power function
+  waits on row 76.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
