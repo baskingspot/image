@@ -313,10 +313,13 @@ Running beside wave 1's tail, started early by the owner:
   extra channels upsampled by another factor keep a frame whole. A 4000×2667
   noise photo peaks at 81 MB instead of 260. A streamed VarDCT frame keeps
   two group rows and a margin's tail, and streams from four group rows
-  (results/jxl-tworows-20261103.md; that photo 81.4 → 69.4 MB). Next:
-  check whether reference slots sized to their frames save RSS as well as
-  arena before doing it; splines streaming; extra-channel rings at one
-  group row plus the margin.
+  (results/jxl-tworows-20261103.md; that photo 81.4 → 69.4 MB). Frames
+  with splines stream too, drawn per band from splines checked once
+  (`wave4-jxl-splines`, results/jxl-splines-20261103.md), so only extra
+  channels upsampled by another factor keep a frame whole. Reference slots
+  sized to their frames are dropped: their untouched pages cost no RSS.
+  Next: upsampling a band in parts; extra-channel rings at one group row
+  plus the margin.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
