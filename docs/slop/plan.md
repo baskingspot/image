@@ -328,7 +328,7 @@ Running beside wave 1's tail, started early by the owner:
   (`cjxl -e 2` 1.79×, `-e 3` 1.49×), 8-bit destinations are packed from
   the frame (+1–1.4% lossy), and `decodeJpeg` hands coefficients in zigzag
   order (jbrd progressive +2.6%). What remains on the speed list is the
-  cheaper XYB power function, now being measured (decision 78). Rebuild
+  cheaper XYB power function: the sRGB curve takes its power without division (`wave4-jxl-srgbpow`, results/jxl-srgbpow-20261104.md; +1–1.9% lossy, 0.038% of 16-bit samples move one step, all inside decision 78's peak 8). The JPEG XL speed list is done. Rebuild
   speed (`wave4-jxl-jbrd-speed`, results/jxl-jbrd-speed-20261104.md, the
   Netpbm orb): the writer checks range a block at a time, writes 32 bits at
   a time, and walks masks of coded positions. Baseline +27%, progressive
