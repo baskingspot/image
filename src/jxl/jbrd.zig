@@ -578,8 +578,9 @@ pub const Image = struct {
     v: [3]u4,
     /// Each component's quantization table, in natural order.
     quant: [3][64]u16,
-    /// Each component's quantized coefficients, 64 a block in natural
-    /// order, `blocks_x(c)` by `blocks_y(c)` blocks (whole MCUs).
+    /// Each component's quantized coefficients, 64 a block in zigzag
+    /// order (`zigzagged`), `blocks_x(c)` by `blocks_y(c)` blocks (whole
+    /// MCUs).
     coefs: [3][]const i16,
     /// The codestream's ICC profile, the `Exif` box's contents (with its
     /// 4-byte TIFF header offset), and the `xml ` box's.
@@ -632,13 +633,13 @@ fn laneBits(lanes: @Vector(64, bool)) u64 {
 }
 
 /// A block's coefficients in zigzag order, in one shuffle.
-fn zigzagged(blk: *const [64]i16) @Vector(64, i16) {
+pub fn zigzagged(blk: @Vector(64, i16)) @Vector(64, i16) {
     const mask: @Vector(64, i32) = comptime blk: {
         var m: [64]i32 = undefined;
         for (zigzag, 0..) |z, i| m[i] = z;
         break :blk m;
     };
-    return @shuffle(i16, @as(@Vector(64, i16), blk.*), undefined, mask);
+    return @shuffle(i16, blk, undefined, mask);
 }
 
 /// The bytes an AC refinement scan's held correction bits take: 0x7FFF
@@ -1133,9 +1134,9 @@ const State = struct {
         const x: i32 = blk[0];
         try st.dcDiff(dc, x - st.pred[ci]);
         st.pred[ci] = x;
-        // The block in zigzag order, and its nonzero AC coefficients as
-        // bits, walked from the lowest.
-        const zv = zigzagged(blk);
+        // The block's nonzero AC coefficients as bits, walked from the
+        // lowest.
+        const zv: @Vector(64, i16) = blk.*;
         const zz: [64]i16 = zv;
         var nonzero = laneBits(zv != @as(@Vector(64, i16), @splat(0)));
         nonzero &= ~@as(u64, 1);
@@ -1184,7 +1185,7 @@ const State = struct {
         zeros: u32,
         run: bool,
     ) WriteError!void {
-        const zv = zigzagged(blk);
+        const zv: @Vector(64, i16) = blk.*;
         const zz: [64]i16 = zv;
         const tv = @abs(zv) >> @as(@Vector(64, u4), @splat(al));
         const tt: [64]u16 = tv;
@@ -1215,7 +1216,7 @@ const State = struct {
         ac: *const Code,
         run: bool,
     ) WriteError!void {
-        const zv = zigzagged(blk);
+        const zv: @Vector(64, i16) = blk.*;
         const zz: [64]i16 = zv;
         const av = @abs(zv) >> @as(@Vector(64, u4), @splat(al));
         const abs: [64]u16 = av;

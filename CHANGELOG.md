@@ -111,6 +111,7 @@ All notable changes to image are recorded here. The format follows
 - `image.webp.Decoder` decodes lossy (VP8) files about 5% faster again, and lossy animations about 4%, by clearing coefficients with vector stores.
 - `image.webp.Decoder` decodes lossy (VP8) files about 1.25× faster (1.31× on icons, 1.20× over 1 MP), with a faster boolean decoder and YUV-to-RGB conversion in 16-bit lanes that keeps the CPU out of 512-bit vectors; pixels are unchanged.
 - `image.netpbm.Decoder` reads plain (ASCII) PBM, PGM, and PPM samples about 1.75× faster, and headers about 1.4× faster, which shows on 16×16 files.
+- `image.jxl.Decoder.Jpeg.coefs` from `Decoder.decodeJpeg` holds each block in zigzag order, the order a JPEG's scans code them, instead of natural order (the DC stays first; `Jpeg.quant` stays in natural order); `image.jxl.JpegReconstructor` rebuilds progressive JPEGs 2.6% faster and baseline 0.9% faster for it.
 
 ### Fixed
 

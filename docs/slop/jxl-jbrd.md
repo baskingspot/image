@@ -106,8 +106,8 @@ reconstruction, which the oracle found by mutating transcodes:
   accumulator and go out 32 at a time, stored straight into the writer's
   buffer when it has room and none of the four bytes is 0xFF (byte by
   byte with stuffing otherwise, so a writer with no buffer works); a
-  symbol and its magnitude bits are one write. A block is put in zigzag
-  order with one 64-lane shuffle, and its coded positions (nonzero, or
+  symbol and its magnitude bits are one write. A block arrives in zigzag
+  order from `decodeJpeg`, and its coded positions (nonzero, or
   nonzero after the approximation shift) become a 64-bit mask walked with
   count-trailing-zeros, so the zero runs cost nothing per coefficient.
   Each scan works out its components' block layout once, not per block.
@@ -141,10 +141,9 @@ and extra-precision rules before it, so the oracle compares every input.
 The coefficient pass (`Decoder.decodeJpeg`, the JPEG XL orb's) is most of
 a baseline rebuild's time; the writer is most of the rest.
 
-Coefficients in zigzag order from `decodeJpeg`, so the writer stops
-reordering each block once per scan: +2.6% on progressive rebuilds and
-+0.9% on baseline, waiting on the JPEG XL orb, since it changes
-`vardct.zig` (results/jxl-jbrd-speed-20261104.md, change 6).
+`decodeJpeg` hands the coefficients in zigzag order, so the writer no
+longer reorders each block once per scan: +2.6% on progressive rebuilds
+and +0.9% on baseline (results/jxl-jbrd-speed-20261104.md, change 6).
 
 ## Corpus
 

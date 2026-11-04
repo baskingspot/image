@@ -18,6 +18,7 @@ const modular = @import("modular.zig");
 const quant = @import("quant.zig");
 const dct = @import("dct.zig");
 const filters = @import("filters.zig");
+const zigzag = @import("jbrd.zig").zigzag;
 const Strategy = dct.Strategy;
 const Decoder = @import("Decoder.zig");
 
@@ -157,13 +158,14 @@ pub const Jpeg = struct {
     blocks_y: [3]u32,
     /// Each component's quantization table, in natural order.
     quant: [3][64]u16,
-    /// Each component's quantized coefficients, 64 a block in natural
-    /// order, rows of `blocks_x` blocks.
+    /// Each component's quantized coefficients, 64 a block in zigzag
+    /// order (the order a JPEG's scans code them, so the writer reorders
+    /// nothing), rows of `blocks_x` blocks.
     coefs: [3][]i16,
     got_quant: bool = false,
-    /// Per component and coefficient, the ratio of the luma and the
-    /// component's quantization steps in `cfl_bits` fixed point, which
-    /// chroma from luma scales by.
+    /// Per component and coefficient in zigzag order, the ratio of the
+    /// luma and the component's quantization steps in `cfl_bits` fixed
+    /// point, which chroma from luma scales by.
     ratio: [3][64]i32 = undefined,
 
     /// The JPEG component of channels X, Y, B.
@@ -244,7 +246,8 @@ pub const Jpeg = struct {
             };
             // Raw tables are positive (`quant.zig`).
             for (0..3) |jc| for (0..64) |k| {
-                j.ratio[jc][k] = @intCast((@as(u32, j.quant[0][k]) << cfl_bits) / j.quant[jc][k]);
+                const n = zigzag[k];
+                j.ratio[jc][k] = @intCast((@as(u32, j.quant[0][n]) << cfl_bits) / j.quant[jc][n]);
             };
             j.got_quant = true;
         }
@@ -253,7 +256,7 @@ pub const Jpeg = struct {
         // coefficient stalls the loop on reloading it.
         var y: [64]i32 = undefined;
         if (b.coeffs[1]) |q| {
-            for (&y, 0..) |*o, k| o.* = q[(k % 8) * 8 + k / 8];
+            for (&y, gather) |*o, g| o.* = q[g];
             try checkI16(i32, &y);
         }
         for (b.coeffs, 0..) |co, c| {
@@ -264,7 +267,7 @@ pub const Jpeg = struct {
             const out = j.coefs[jc][(by * j.blocks_x[jc] + bx) * 64 ..][0..64];
             const f: i64 = if (c == 0) b.x_factor else if (c == 2) b.b_factor else 0;
             var v: [64]i64 = undefined;
-            for (&v, 0..) |*o, k| o.* = q[(k % 8) * 8 + k / 8];
+            for (&v, gather) |*o, g| o.* = q[g];
             if (f != 0 and b.coeffs[1] != null) {
                 // Chroma from luma in integers, as djxl rebuilds a JPEG
                 // (docs/slop/jxl.md): the factor and the ratio of the
@@ -281,6 +284,12 @@ pub const Jpeg = struct {
             for (out[1..], v[1..]) |*o, x| o.* = @intCast(x);
         }
     }
+
+    const gather: [64]u8 = blk: {
+        var t: [64]u8 = undefined;
+        for (&t, zigzag) |*o, n| o.* = (n % 8) * 8 + n / 8;
+        break :blk t;
+    };
 
     fn checkI16(comptime T: type, v: *const [64]T) Error!void {
         const vec: @Vector(64, T) = v.*;
@@ -1356,7 +1365,7 @@ test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
     try testing.expectEqual([3]u32{ 1, 1, 1 }, j.blocks_y);
     for (0..3) |c| {
         try testing.expectEqualSlices(u16, &tables[@min(c, 1)], &j.quant[c]);
-        try testing.expectEqualSlices(i16, &want[c][0] ++ want[c][1], j.coefs[c]);
+        for (0..2) |b| try testing.expectEqualSlices(i16, &zigzagged(want[c][b]), j.coefs[c][b * 64 ..][0..64]);
     }
     // The same with its raw table's denominator a step from 1/(8·255) (f16
     // 0x1005 for 0x1004, in byte 634): not a JPEG's table, as libjxl says.
@@ -1385,6 +1394,13 @@ test "decodeJpeg rebuilds a recompressed JPEG's coefficients and tables" {
     for (0..3) |c| for (0..2) |b| {
         var w = want[c][b];
         w[0] = @divTrunc(w[0], 2);
-        try testing.expectEqualSlices(i16, &w, h.coefs[c][b * 64 ..][0..64]);
+        try testing.expectEqualSlices(i16, &zigzagged(w), h.coefs[c][b * 64 ..][0..64]);
     };
+}
+
+/// A test's block in natural order, in zigzag order.
+fn zigzagged(natural: [64]i16) [64]i16 {
+    var z: [64]i16 = undefined;
+    for (&z, zigzag) |*o, n| o.* = natural[n];
+    return z;
 }

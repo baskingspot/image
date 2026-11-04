@@ -303,7 +303,9 @@ squeezes row by row (one extra channel instead of three).
   JPEG's h and v (`(1 << max shift) >> shift`), blocks across and down
   (the frame's blocks are whole MCUs already), the quantization table in
   natural order from the raw DCT8 table, and the coefficients as i16 in
-  natural order with chroma from luma undone. The ICC profile goes to the
+  zigzag order (the order a JPEG's scans code them, so the `jbrd` writer
+  reorders nothing; gathered from DCT8's transposed layout by one table)
+  with chroma from luma undone. The ICC profile goes to the
   blob sink as for `decodeFrame`. A frame that cannot be a JPEG's is
   `NotJpeg`: anything but one regular VarDCT YCbCr frame of the image's
   size with DCT8 blocks, raw tables, LF without extra precision or
