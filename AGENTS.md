@@ -4,7 +4,7 @@ Working notes for AI coding agents in baskingspot/image.
 
 ## What this is
 
-Image decoders and encoders in Zig, with no C: PNG and APNG, JPEG, GIF, WebP, TIFF, JPEG XL, BMP, ICO and CUR, TGA, Netpbm, WBMP, and QOI. Think Wuffs's image formats, plus encoders and the formats Wuffs lacks. No release is tagged yet, and the API can change between commits.
+Image decoders and encoders in Zig, with no C: PNG and APNG, JPEG, GIF, WebP, TIFF, JPEG XL, BMP, ICO and CUR, TGA, Netpbm, WBMP, and QOI. Think Wuffs's image formats, plus encoders and the formats Wuffs lacks. Releases are tagged from v0.1.0; before 1.0 a minor release can change the API.
 
 `docs/slop/plan.md` is the scope, the API, the order of work, and the decisions still to measure. Read it before starting.
 
@@ -57,6 +57,9 @@ refactors do not need one unless they change how someone uses the package.
 Write from the user's side: what changed, and what they must do about it. Name
 the symbol, flag, or error. One line, under Added, Changed, Fixed, or Removed.
 
-To release, dispatch the repo's `release.yml` with the version. The workflow
-moves the Unreleased section into a dated heading, sets `.version` in
-`build.zig.zon`, commits, tags, and opens the GitHub release. Do not tag by hand.
+To release, run baskingspot/.github's `scripts/release-prep.py VERSION` in
+this checkout: it moves the Unreleased section into a dated heading, sets
+`.version` in `build.zig.zon`, and points the install lines at the tag.
+Commit that as `release: vX.Y.Z`, push, wait for CI, then dispatch the repo's
+`release.yml` with the version, which tags that commit and opens the GitHub
+release. Do not tag by hand.

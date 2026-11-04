@@ -24,10 +24,10 @@ The [API reference](api/) documents every public symbol.
 ## Install
 
 ```sh
-zig fetch --save git+https://github.com/baskingspot/image
+zig fetch --save https://baskingspot.dev/image/v0.1.0.tar.gz
 ```
 
-No release is tagged, so the fetch pins a commit in `build.zig.zon`. Add the module in `build.zig`:
+Add the module in `build.zig`:
 
 ```zig
 const image = b.dependency("image", .{ .target = target, .optimize = optimize });
