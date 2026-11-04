@@ -1,0 +1,7 @@
+rgba8: 303 files, 0 differing pixels
+rgb8: 303 files, 0 differing pixels
+rgba8_premul: 303 files, 0 differing pixels
+gray8: 303 files, 0 differing pixels
+gray_alpha8: 303 files, 0 differing pixels
+gray_alpha8_premul: 303 files, 0 differing pixels
+bgra8: 303 files, 0 differing pixels

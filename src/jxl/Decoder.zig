@@ -420,7 +420,11 @@ fn native(d: *const Decoder) PixelFormat {
     var eight = exact8(h.depth);
     if (h.alphaChannel()) |a| eight = eight and exact8(h.ec[a].depth);
     const p = pivot16(h);
-    if (!eight) return p;
+    return if (eight) narrowed(p) else p;
+}
+
+/// The 8-bit format with the channels of 16-bit format `p`.
+fn narrowed(p: PixelFormat) PixelFormat {
     return switch (p) {
         .gray16 => .gray8,
         .gray_alpha16 => .gray_alpha8,
@@ -935,7 +939,7 @@ const Frame = struct {
         const p = through(dst.format, h, f.d.native_format);
         const conv: Converter = .init(dst.format, p);
         // Packed straight into `dst` when converting would only copy the
-        // samples or add an opaque alpha.
+        // samples, narrow them to 8 bits, or add an opaque alpha.
         const direct = packsDirect(dst.format, p, h);
         const bpp = dst.format.bytesPerPixel();
         var buf: [chunk * 16]u8 align(4) = undefined;
@@ -969,9 +973,9 @@ const Frame = struct {
                 } else for (0..nc) |c| f.row(c, y, x, fl[c][0..n]);
                 if (alpha) |a| f.row(f.num_color + a, y, x, fl[nc + a][0..n]);
                 if (direct) {
-                    packPivot(dst.format, &fl, nc, alpha, n, out[x * bpp ..][0 .. n * bpp], !isFloat(h));
+                    packPivot(dst.format, p, &fl, nc, alpha, n, out[x * bpp ..][0 .. n * bpp], !isFloat(h));
                 } else {
-                    packPivot(p, &fl, nc, alpha, n, &buf, !isFloat(h));
+                    packPivot(p, p, &fl, nc, alpha, n, &buf, !isFloat(h));
                     conv.run(out[x * bpp ..], &buf, n);
                 }
                 x += n;
@@ -983,12 +987,15 @@ const Frame = struct {
 const chunk = 256;
 
 /// Whether `packPivot` can write format `dst` itself, the samples of the
-/// integer pivot `p` with nothing changed but an opaque alpha added, as
-/// converting `p` to `dst` would write them.
+/// integer pivot `p` with nothing changed but 16 bits narrowed to 8 and an
+/// opaque alpha added, as converting `p` to `dst` would write them.
 fn packsDirect(dst: PixelFormat, p: PixelFormat, h: *const headers.ImageHeader) bool {
     if (p.sample() == .f32 or (isFloat(h) and dst.sample() == .f32)) return false;
-    if (dst == p) return true;
-    return switch (p) {
+    // Converting narrows 16-bit samples, premultiplied or not, to their
+    // high byte.
+    const q = if (p.sample() == .u16 and dst.sample() == .u8) narrowed(p) else p;
+    if (dst == q) return true;
+    return switch (q) {
         .rgb16 => dst == .rgba16 or dst == .rgba16_premul,
         .rgb8 => dst == .rgba8 or dst == .rgba8_premul,
         .gray16 => dst == .gray_alpha16 or dst == .gray_alpha16_premul,
@@ -1017,11 +1024,13 @@ fn toU8(v: f32) u8 {
     return @intCast(nearestEven(c));
 }
 
-/// Packs `n` pixels from float planes into `buf` in format `p`: the pivot
-/// or the native format. Floats are clamped to [0, 1] when `clamp`, as
-/// the 16-bit pivot clamps.
+/// Packs `n` pixels from float planes into `buf` in format `p`, as pivot
+/// `src` would hold them converted to `p`: `p` is `src`, or `src` narrowed
+/// to 8 bits or with an opaque alpha added (`packsDirect`). Floats are
+/// clamped to [0, 1] when `clamp`, as the 16-bit pivot clamps.
 fn packPivot(
     p: PixelFormat,
+    src: PixelFormat,
     fl: *const [max_planes][chunk]f32,
     num_color: u32,
     alpha: ?u32,
@@ -1042,7 +1051,9 @@ fn packPivot(
         return;
     }
     var q: [4][chunk]u16 = undefined;
-    const max: f32 = if (p.sample() == .u8) 255 else 65535;
+    const max: f32 = if (src.sample() == .u8) 255 else 65535;
+    // 16-bit samples written as 8: their high byte.
+    const shift: u4 = if (src.sample() == .u16 and p.sample() == .u8) 8 else 0;
     switch (p.channelCount()) {
         inline 1...4 => |nc| {
             for (0..nc) |k| {
@@ -1060,11 +1071,11 @@ fn packPivot(
             if (p.sample() == .u8) {
                 if (nc >= 3) while (x + 8 <= n) : (x += 8) {
                     const v = interleave(nc, &q, x);
-                    const b: @Vector(8 * nc, u8) = @intCast(v);
+                    const b: @Vector(8 * nc, u8) = @intCast(v >> @splat(shift));
                     buf[x * nc ..][0 .. 8 * nc].* = b;
                 };
                 for (x..n) |i| inline for (0..nc) |k| {
-                    buf[i * nc + k] = @intCast(q[k][i]);
+                    buf[i * nc + k] = @intCast(q[k][i] >> shift);
                 };
             } else {
                 const out = std.mem.bytesAsSlice(u16, buf[0 .. n * nc * 2]);
@@ -1188,7 +1199,7 @@ fn writeCanvas(d: *const Decoder, dst: PixelBuffer) void {
             const at = y * h.width + x;
             for (0..nc) |c| @memcpy(fl[c][0..n], st.canvas[c][at..][0..n]);
             if (alpha) |a| @memcpy(fl[nc + a][0..n], st.canvas[np + a][at..][0..n]);
-            packPivot(p, &fl, nc, alpha, n, &buf, !isFloat(h));
+            packPivot(p, p, &fl, nc, alpha, n, &buf, !isFloat(h));
             conv.run(out[x * dst.format.bytesPerPixel() ..], &buf, n);
             x += n;
         }

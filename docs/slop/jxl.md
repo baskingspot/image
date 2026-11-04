@@ -440,6 +440,14 @@ with the weighted predictor, `-e 3`), +3.6% and +4.5% over the generic
 loop. `-e 2` files +79%, `-e 3` +49%, the bench's `-e 7` unchanged, bit
 for bit, peak RSS and `work_len` unchanged.
 
+`results/jxl-dst8-20261104.md`: an 8-bit destination with the 16-bit
+native format's channels, or those with an opaque alpha added, is packed
+straight from the frame's floats (quantized to 16 bits, then each
+sample's high byte, as converting narrows) instead of through the 16-bit
+pivot and the converter: lossy to RGBA8 +1.1% and +1.4% in two runs,
+inside the noise but with no row slower, bit for bit against the
+converter on every 8-bit format.
+
 ## Next
 
 1. **Memory, further**: little is left in streaming. The extra channels'
@@ -470,10 +478,10 @@ for bit, peak RSS and `work_len` unchanged.
    tuning left that measures: what remains needs another algorithm. The
    XYB to sRGB transform (13% of lossy) with a power function of fewer
    operations, which moves some 16-bit samples a step, so the oracle's
-   lossy tolerance must be rechecked; and an 8-bit destination, which
-   still converts from the 16-bit native format. Trees on one property
-   are tables now (`cjxl -e 2` files 1.79× faster, `-e 3` 1.49×,
-   results/jxl-sptable-20261104.md).
+   lossy tolerance must be rechecked. Trees on one property are tables
+   now (`cjxl -e 2` files 1.79× faster, `-e 3` 1.49×,
+   results/jxl-sptable-20261104.md), and an 8-bit destination is packed
+   from the frame (+1.1–1.4% lossy to RGBA8, results/jxl-dst8-20261104.md).
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
    `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
    of a baseline rebuild. Shrinking `jpegWorkLen` on small files further

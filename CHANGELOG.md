@@ -99,6 +99,7 @@ All notable changes to image are recorded here. The format follows
 - `image.jxl.Decoder` also streams lossy images with splines: an 800×2200 upsampled image with alpha and splines touches 15 MB of work memory instead of 40 MB; `Config.work_len` for frames with splines grows by up to 1 MiB plus 4 bytes a pixel, for the splines readied to draw.
 - `image.jxl.Decoder` writes a streamed upsampled (`--resampling`) image 64 output rows at a time instead of a group row: a 4000×2667 2× photo's peak RSS falls from 128 MiB to 107 MiB, and `Config.work_len` from 161 MB to 139 MB, at the same speed.
 - `image.jxl.Decoder` decodes lossless files whose trees test one property, as `cjxl -e 2` and `-e 3` write them, 1.79× and 1.49× faster (about 2× and 1.6× on photos), with the same pixels and memory.
+- `image.jxl.Decoder` writes lossy images to 8-bit destinations (`rgba8`, `rgb8`, grey, and their premultiplied forms) without converting through 16 bits, about 1% faster, with the same pixels.
 - `image.png.Decoder` expands 8-bit palette images up to 1.23× faster.
 - `image.qoi.encode` encodes packed `rgba8` and `rgb8` sources as one span instead of row by row, and checks one bound per pixel instead of two: about 1.16× faster on icons and images up to 1 MP, up to 1.7× on screenshots of runs and INDEX chunks.
 - `image.qoi.Decoder` checks one count per chunk instead of two bounds: about 1.03× faster, up to 1.16× on run- and INDEX-heavy images.

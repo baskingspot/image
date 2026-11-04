@@ -1,0 +1,36 @@
+diff --git a/bench/zig/jxl.zig b/bench/zig/jxl.zig
+index c9d8bd2..98ffad8 100644
+--- a/bench/zig/jxl.zig
++++ b/bench/zig/jxl.zig
+@@ -7,13 +7,21 @@ const std = @import("std");
+ const image = @import("image");
+ 
+ pub const ops = .{
+-    .{ "jxl-decode", rgba16 },
++    .{ "jxl-decode", rgba8 },
+     .{ "jxl-decode-lossless", rgba16 },
+ };
+ 
+ var work: []u8 = &.{};
+ 
++fn rgba8(in: []const u8, out: []u8) ?usize {
++    return decode(in, out, .rgba8);
++}
++
+ fn rgba16(in: []const u8, out: []u8) ?usize {
++    return decode(in, out, .rgba16);
++}
++
++fn decode(in: []const u8, out: []u8, f: image.PixelFormat) ?usize {
+     var r: std.Io.Reader = .fixed(in);
+     var d: image.jxl.Decoder = .init(&r, .{ .limits = .none });
+     const c = d.decodeConfig() catch return null;
+@@ -25,7 +33,7 @@ fn rgba16(in: []const u8, out: []u8) ?usize {
+         const p = gpa.rawAlloc(c.work_len, .@"64", @returnAddress()) orelse return null;
+         work = p[0..c.work_len];
+     }
+-    const dst = image.PixelBuffer.init(out, .rgba16, c.width, c.height) catch return null;
++    const dst = image.PixelBuffer.init(out, f, c.width, c.height) catch return null;
+     _ = (d.decodeFrame(dst, work[0..c.work_len]) catch return null) orelse return null;
+     return dst.stride * dst.height;
+ }
