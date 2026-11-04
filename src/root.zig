@@ -1,7 +1,8 @@
-//! Image decoders and encoders in Zig with no C. Nothing allocates: callers
-//! own every buffer. Each format is a namespace with a `Decoder`, and an
-//! `encode` once it has an encoder (see `EncodeError`); `Decoder` here
-//! decodes any of them, and `detect` names a file's format.
+//! Image decoders and encoders in Zig with no C: PNG, JPEG, GIF, WebP, TIFF,
+//! JPEG XL, and more. Nothing allocates: callers own every buffer. Each
+//! format is a namespace with a `Decoder`, and an `encode` once it has an
+//! encoder (see `EncodeError`); `Decoder` here decodes any of them, and
+//! `detect` names a file's format.
 
 const std = @import("std");
 
