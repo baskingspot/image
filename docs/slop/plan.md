@@ -331,7 +331,13 @@ Running beside wave 1's tail, started early by the owner:
   a time, and walks masks of coded positions. Baseline +27%, progressive
   +47%, byte-identical; 1.55× libjxl over all rows, the 50 MP mosaic 1.02×
   baseline (from 0.59×) and 1.60× progressive. The writer is now 16% of a
-  baseline rebuild; the rest is `decodeJpeg`'s coefficient pass.
+  baseline rebuild; the rest is `decodeJpeg`'s coefficient pass. Sharing
+  the zigzag pass across a block's scans: reordering inside `conform` loses
+  (−2.1% baseline); gathering in zigzag order in `decodeJpeg`'s `onBlock`
+  wins (+2.6% progressive, +0.9% baseline) and lands with the JPEG XL orb
+  as one commit over `vardct.zig` and `jbrd.zig`
+  (c6-zigzag-order.patch). Next for the Netpbm orb: AC-refinement
+  correction bits held in a register and written with one put.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
