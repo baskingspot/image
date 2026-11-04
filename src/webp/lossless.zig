@@ -920,11 +920,11 @@ const Px = @Vector(4, u8);
 const Wide = @Vector(4, i16);
 
 inline fn lanes(c: u32) Px {
-    return @bitCast(std.mem.nativeToLittle(u32, c));
+    return @bitCast(c);
 }
 
 inline fn pixel(v: Px) u32 {
-    return std.mem.littleToNative(u32, @bitCast(v));
+    return @bitCast(v);
 }
 
 /// The channel-wise average of two pixels' lanes, rounded down.
@@ -1160,8 +1160,8 @@ pub fn decode(
     var cur_w = width;
     var seen: u4 = 0;
     while (br.read(1) == 1) {
-        const kind: Kind = @enumFromInt(br.read(2));
-        const bit = @as(u4, 1) << @intFromEnum(kind);
+        const kind: Kind = @fromBackingInt(@intCast(br.read(2)));
+        const bit = @as(u4, 1) << @backingInt(kind);
         if (seen & bit != 0) return error.BadLossless;
         seen |= bit;
         var t: Transform = .{ .kind = kind, .width = cur_w };

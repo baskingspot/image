@@ -27,6 +27,7 @@
 
 const std = @import("std");
 const vfill = @import("../fill.zig").fill;
+const sort = @import("../sort.zig");
 const testing = std.testing;
 
 pub const Method = enum { wu, median_cut, octree };
@@ -415,7 +416,7 @@ fn medianCut(list: []Cell, max: u16, out: *Palette) void {
                 return x.c[ctx.d] < y.c[ctx.d];
             }
         };
-        std.sort.pdq(Cell, list[b.start..b.end], Ctx{ .d = d }, Ctx.less);
+        sort.pdq(Cell, list[b.start..b.end], Ctx{ .d = d }, Ctx.less);
         // The first cell past half the pixels starts the upper box, which
         // keeps at least one cell.
         var acc: f64 = 0;
@@ -486,7 +487,7 @@ fn octree(work: *Work, max: u16, out: *Palette) void {
                 return ctx.nodes[x].w < ctx.nodes[y].w;
             }
         };
-        std.sort.pdq(u16, work.order[0..n], Ctx{ .nodes = work.nodes[first..][0..count] }, Ctx.less);
+        sort.pdq(u16, work.order[0..n], Ctx{ .nodes = work.nodes[first..][0..count] }, Ctx.less);
         for (work.order[0..n]) |i| {
             if (leaves <= max) break;
             const children = childLeaves(work, level, i);

@@ -34,7 +34,7 @@ fn settingsFor(width: u32, height: u32) Settings {
     k ^= k >> 12;
     var s: Settings = .{ .key = k, .options = .{
         .quality = @intCast(1 + k % 100),
-        .subsampling = @enumFromInt((k >> 8) % 3),
+        .subsampling = @fromBackingInt(@intCast((k >> 8) % 3)),
         .progressive = (k >> 10) & 1 == 1,
         .optimize = (k >> 11) & 1 == 1,
     } };

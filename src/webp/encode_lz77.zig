@@ -11,7 +11,6 @@
 
 const std = @import("std");
 const vfill = @import("../fill.zig").fill;
-const builtin = @import("builtin");
 const testing = std.testing;
 const codes = @import("encode_codes.zig");
 
@@ -162,12 +161,8 @@ inline fn matchLen(px: []const u32, a: usize, b: usize, max: usize) usize {
         const x: V = px[a + k ..][0..8].*;
         const y: V = px[b + k ..][0..8].*;
         const ne = x != y;
-        if (@reduce(.Or, ne)) {
-            // A bool vector's bits run from lane 0 up only on little-endian
-            // targets; elsewhere, ask for the first lane.
-            if (builtin.cpu.arch.endian() == .little) return k + @ctz(@as(u8, @bitCast(ne)));
-            return k + std.simd.firstTrue(ne).?;
-        }
+        // A bool vector's bits run from lane 0 up.
+        if (@reduce(.Or, ne)) return k + @ctz(@as(u8, @bitCast(ne)));
         k += 8;
     }
     while (k < max and px[a + k] == px[b + k]) k += 1;

@@ -310,5 +310,5 @@ pub fn adapt(op: []const u8, input: []const u8, arena: std.mem.Allocator) ![]con
         t.* = input[start..i];
     }
     const one: []const u8 = if (tokens[2][0] == '-') "-1" else "1";
-    return std.fmt.allocPrint(arena, "{s} {s} {s}\n{s}{s}", .{ input[0..2], tokens[0], tokens[1], one, input[i..] });
+    return arena.print("{s} {s} {s}\n{s}{s}", .{ input[0..2], tokens[0], tokens[1], one, input[i..] });
 }

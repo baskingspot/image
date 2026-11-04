@@ -25,7 +25,7 @@ const builtin = @import("builtin");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
 const ifd = @import("ifd.zig");
 
-pub const native_endian = builtin.cpu.arch.endian();
+pub const native_endian = builtin.target.cpu.arch.endian();
 
 /// Reverses the bits of every byte, for FillOrder 2.
 pub fn reverseBits(buf: []u8) void {

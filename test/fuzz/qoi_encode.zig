@@ -41,7 +41,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 pub const seeds = [_][]const u8{
     "\x04\x03" ++ "\x10\x20\x30\xff\x11\x20\x31\xff\x1a\x28\x3b\xff\x01\x02\x03\x80",
-    "\x2f\x01" ++ "\x00" ** 200,
+    "\x2f\x01" ++ @as([200]u8, @splat(0)),
 };
 
 test "qoi_encode on the coverage-guided fuzzer" {

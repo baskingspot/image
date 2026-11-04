@@ -37,12 +37,12 @@ const Self = @This();
 
 /// Every target: the declarations above with a `check`.
 pub const all: []const type = blk: {
-    const decls = @typeInfo(Self).@"struct".decls;
-    var list: [decls.len]type = undefined;
+    const names = @typeInfo(Self).@"struct".decl_names;
+    var list: [names.len]type = undefined;
     var n: usize = 0;
-    for (decls) |d| {
-        if (std.mem.eql(u8, d.name, "all")) continue;
-        const target = @field(Self, d.name);
+    for (names) |name| {
+        if (std.mem.eql(u8, name, "all")) continue;
+        const target = @field(Self, name);
         if (@TypeOf(target) == type and @hasDecl(target, "check")) {
             list[n] = target;
             n += 1;

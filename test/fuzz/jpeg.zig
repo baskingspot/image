@@ -745,7 +745,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 /// baseline image of one flat block.
 pub const seeds = [_][]const u8{
     "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
         "\x28\xff\xd9",

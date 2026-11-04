@@ -152,7 +152,7 @@ pub fn main(init: std.process.Init) !void {
             defer gpa.free(want);
             const got = try gpa.alloc(u8, len);
             defer gpa.free(got);
-            if (probe_wuffs_swizzle(@intFromEnum(d), @intFromEnum(s), want.ptr, len, in.ptr, in.len) != n) continue;
+            if (probe_wuffs_swizzle(@backingInt(d), @backingInt(s), want.ptr, len, in.ptr, in.len) != n) continue;
             total += 1;
             convert.convert(got, d, in, s, n);
             const sb = s.bytesPerPixel();

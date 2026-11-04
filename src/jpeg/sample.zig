@@ -272,7 +272,7 @@ pub fn yccToRgb16(out: []u8, y: []const u16, cb: []const u16, cr: []const u16, n
         const r16 = scale12(@intCast(@min(@max(rr, zero), max)));
         const g16 = scale12(@intCast(@min(@max(gg, zero), max)));
         const b16 = scale12(@intCast(@min(@max(bb, zero), max)));
-        out[i * 6 ..][0 .. 6 * lanes].* = @bitCast(std.simd.interlace(.{ r16, g16, b16 }));
+        out[i * 6 ..][0 .. 6 * lanes].* = std.mem.toBytes(@as([3 * lanes]u16, std.simd.interlace(.{ r16, g16, b16 })));
     }
     while (i < n) : (i += 1) {
         const p = ycc(12, @min(y[i], 4095), @min(cb[i], 4095), @min(cr[i], 4095));

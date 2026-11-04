@@ -379,7 +379,7 @@ pub const Trickle = struct {
 
 /// The options `D.init` takes.
 fn InitOptions(comptime D: type) type {
-    return @typeInfo(@TypeOf(D.init)).@"fn".params[1].type.?;
+    return @typeInfo(@TypeOf(D.init)).@"fn".param_types[1].?;
 }
 
 /// Whether `D` can move back: its own options have a `seeker`. Formats
@@ -569,11 +569,11 @@ test loadCorpus {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     try tmp.dir.writeFile(io, .{ .sub_path = "small.qoi", .data = "qoif" });
-    try tmp.dir.writeFile(io, .{ .sub_path = "large.qoi", .data = "qoif" ** 4 });
+    try tmp.dir.writeFile(io, .{ .sub_path = "large.qoi", .data = &@as([16]u8, std.simd.repeat(16, "qoif".*)) });
     // Taken in path order, whatever order the directory lists them in.
     for ("qcbpa") |c| try tmp.dir.writeFile(io, .{ .sub_path = &[_]u8{ c, '.', 'q', 'o', 'i' }, .data = &.{c} });
     try tmp.dir.writeFile(io, .{ .sub_path = "other.png", .data = "png" });
-    const path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    const path = try gpa.print(".zig-cache/tmp/{s}", .{tmp.sub_path});
     defer gpa.free(path);
     const corpus = try loadCorpus(gpa, io, &.{ path, "no/such/directory" }, &.{".qoi"}, 16);
     defer {
@@ -651,7 +651,7 @@ fn smithInput(comptime seed: []const u8) []const u8 {
     if (seed.len >= 4 and std.mem.readInt(u32, seed[0..4], .little) == seed.len - 4) return seed;
     var len: [4]u8 = undefined;
     std.mem.writeInt(u32, &len, seed.len, .little);
-    const out = len ++ seed[0..seed.len].* ++ [_]u8{0} ** 8;
+    const out = len ++ seed[0..seed.len].* ++ @as([8]u8, @splat(0));
     return &out;
 }
 

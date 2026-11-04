@@ -56,11 +56,11 @@ pub const Strategy = enum(u8) {
 
     /// Width in 8 by 8 blocks.
     pub fn bx(s: Strategy) u32 {
-        return blocks_x[@intFromEnum(s)];
+        return blocks_x[@backingInt(s)];
     }
     /// Height in 8 by 8 blocks.
     pub fn by(s: Strategy) u32 {
-        return blocks_y[@intFromEnum(s)];
+        return blocks_y[@backingInt(s)];
     }
     pub fn covered(s: Strategy) u32 {
         return s.bx() * s.by();
@@ -393,7 +393,7 @@ pub fn toPixels(s: Strategy, coeffs: []f32, out: []f32, stride: usize, scratch: 
                 idct2d(8, 4, &block, out[x * 4 ..], stride, scratch);
             }
         },
-        .afv0, .afv1, .afv2, .afv3 => afv(@intFromEnum(s) - @intFromEnum(Strategy.afv0), coeffs, out, stride, scratch),
+        .afv0, .afv1, .afv2, .afv3 => afv(@backingInt(s) - @backingInt(Strategy.afv0), coeffs, out, stride, scratch),
     }
 }
 

@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const vfill = @import("../fill.zig").fill;
+const sort = @import("../sort.zig");
 const testing = std.testing;
 const codes = @import("encode_codes.zig");
 const lz77 = @import("encode_lz77.zig");
@@ -235,7 +236,7 @@ pub fn cluster(in: Input) usize {
     const k0: usize = @intCast(startGroups(tiles, in.px.len, in.max_groups));
     if (in.start == 0) {
         for (m.order[0..tiles], 0..) |*o, ti| o.* = @intCast(ti);
-        std.sort.pdq(u32, m.order[0..tiles], m.feature, struct {
+        sort.pdq(u32, m.order[0..tiles], m.feature, struct {
             fn less(f: []f32, a: u32, b: u32) bool {
                 return f[4 * a + 3] < f[4 * b + 3];
             }

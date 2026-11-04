@@ -153,11 +153,11 @@ const Px = @Vector(4, u8);
 const Wide = @Vector(4, i16);
 
 inline fn lanes(c: u32) Px {
-    return @bitCast(std.mem.nativeToLittle(u32, c));
+    return @bitCast(c);
 }
 
 inline fn pixel(v: Px) u32 {
-    return std.mem.littleToNative(u32, @bitCast(v));
+    return @bitCast(v);
 }
 
 inline fn avg(a: Px, b: Px) Px {

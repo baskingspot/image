@@ -138,7 +138,7 @@ pub fn upsampleRows(
 
 test "upsampling keeps a flat image flat" {
     const image: headers.ImageHeader = .{};
-    const src = [_]f32{0.25} ** (3 * 2);
+    const src = @as([3 * 2]f32, @splat(0.25));
     var dst: [6 * 4]f32 = undefined;
     for ([_]usize{ 2, 4, 8 }) |n| {
         const k: Kernel = .init(&image, n);

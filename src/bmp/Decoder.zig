@@ -168,19 +168,19 @@ fn testDecode(file: []const u8, format: PixelFormat, out: []u8) !decode.Config {
 }
 
 inline fn le(comptime T: type, comptime v: T) [@sizeOf(T)]u8 {
-    return @bitCast(std.mem.nativeToLittle(T, v));
+    return @bitCast(v);
 }
 
 /// A BITMAPINFOHEADER.
 inline fn testInfo(comptime w: i32, comptime h: i32, comptime bits: u16, comptime compression: u32) []const u8 {
     return &(le(u32, 40) ++ le(i32, w) ++ le(i32, h) ++ le(u16, 1) ++ le(u16, bits) ++
-        le(u32, compression) ++ [_]u8{0} ** 20);
+        le(u32, compression) ++ @as([20]u8, @splat(0)));
 }
 
 /// A file whose pixels follow the info header and color table.
 inline fn testFile(comptime info: []const u8, comptime table: []const u8, comptime data: []const u8) []const u8 {
     const offset = 14 + info.len + table.len;
-    return "BM" ++ le(u32, offset + data.len) ++ [_]u8{0} ** 4 ++ le(u32, offset) ++ info ++ table ++ data;
+    return "BM" ++ le(u32, offset + data.len) ++ @as([4]u8, @splat(0)) ++ le(u32, offset) ++ info ++ table ++ data;
 }
 
 test "24-bit rows, bottom-up and top-down, padded to four" {
@@ -216,7 +216,7 @@ test "indexed pixels, and indices past the color table" {
     try testing.expectEqualSlices(u8, &(c1 ++ c0 ++ black), out[0..12]);
     // High bit first.
     _ = try testDecode(testFile(testInfo(9, 1, 1, 0), table, "\xa0\x80\x00\x00"), .rgba8, &out);
-    try testing.expectEqualSlices(u8, &(c1 ++ c0 ++ c1 ++ c0 ** 5 ++ c1), &out);
+    try testing.expectEqualSlices(u8, &(c1 ++ c0 ++ c1 ++ @as([20]u8, std.simd.repeat(20, c0)) ++ c1), &out);
 }
 
 test "RLE8 and RLE4: runs, literals, deltas, and skipped pixels" {
@@ -234,7 +234,8 @@ test "RLE8 and RLE4: runs, literals, deltas, and skipped pixels" {
     const config = try testDecode(testFile(testInfo(5, 3, 8, 1), table, rle8), .rgba8, &out);
     try testing.expectEqual(PixelFormat.bgra8, config.native);
     try testing.expect(!config.is_opaque);
-    try testing.expectEqualSlices(u8, &(t ++ t ++ c3 ++ c3 ++ t ++ t ** 5 ++ c1 ++ c1 ++ c2 ++ c3 ++ c1), &out);
+    const want = t ++ t ++ c3 ++ c3 ++ t ++ @as([20]u8, std.simd.repeat(20, t)) ++ c1 ++ c1 ++ c2 ++ c3 ++ c1;
+    try testing.expectEqualSlices(u8, &want, &out);
     // A run of three alternating 1 2, and a literal 3 0 1 cut off at the
     // row's end.
     const rle4 = "\x03\x12\x00\x03\x30\x10\x00\x01";
@@ -263,14 +264,14 @@ test "bitfields: narrow masks widen, and alpha needs a mask" {
     // A 56-byte header's alpha mask.
     const v3 = comptime testInfo(1, 1, 32, 3) ++
         le(u32, 0xff0000) ++ le(u32, 0xff00) ++ le(u32, 0xff) ++ le(u32, 0xff000000);
-    const v3_file = comptime "BM" ++ le(u32, 14 + 56 + 4) ++ [_]u8{0} ** 4 ++ le(u32, 14 + 56) ++
+    const v3_file = comptime "BM" ++ le(u32, 14 + 56 + 4) ++ @as([4]u8, @splat(0)) ++ le(u32, 14 + 56) ++
         le(u32, 56) ++ v3[4..] ++ "\x01\x02\x03\x80";
     const config = try testDecode(v3_file, .rgba8, out[0..4]);
     try testing.expectEqual(PixelFormat.bgra8, config.native);
     try testing.expectEqualSlices(u8, &.{ 3, 2, 1, 128 }, out[0..4]);
     // A mask with a gap.
     const gap = comptime le(u32, 0xf00f) ++ le(u32, 0x07e0) ++ le(u32, 0x001f);
-    const gap_file = testFile(testInfo(2, 1, 16, 3), &gap, "\x00" ** 4);
+    const gap_file = testFile(testInfo(2, 1, 16, 3), &gap, &@as([4]u8, @splat(0)));
     try testing.expectError(error.BadHeader, testDecode(gap_file, .rgba8, &out));
 }
 
@@ -289,7 +290,7 @@ test "an embedded PNG is left for the caller" {
 }
 
 test "limits apply before the pixels, and errors stick" {
-    const file = comptime testFile(testInfo(2, 2, 24, 0), "", "\x00" ** 16);
+    const file = comptime testFile(testInfo(2, 2, 24, 0), "", &@as([16]u8, @splat(0)));
     var out: [16]u8 = undefined;
     var r: Io.Reader = .fixed(file);
     var d: Decoder = .init(&r, .{ .limits = .{ .max_height = 1 } });

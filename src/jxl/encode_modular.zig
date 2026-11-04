@@ -59,7 +59,7 @@ pub const Tree = struct {
             if (nd.property < 0) {
                 out[n..][0..5].* = .{
                     .{ .ctx = 1, .value = 0 },
-                    .{ .ctx = 2, .value = @intFromEnum(nd.predictor) },
+                    .{ .ctx = 2, .value = @backingInt(nd.predictor) },
                     .{ .ctx = 3, .value = 0 },
                     .{ .ctx = 4, .value = 0 },
                     .{ .ctx = 5, .value = 0 },

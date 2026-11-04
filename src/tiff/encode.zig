@@ -667,7 +667,7 @@ fn storeRow(p: *const Plan, m: Memory, y: u32, dst: []u8) void {
     if (p.invert) for (dst) |*b| {
         b.* = ~b.*;
     };
-    if (p.bits == 16 and builtin.cpu.arch.endian() == .big) {
+    if (p.bits == 16 and builtin.target.cpu.arch.endian() == .big) {
         var i: usize = 0;
         while (i < dst.len) : (i += 2) std.mem.swap(u8, &dst[i], &dst[i + 1]);
     }

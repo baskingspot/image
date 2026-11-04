@@ -10,7 +10,6 @@
 //! divides by 8 what the forward one multiplies by 2.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const tables = @import("vp8_encode_tables.zig");
 const zigzag = tables.zigzag;
@@ -445,10 +444,8 @@ pub fn quantize(coefs: *const [16]i16, m: *const Quant, first: u5, levels: *[16]
     levels.* = @as(@Vector(16, i16), @intCast(v));
     const dz = v * @as(I16x, @intCast(m.q));
     deq.* = @as(@Vector(16, i16), @intCast(@shuffle(i32, dz, undefined, unzigzag)));
-    // A bool vector's lane 0 is the integer's low bit on a little-endian
-    // target and its high bit on a big-endian one.
-    const lanes: u16 = @bitCast(l != @as(U16x, @splat(0)));
-    const nz = if (builtin.cpu.arch.endian() == .little) lanes else @bitReverse(lanes);
+    // A bool vector's lane 0 is the integer's low bit.
+    const nz: u16 = @bitCast(l != @as(U16x, @splat(0)));
     return @as(i32, 15) - @clz(nz);
 }
 

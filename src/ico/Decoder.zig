@@ -362,12 +362,12 @@ fn decodeBmp(in: *dib.Input, h: dib.Header, dst: PixelBuffer) dib.Error!void {
 const TestDecoder = Generic(void);
 
 inline fn le(comptime T: type, comptime v: T) [@sizeOf(T)]u8 {
-    return @bitCast(std.mem.nativeToLittle(T, v));
+    return @bitCast(v);
 }
 
 /// A BITMAPINFOHEADER for an entry `w` by `h`, AND mask rows included.
 inline fn testInfo(comptime w: i32, comptime h: i32, comptime bits: u16) []const u8 {
-    return &(le(u32, 40) ++ le(i32, w) ++ le(i32, 2 * h) ++ le(u16, 1) ++ le(u16, bits) ++ [_]u8{0} ** 24);
+    return &(le(u32, 40) ++ le(i32, w) ++ le(i32, 2 * h) ++ le(u16, 1) ++ le(u16, bits) ++ @as([24]u8, @splat(0)));
 }
 
 /// 2 by 1, 1-bit: (10, 20, 30) masked out, then (40, 50, 60).

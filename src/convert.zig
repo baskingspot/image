@@ -38,7 +38,7 @@
 
 const std = @import("std");
 const testing = std.testing;
-const builtin = @import("builtin");
+const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const PixelFormat = @import("pixel.zig").PixelFormat;
 const PixelBuffer = @import("pixel.zig").PixelBuffer;
@@ -219,7 +219,7 @@ inline fn load(comptime f: PixelFormat, bytes: []const u8, pixel: usize, channel
     const at = (pixel * f.channelCount() + channel) * f.bytesPerSample();
     return switch (comptime f.sample()) {
         .u8 => bytes[at],
-        .u16 => std.mem.readInt(u16, bytes[at..][0..2], builtin.cpu.arch.endian()),
+        .u16 => std.mem.readInt(u16, bytes[at..][0..2], native_endian),
         .f32 => unreachable,
     };
 }
@@ -228,8 +228,8 @@ inline fn loadFloat(comptime f: PixelFormat, bytes: []const u8, pixel: usize, ch
     const at = (pixel * f.channelCount() + channel) * f.bytesPerSample();
     return switch (comptime f.sample()) {
         .u8 => @as(f32, @floatFromInt(bytes[at])) / 255,
-        .u16 => @as(f32, @floatFromInt(std.mem.readInt(u16, bytes[at..][0..2], builtin.cpu.arch.endian()))) / 65535,
-        .f32 => @bitCast(std.mem.readInt(u32, bytes[at..][0..4], builtin.cpu.arch.endian())),
+        .u16 => @as(f32, @floatFromInt(std.mem.readInt(u16, bytes[at..][0..2], native_endian))) / 65535,
+        .f32 => @bitCast(std.mem.readInt(u32, bytes[at..][0..4], native_endian)),
     };
 }
 
@@ -237,7 +237,7 @@ inline fn store(comptime f: PixelFormat, bytes: []u8, pixel: usize, channel: u2,
     const at = (pixel * f.channelCount() + channel) * f.bytesPerSample();
     switch (comptime f.sample()) {
         .u8 => bytes[at] = @intCast(narrow(v)),
-        .u16 => std.mem.writeInt(u16, bytes[at..][0..2], v, builtin.cpu.arch.endian()),
+        .u16 => std.mem.writeInt(u16, bytes[at..][0..2], v, native_endian),
         .f32 => unreachable,
     }
 }
@@ -246,8 +246,8 @@ inline fn storeFloat(comptime f: PixelFormat, bytes: []u8, pixel: usize, channel
     const at = (pixel * f.channelCount() + channel) * f.bytesPerSample();
     switch (comptime f.sample()) {
         .u8 => bytes[at] = @intCast(quantize(v, 255)),
-        .u16 => std.mem.writeInt(u16, bytes[at..][0..2], @intCast(quantize(v, 65535)), builtin.cpu.arch.endian()),
-        .f32 => std.mem.writeInt(u32, bytes[at..][0..4], @bitCast(v), builtin.cpu.arch.endian()),
+        .u16 => std.mem.writeInt(u16, bytes[at..][0..2], @intCast(quantize(v, 65535)), native_endian),
+        .f32 => std.mem.writeInt(u32, bytes[at..][0..4], @bitCast(v), native_endian),
     }
 }
 
@@ -771,9 +771,7 @@ fn CmykTo(comptime dst: PixelFormat) type {
             // A pixel to a 32-bit lane, C in the low byte: lane-wise
             // arithmetic, no shuffle but the one dropping alpha.
             const V = @Vector(l, u32);
-            const little = comptime builtin.cpu.arch.endian() == .little;
-            const raw: V = @bitCast(i.*);
-            const px = if (little) raw else @byteSwap(raw);
+            const px: V = @bitCast(i.*);
             const full: V = @splat(255);
             const black = px >> @splat(24);
             const c = comptime dst.channels();
@@ -783,7 +781,7 @@ fn CmykTo(comptime dst: PixelFormat) type {
                 const t = ink * black + @as(V, @splat(128));
                 rgba |= ((t + (t >> @splat(8))) >> @splat(8)) << @splat(8 * @as(u5, at));
             }
-            const bytes: @Vector(l * 4, u8) = @bitCast(if (little) rgba else @byteSwap(rgba));
+            const bytes: @Vector(l * 4, u8) = @bitCast(rgba);
             if (count == 4) {
                 o.* = bytes;
             } else {
@@ -807,19 +805,19 @@ fn narrowAll(dst: []u8, src: []const u8, n: usize) void {
     const count = dst.len;
     var i: usize = 0;
     while (i + lanes <= count) : (i += lanes) {
-        const v: @Vector(lanes, u16) = @bitCast(src[2 * i ..][0 .. 2 * lanes].*);
+        const v: @Vector(lanes, u16) = std.mem.bytesToValue([lanes]u16, src[2 * i ..][0 .. 2 * lanes]);
         const p: @Vector(lanes, u8) = @intCast(v >> @splat(8));
         dst[i..][0..lanes].* = p;
     }
     if (i == count) return;
     // The tail as one more vector ending at the last sample, as in `blocks`.
     if (i != 0 and disjoint(dst, src)) {
-        const v: @Vector(lanes, u16) = @bitCast(src[2 * (count - lanes) ..][0 .. 2 * lanes].*);
+        const v: @Vector(lanes, u16) = std.mem.bytesToValue([lanes]u16, src[2 * (count - lanes) ..][0 .. 2 * lanes]);
         dst[count - lanes ..][0..lanes].* = @as(@Vector(lanes, u8), @intCast(v >> @splat(8)));
         return;
     }
     while (i < count) : (i += 1) {
-        dst[i] = @intCast(narrow(std.mem.readInt(u16, src[2 * i ..][0..2], builtin.cpu.arch.endian())));
+        dst[i] = @intCast(narrow(std.mem.readInt(u16, src[2 * i ..][0..2], native_endian)));
     }
 }
 
@@ -840,7 +838,7 @@ fn widenAll(dst: []u8, src: []const u8, n: usize) void {
         return;
     }
     while (i < count) : (i += 1) {
-        std.mem.writeInt(u16, dst[2 * i ..][0..2], @as(u16, src[i]) * 257, builtin.cpu.arch.endian());
+        std.mem.writeInt(u16, dst[2 * i ..][0..2], @as(u16, src[i]) * 257, native_endian);
     }
 }
 
@@ -861,7 +859,7 @@ fn FloatAll(comptime T: type, comptime to_float: bool) type {
             // The tail as one more vector ending at the last sample, as in
             // `blocks`.
             if (i != 0 and disjoint(dst, src)) return step(dst, src, count - lanes);
-            const e = builtin.cpu.arch.endian();
+            const e = native_endian;
             while (i < count) : (i += 1) {
                 if (to_float) {
                     const v: f32 = @floatFromInt(std.mem.readInt(T, src[t * i ..][0..t], e));
@@ -875,16 +873,16 @@ fn FloatAll(comptime T: type, comptime to_float: bool) type {
 
         inline fn step(dst: []u8, src: []const u8, i: usize) void {
             if (to_float) {
-                const v: @Vector(lanes, T) = @bitCast(src[t * i ..][0 .. t * lanes].*);
+                const v: @Vector(lanes, T) = std.mem.bytesToValue([lanes]T, src[t * i ..][0 .. t * lanes]);
                 const f: @Vector(lanes, f32) = @floatFromInt(v);
-                dst[4 * i ..][0 .. 4 * lanes].* = @bitCast(f / max);
+                dst[4 * i ..][0 .. 4 * lanes].* = std.mem.toBytes(@as([lanes]f32, f / max));
             } else {
                 // `quantize`: NaN and nothing above 0 to 0, 1 and up to max.
-                const v: @Vector(lanes, f32) = @bitCast(src[4 * i ..][0 .. 4 * lanes].*);
+                const v: @Vector(lanes, f32) = std.mem.bytesToValue([lanes]f32, src[4 * i ..][0 .. 4 * lanes]);
                 const zero: @Vector(lanes, f32) = @splat(0);
                 const c = @min(@select(f32, v > zero, v, zero), @as(@Vector(lanes, f32), @splat(1)));
                 const q: @Vector(lanes, T) = @intFromFloat(@round(c * max));
-                dst[t * i ..][0 .. t * lanes].* = @bitCast(q);
+                dst[t * i ..][0 .. t * lanes].* = std.mem.toBytes(@as([lanes]T, q));
             }
         }
     };
@@ -903,7 +901,7 @@ fn fill(random: std.Random, bytes: []u8, f: PixelFormat) void {
             3 => 1.5,
             else => random.float(f32),
         };
-        std.mem.writeInt(u32, bytes[i..][0..4], @bitCast(v), builtin.cpu.arch.endian());
+        std.mem.writeInt(u32, bytes[i..][0..4], @bitCast(v), native_endian);
     }
 }
 

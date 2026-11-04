@@ -43,7 +43,7 @@ pub fn main() !void {
             const new = try gpa.alloc(u8, len);
             defer gpa.free(new);
             // The enum is the same before and after.
-            before.convert(old, @enumFromInt(@intFromEnum(d)), in, @enumFromInt(@intFromEnum(s)), n);
+            before.convert(old, @fromBackingInt(@intCast(@backingInt(d))), in, @fromBackingInt(@intCast(@backingInt(s))), n);
             after.convert(new, d, in, s, n);
             const db = d.bytesPerPixel();
             var bad: usize = 0;

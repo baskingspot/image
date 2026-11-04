@@ -483,7 +483,7 @@ const Out = struct {
 
     fn row(context: *anyopaque, y: u32, argb: []u32) void {
         const o: *Out = @ptrCast(@alignCast(context));
-        if (builtin.cpu.arch.endian() == .big) {
+        if (builtin.target.cpu.arch.endian() == .big) {
             for (argb) |*p| p.* = @byteSwap(p.*);
         }
         const bytes = std.mem.sliceAsBytes(argb);

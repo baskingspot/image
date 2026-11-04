@@ -489,7 +489,7 @@ fn opaqueRows(in: *Input, h: Header, dst: PixelBuffer, pad: usize) Error!void {
 /// Copies 4-byte pixels with the fourth byte set to 255.
 fn opaque4(out: []u8, src: []const u8) void {
     const V = @Vector(16, u8);
-    const alpha: V = @bitCast(@as(@Vector(4, u32), @splat(std.mem.nativeToLittle(u32, 0xff000000))));
+    const alpha: V = @bitCast(@as(@Vector(4, u32), @splat(0xff000000)));
     var i: usize = 0;
     while (i + 16 <= src.len) : (i += 16) {
         const v: V = src[i..][0..16].*;

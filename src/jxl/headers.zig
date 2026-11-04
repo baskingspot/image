@@ -66,7 +66,7 @@ pub const ExtraChannel = struct {
         if (try br.boolean()) return e;
         const kind = try br.enumField();
         e.kind = switch (kind) {
-            0...6, 16 => @enumFromInt(kind),
+            0...6, 16 => @fromBackingInt(@intCast(kind)),
             else => return error.BadHeader,
         };
         e.depth = try .read(br);

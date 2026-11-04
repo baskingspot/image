@@ -16,7 +16,6 @@
 //! the work memory, and once into it.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const Io = std.Io;
 
@@ -320,7 +319,7 @@ pub fn read(b: *Bits, mem: *Mem) Error!Jbrd {
         if (t > 3) return error.BadJbrd;
         const size = try b.bits(16) + 1;
         if (size < 3) return error.BadJbrd;
-        var app: App = .{ .type = @enumFromInt(t), .size = size };
+        var app: App = .{ .type = @fromBackingInt(@intCast(t)), .size = size };
         // The contents of the known types are built here, at write time.
         if (app.type != .unknown) app.data = try mem.alloc(u8, size);
         switch (app.type) {
@@ -641,11 +640,9 @@ pub const zigzag = [64]u8{
     58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 };
 
-/// A 64-lane comparison as bits, lane 0 the lowest on any CPU (a
-/// bool vector's bit cast puts lane 0 at the top on a big-endian one).
+/// A 64-lane comparison as bits, lane 0 the lowest.
 fn laneBits(lanes: @Vector(64, bool)) u64 {
-    const bits: u64 = @bitCast(lanes);
-    return if (builtin.cpu.arch.endian() == .little) bits else @bitReverse(bits);
+    return @bitCast(lanes);
 }
 
 /// A block's coefficients in zigzag order, in one shuffle.

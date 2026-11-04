@@ -65,7 +65,7 @@ const image = b.dependency("image", .{ .target = target, .optimize = optimize })
 exe.root_module.addImport("image", image.module("image"));
 ```
 
-image builds with Zig 0.16 only.
+image builds with Zig 0.17 only.
 
 ## Documentation
 

@@ -395,7 +395,7 @@ test "every chunk kind" {
 
 test "runs cross rows and conversion spans" {
     // 300 by 2 needs two spans per row through the converter.
-    const runs = "\xfd" ** 9 ++ "\xd5"; // 9 * 62 + 22 = 580
+    const runs = @as([9]u8, @splat(0xfd)) ++ "\xd5"; // 9 * 62 + 22 = 580
     const head = "qoif\x00\x00\x01\x2c\x00\x00\x00\x02\x03\x00";
     const file = head ++ "\xfe\x05\x06\x07" ++ "\xc0" ++ runs ++ "\xc1" ++ end;
     // 1 + 1 + 580 + 2 = 584 is short of 600: a truncated stream.
@@ -424,7 +424,7 @@ test "an INDEX chunk of an entry never written stores its zero pixel" {
     const file = testHeader(3, 1, 4) ++ "\xff\x00\x00\x00\x40" ++ "\x05" ++ "\x00" ++ end;
     var out: [12]u8 = undefined;
     _ = try testDecode(file, .rgba8, &out);
-    try testing.expectEqualSlices(u8, &([_]u8{ 0, 0, 0, 64 } ++ [_]u8{0} ** 8), &out);
+    try testing.expectEqualSlices(u8, &([_]u8{ 0, 0, 0, 64 } ++ @as([8]u8, @splat(0))), &out);
 }
 
 test "three channels: alpha is opaque whatever the chunks say" {
@@ -444,7 +444,8 @@ test "malformed streams" {
     for (0..good.len) |n| try testing.expectError(error.Truncated, testDecode(good[0..n], .rgba8, &out));
     try testing.expectError(error.BadSignature, testDecode("qoiF" ++ good[4..], .rgba8, &out));
     try testing.expectError(error.BadHeader, testDecode(testHeader(2, 1, 5) ++ good[14..], .rgba8, &out));
-    try testing.expectError(error.BadFooter, testDecode(testHeader(2, 1, 4) ++ "\xc1" ++ "\x00" ** 8, .rgba8, &out));
+    const zeros: [8]u8 = @splat(0);
+    try testing.expectError(error.BadFooter, testDecode(testHeader(2, 1, 4) ++ "\xc1" ++ zeros, .rgba8, &out));
     try testing.expectError(error.RunPastEnd, testDecode(testHeader(2, 1, 4) ++ "\xc2" ++ end, .rgba8, &out));
     // An empty image is only its header and end marker.
     _ = try testDecode(testHeader(0, 0, 4) ++ end, .rgba8, &out);

@@ -18,7 +18,6 @@
 //! as libjpeg-turbo does.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const Io = std.Io;
 
@@ -734,11 +733,8 @@ fn Coder(comptime gather: bool) type {
         /// on the benchmark's Ice Lake host any 512-bit instruction lowers
         /// the clock (docs/slop/plan.md).
         inline fn flags16(flags: @Vector(16, bool)) u16 {
-            // A bool vector packs element 0 into the low bit on a
-            // little-endian target and into the high bit on a big-endian
-            // one.
-            const raw: u16 = @bitCast(flags);
-            return if (builtin.cpu.arch.endian() == .little) raw else @bitReverse(raw);
+            // A bool vector's bit cast packs element 0 into the low bit.
+            return @bitCast(flags);
         }
 
         /// Bits in natural order moved to their zigzag positions, a byte
@@ -962,10 +958,9 @@ fn rgbToYcc(rgb: []const u8, y: []u8, cb: []u8, cr: []u8, width: usize) void {
         const z: @Vector(32, u8) = @splat(0);
         const rg: simd.Y = @bitCast(@shuffle(u8, v, z, spread(&.{ 0, 1 })));
         const bg: simd.Y = @bitCast(@shuffle(u8, v, z, spread(&.{ 2, 1 })));
-        // R and B, the first of each pair of 16-bit lanes.
-        const first: u5 = if (builtin.cpu.arch.endian() == .little) 0 else 16;
-        const r = (@as(D, @bitCast(rg)) >> @splat(first)) & k(0xffff);
-        const b = (@as(D, @bitCast(bg)) >> @splat(first)) & k(0xffff);
+        // R and B, the first of each pair of 16-bit lanes: the low half.
+        const r = @as(D, @bitCast(rg)) & k(0xffff);
+        const b = @as(D, @bitCast(bg)) & k(0xffff);
         const yv = (simd.madd(rg, 19595, 22086) + simd.madd(bg, 7471, 16384) + k(32768)) >> @splat(16);
         const cbv = (simd.madd(rg, -11059, -21709) + (b << @splat(15)) + k((128 << 16) + 32767)) >> @splat(16);
         const crv = (simd.madd(bg, -5329, -27439) + (r << @splat(15)) + k((128 << 16) + 32767)) >> @splat(16);
@@ -1001,13 +996,13 @@ inline fn halves(w: @Vector(8, u32)) @Vector(8, u32) {
 
 /// The shuffle mask that spreads four pixels of each 16-byte half into
 /// 16-bit lanes, zero-extended: lane `i` of a half takes channel
-/// `channels[i % 2]` of pixel `i / 2`.
+/// `channels[i % 2]` of pixel `i / 2`. A bit cast to 16-bit lanes takes
+/// the even byte as the low one.
 fn spread(comptime channels: *const [2]u8) @Vector(32, i32) {
     var m: [32]i32 = undefined;
     for (&m, 0..) |*v, o| {
         const lane = o % 16 / 2;
-        const low = if (builtin.cpu.arch.endian() == .little) 0 else 1;
-        v.* = if (o % 2 != low) -1 else @intCast(o / 16 * 16 + 3 * (lane / 2) + channels[lane % 2]);
+        v.* = if (o % 2 != 0) -1 else @intCast(o / 16 * 16 + 3 * (lane / 2) + channels[lane % 2]);
     }
     return m;
 }

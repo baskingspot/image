@@ -154,8 +154,8 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 pub const seeds = [_][]const u8{
     "\x04\x03" ++ "\x10\x20\x30\xff\x11\x20\x31\xff\x1a\x28\x3b\xff\x01\x02\x03\x80",
-    "\x2f\x01" ++ "\x00" ** 200,
-    "\x3f\x3f" ++ "\x01\x02\x03\x04\x05\x06\x07\x08" ** 64,
+    "\x2f\x01" ++ @as([200]u8, @splat(0)),
+    "\x3f\x3f" ++ @as([512]u8, std.simd.repeat(512, "\x01\x02\x03\x04\x05\x06\x07\x08".*)),
 };
 
 test "webp_encode on the coverage-guided fuzzer" {

@@ -777,7 +777,7 @@ fn sequence(d: *Decoder) Error!void {
 /// whatever its fcTL's region (plan.md decision 59): its image data is
 /// always the canvas's, and libpng and libspng show all of it.
 fn parseFctl(d: *Decoder, b: *const [26]u8, default_image: bool) Error!FrameControl {
-    const be = std.builtin.Endian.big;
+    const be = std.lang.Endian.big;
     if (std.mem.readInt(u32, b[0..4], be) != d.seq) return error.BadChunk;
     d.seq += 1;
     d.controls += 1;
@@ -1632,7 +1632,7 @@ test "every color type, depth, and interlacing, with and without tRNS" {
         try testing.expectEqual(!key and color != 4 and color != 6, config.is_opaque);
         try testing.expectEqualSlices(u8, want, got);
         // Any other format is the native pixels converted.
-        const other: PixelFormat = @enumFromInt(round % 20);
+        const other: PixelFormat = @fromBackingInt(@intCast(round % 20));
         const conv = try a.alloc(u8, PixelBuffer.len(other, w, h).?);
         defer a.free(conv);
         _ = try testDecode(png.bytes.items, other, conv);
@@ -2109,7 +2109,7 @@ test "an APNG canvas has alpha, and frame 0 clears what it does not cover" {
     var canvas: [24]u8 = @splat(0xaa);
     const frame0 = (try d.decodeFrame(try PixelBuffer.init(&canvas, .rgba8, 3, 2), work)).?;
     try testing.expect(frame0.is_opaque);
-    try testing.expectEqualSlices(u8, &(.{ 0, 0, 0, 0 } ** 4 ++ .{ 1, 2, 3, 255, 4, 5, 6, 255 }), &canvas);
+    try testing.expectEqualSlices(u8, &(@as([16]u8, @splat(0)) ++ [_]u8{ 1, 2, 3, 255, 4, 5, 6, 255 }), &canvas);
 }
 
 test "metadata and blobs, through a reader that trickles" {

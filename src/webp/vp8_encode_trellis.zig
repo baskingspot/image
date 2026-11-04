@@ -11,7 +11,6 @@
 //! any nonzero level, zeroing what follows.
 
 const std = @import("std");
-const builtin = @import("builtin");
 const testing = std.testing;
 const tables = @import("vp8_encode_tables.zig");
 const dsp = @import("vp8_encode_dsp.zig");
@@ -55,8 +54,7 @@ pub fn quantize(
     if (first == 1) nv[0] = 0;
     // Past the last position whose nearest level is not 0, every path
     // codes zeros, so the search stops there.
-    const lanes: u16 = @bitCast(nv != @as(U32x, @splat(0)));
-    const nz = if (builtin.cpu.arch.endian() == .little) lanes else @bitReverse(lanes);
+    const nz: u16 = @bitCast(nv != @as(U32x, @splat(0)));
     if (nz == 0) {
         levels.* = @splat(0);
         deq.* = @splat(0);

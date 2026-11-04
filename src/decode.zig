@@ -300,11 +300,11 @@ pub const Orientation = enum(u3) {
     /// From an EXIF or TIFF orientation value, 1 to 8.
     pub fn fromExif(v: u16) ?Orientation {
         if (v < 1 or v > 8) return null;
-        return @enumFromInt(v - 1);
+        return @fromBackingInt(@intCast(v - 1));
     }
 
     pub fn toExif(o: Orientation) u16 {
-        return @as(u16, @intFromEnum(o)) + 1;
+        return @as(u16, @backingInt(o)) + 1;
     }
 };
 

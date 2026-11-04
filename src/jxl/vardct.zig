@@ -651,7 +651,7 @@ pub fn readHfMeta(
             if (num >= count) return error.BadImage;
             const raw = strategies[num];
             if (raw < 0 or raw >= Strategy.count) return error.BadImage;
-            const st: Strategy = @enumFromInt(raw);
+            const st: Strategy = @fromBackingInt(@intCast(raw));
             s.used_acs |= @as(u32, 1) << @intCast(raw);
             const nx = x + st.bx();
             const ny = y + st.by();
@@ -774,7 +774,7 @@ fn readOrders(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, used_order
             const bit = @as(u32, 1) << @intCast(Strategy.order_class[k]);
             if (used_orders & bit == 0 or counted & bit != 0) continue;
             counted |= bit;
-            symbols += 3 * (1 + 64 * @as(usize, @as(Strategy, @enumFromInt(k)).covered()));
+            symbols += 3 * (1 + 64 * @as(usize, @as(Strategy, @fromBackingInt(@intCast(k))).covered()));
         }
         code = try entropy.Code.read(br, arena, 8);
         reader = try .init(&code, br, arena, 0, symbols);
@@ -784,7 +784,7 @@ fn readOrders(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, used_order
         const ord = Strategy.order_class[k];
         if (done & (@as(u32, 1) << @intCast(ord)) != 0) continue;
         done |= @as(u32, 1) << @intCast(ord);
-        const st: Strategy = @enumFromInt(k);
+        const st: Strategy = @fromBackingInt(@intCast(k));
         const size = 64 * @as(usize, st.covered());
         const used = used_classes & (@as(u32, 1) << @intCast(ord)) != 0;
         const coded = used_orders & (@as(u32, 1) << @intCast(ord)) != 0;
@@ -825,7 +825,7 @@ pub fn ordersBytes(bw: u64, bh: u64) u64 {
     var counted: u32 = 0;
     var total: u64 = 0;
     for (0..Strategy.count) |k| {
-        const st: Strategy = @enumFromInt(k);
+        const st: Strategy = @fromBackingInt(@intCast(k));
         if (st.bx() > @min(group_blocks, bw) or st.by() > @min(group_blocks, bh)) continue;
         const bit = @as(u32, 1) << @intCast(Strategy.order_class[k]);
         if (counted & bit != 0) continue;
@@ -918,7 +918,7 @@ pub fn readPassGroup(br: *BitReader, arena: *Arena, s: *Shared, pass: usize, g: 
             const at = (r.y0 + by) * s.bw + r.x0 + bx;
             const a = s.acs[at];
             if (a == unset) return error.BadImage;
-            const st: Strategy = @enumFromInt(a >> 1);
+            const st: Strategy = @fromBackingInt(@intCast(a >> 1));
             if (a & 1 == 0) {
                 bx += st.bx();
                 continue;
@@ -1018,7 +1018,7 @@ fn decodeBlock(
     const covered: usize = st.covered();
     const log2c = st.log2Covered();
     const size = covered * 64;
-    const ord = Strategy.order_class[@intFromEnum(st)];
+    const ord = Strategy.order_class[@backingInt(st)];
     const order = orders[c * size ..][0..size];
     // Predicted non-zeros from the blocks above and to the left.
     var pred: i32 = 32;
@@ -1081,7 +1081,7 @@ fn reconstruct(s: *Shared, st: Strategy, bx: usize, by: usize, blocks: [3][]i32,
     const tile = (by / 8) * s.tiles_x + bx / 8;
     const x_cc = s.ratioX(s.cfl_x[tile]);
     const b_cc = s.ratioB(s.cfl_b[tile]);
-    const mat = s.mults[Strategy.quant_table[@intFromEnum(st)]];
+    const mat = s.mults[Strategy.quant_table[@backingInt(st)]];
     const coef = scratch[0 .. 3 * size];
     // Eight coefficients at a time (every size is a multiple of 64).
     const V = @Vector(8, f32);
@@ -1138,7 +1138,7 @@ pub fn epfSigmas(s: *const Shared, rf: *const headers.RestorationFilter, out: []
         for (0..s.bw) |bx| {
             const a = s.acs[by * s.bw + bx];
             if (a & 1 == 0 or a == unset) continue;
-            const st: Strategy = @enumFromInt(a >> 1);
+            const st: Strategy = @fromBackingInt(@intCast(a >> 1));
             const q: f32 = @floatFromInt(s.qf[by * s.bw + bx]);
             const sigma_quant = rf.epf_quant_mul / (quant_scale * q * filters.inv_sigma_num);
             for (0..st.by()) |dy| {

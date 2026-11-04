@@ -184,7 +184,7 @@ const Page = struct {
 /// The first IFD's fields `comparable` needs, or null if it cannot be read.
 fn firstPage(in: []const u8) ?Page {
     if (in.len < 8) return null;
-    const e: std.builtin.Endian = if (in[0] == 'I') .little else .big;
+    const e: std.lang.Endian = if (in[0] == 'I') .little else .big;
     const big = std.mem.readInt(u16, in[2..4], e) == 43;
     if (big and in.len < 16) return null;
     const off = if (big) std.mem.readInt(u64, in[8..16], e) else std.mem.readInt(u32, in[4..8], e);
@@ -196,7 +196,7 @@ fn firstPage(in: []const u8) ?Page {
     var p: Page = .{};
     var ranges: [4]?u64 = @splat(null);
     // libtiff keeps a tag's first entry and ignores the rest.
-    var seen: std.StaticBitSet(1 << 16) = .initEmpty();
+    var seen: std.bit_set.Static(1 << 16) = .empty;
     var i: u64 = 0;
     while (i < n) : (i += 1) {
         const ent = off + head + i * size;
@@ -279,7 +279,7 @@ fn firstPage(in: []const u8) ?Page {
 }
 
 /// Value `k` of type `t` in `data`, unsigned.
-fn valueAt(t: u16, data: []const u8, k: usize, e: std.builtin.Endian) u64 {
+fn valueAt(t: u16, data: []const u8, k: usize, e: std.lang.Endian) u64 {
     return switch (t) {
         3, 8 => std.mem.readInt(u16, data[2 * k ..][0..2], e),
         4, 9 => std.mem.readInt(u32, data[4 * k ..][0..4], e),

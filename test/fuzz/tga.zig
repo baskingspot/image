@@ -232,13 +232,14 @@ fn encoded(random: std.Random, buf: []u8) []u8 {
 /// on disk.
 pub const seeds = [_][]const u8{
     // 2 by 2, 24-bit, bottom-left.
-    "\x00\x00\x02" ++ "\x00" ** 9 ++ "\x02\x00\x02\x00\x18\x00" ++ "\x01\x02\x03" ** 4,
+    "\x00\x00\x02" ++ @as([9]u8, @splat(0)) ++ "\x02\x00\x02\x00\x18\x00" ++
+        @as([12]u8, std.simd.repeat(12, "\x01\x02\x03".*)),
     // Run-length, color-mapped, two 32-bit entries, crossing scan lines.
-    "\x00\x01\x09\x00\x00\x02\x00\x20" ++ "\x00" ** 4 ++ "\x02\x00\x02\x00\x08\x28" ++
+    "\x00\x01\x09\x00\x00\x02\x00\x20" ++ @as([4]u8, @splat(0)) ++ "\x02\x00\x02\x00\x08\x28" ++
         "\x01\x02\x03\x80\x04\x05\x06\xff" ++ "\x82\x01\x00\x00",
     // 16-bit gray and alpha, top-right, with a footer.
-    "\x00\x00\x03" ++ "\x00" ** 9 ++ "\x01\x00\x01\x00\x10\x38" ++ "\x40\x80" ++
-        "\x00" ** 8 ++ "TRUEVISION-XFILE.\x00",
+    "\x00\x00\x03" ++ @as([9]u8, @splat(0)) ++ "\x01\x00\x01\x00\x10\x38" ++ "\x40\x80" ++
+        @as([8]u8, @splat(0)) ++ "TRUEVISION-XFILE.\x00",
 };
 
 test "tga on the coverage-guided fuzzer" {

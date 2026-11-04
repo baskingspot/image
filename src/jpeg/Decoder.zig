@@ -108,7 +108,7 @@ pub const Scale = enum(u2) {
 
     /// The size of a block's samples at this scale.
     fn blockSize(s: Scale) u4 {
-        return @as(u4, 8) >> @intFromEnum(s);
+        return @as(u4, 8) >> @backingInt(s);
     }
 };
 
@@ -1901,7 +1901,7 @@ fn testDecode(file: []const u8, format: PixelFormat, options: Options, out: []u8
 test "a tiny baseline file" {
     // 8×8 gray, one flat block of DC 0: every sample 128.
     const file = "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
         // DC category 0 (00), EOB (1010), padded with ones.
@@ -1923,7 +1923,7 @@ test "a tiny baseline file" {
 
 test "a gain map is flagged by MPF with its XMP namespace or ISO 21496-1" {
     const a = testing.allocator;
-    const tiny = "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+    const tiny = "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++ "\x28\xff\xd9";
     const mpf = "\xff\xe2\x00\x0aMPF\x00MM\x00\x2a";
@@ -1937,7 +1937,7 @@ test "a gain map is flagged by MPF with its XMP namespace or ISO 21496-1" {
     for (0..64) |pad| {
         var head: [4]u8 = .{ 0xff, 0xe1, 0, 0 };
         std.mem.writeInt(u16, head[2..4], @intCast(2 + xmp_id.len + pad + packet.len), .big);
-        const spaces = " " ** 64;
+        const spaces = &@as([64]u8, @splat(' '));
         const xmp = [_][]const u8{ &head, xmp_id, spaces[0..pad], packet };
         const cases = [_]Case{
             .{ .segments = &(xmp ++ [_][]const u8{mpf}), .want = true },
@@ -1975,7 +1975,7 @@ test "CMYK and YCCK as inks and as RGB" {
     // 8×8, four flat blocks, DC quantized by 64: each component's DC
     // difference +1, -1, 0, +1 makes its samples 136, 120, 128, 136.
     const head = "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00\x40" ++ "\x01" ** 63 ++
+        "\xff\xdb\x00\x43\x00\x40" ++ @as([63]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x14\x08\x00\x08\x00\x08\x04\x01\x11\x00\x02\x11\x00\x03\x11\x00\x04\x11\x00";
     const scan = "\xff\xda\x00\x0e\x04\x01\x00\x02\x00\x03\x00\x04\x00\x00\x3f\x00" ++
         // 010 1 1010, 010 0 1010, 00 1010, 010 1 1010, padded with ones.
@@ -2007,7 +2007,7 @@ test "workLen and crop" {
     // The flat 8×8 gray file of "a tiny baseline file", one interleaved
     // scan.
     const file = "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
         "\x28\xff\xd9" ++ "";
@@ -2060,7 +2060,7 @@ test "TIFF's tables streams, carried tables, frame parameters, and two component
         "\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00" ++
         "\xff\xdd\x00\x04\x00\x01" ++
         "\xff\xdc\x00\x04\x00\x08" ++ "\xff\xd0\xff\x01" ++
-        "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++
+        "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++
         "\xff\xd9";
     var out: [128]u8 = undefined;
     const work = try testing.allocator.alloc(u8, 1 << 16);
@@ -2096,7 +2096,7 @@ test "TIFF's tables streams, carried tables, frame parameters, and two component
     // without converting: DC differences +1 and -1 quantized by 64 make
     // samples 136 and 120.
     const two = "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00\x40" ++ "\x01" ** 63 ++
+        "\xff\xdb\x00\x43\x00\x40" ++ @as([63]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0e\x08\x00\x08\x00\x08\x02\x01\x11\x00\x02\x11\x00" ++
         "\xff\xda\x00\x0a\x02\x01\x00\x02\x00\x00\x3f\x00" ++
         // 010 1 1010, 010 0 1010.

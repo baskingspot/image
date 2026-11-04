@@ -109,7 +109,7 @@ fn upsample(out: []u8, near: []const u8, far: []const u8, width: usize) void {
         // Both bytes of each pair in one 16-bit lane, little-endian: no
         // shuffle across lanes, which would join the halves into 512 bits.
         const both = (d0 + tl) >> @splat(1) | ((d1 + t) >> @splat(1)) << @splat(8);
-        out[2 * x - 1 ..][0 .. 2 * lanes].* = @bitCast(std.mem.nativeToLittle(U16s, both));
+        out[2 * x - 1 ..][0 .. 2 * lanes].* = @bitCast(both);
     }
     while (x <= pairs) : (x += 1) {
         const p = pair(near[x - 1], near[x], far[x - 1], far[x]);
@@ -168,7 +168,7 @@ fn interleave(comptime layout: Layout, rgb: [3]U16s, a: U8s) [lanes * layout.bpp
                 }
                 break :blk m;
             };
-            const v: U16s = std.mem.nativeToLittle(U16s, @shuffle(u16, rg, ba, quads));
+            const v: U16s = @shuffle(u16, rg, ba, quads);
             out[half * 2 * lanes ..][0 .. 2 * lanes].* = @bitCast(v);
         }
     } else {

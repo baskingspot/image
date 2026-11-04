@@ -483,7 +483,7 @@ fn through(dst: PixelFormat, h: *const headers.ImageHeader, p: PixelFormat) Pixe
 /// space, and these fields are null.
 fn metadata(d: *const Decoder) decode.Metadata {
     const h = &d.image;
-    var m: decode.Metadata = .{ .orientation = @enumFromInt(h.orientation) };
+    var m: decode.Metadata = .{ .orientation = @fromBackingInt(@intCast(h.orientation)) };
     const c = &h.colour;
     if (c.want_icc and h.xyb) {
         m.transfer = .linear;
@@ -1820,7 +1820,7 @@ test "an image survives a broken box after its codestream" {
     const work = try testing.allocator.alloc(u8, (try d.decodeConfig()).work_len);
     defer testing.allocator.free(work);
     _ = (try d.decodeFrame(dst, work)).?;
-    try testing.expectEqualSlices(u8, &([_]u8{ 0x20, 0x40, 0x60 } ** 4), &px);
+    try testing.expectEqualSlices(u8, &@as([12]u8, std.simd.repeat(12, [_]u8{ 0x20, 0x40, 0x60 })), &px);
     try testing.expectError(error.Truncated, d.decodeFrame(dst, work));
     // An Exif box after the codestream is reported once the decode ends.
     r = .fixed(file ++ "\x00\x00\x00\x10Exif\x00\x00\x00\x00MM\x00\x2a");

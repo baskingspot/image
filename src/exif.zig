@@ -15,7 +15,7 @@ const Orientation = @import("decode.zig").Orientation;
 pub fn orientation(exif: []const u8) ?Orientation {
     const tiff = if (std.mem.startsWith(u8, exif, "Exif\x00\x00")) exif[6..] else exif;
     if (tiff.len < 8) return null;
-    const endian: std.builtin.Endian = if (std.mem.eql(u8, tiff[0..4], "II*\x00"))
+    const endian: std.lang.Endian = if (std.mem.eql(u8, tiff[0..4], "II*\x00"))
         .little
     else if (std.mem.eql(u8, tiff[0..4], "MM\x00*"))
         .big

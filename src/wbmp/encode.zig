@@ -6,7 +6,6 @@
 const std = @import("std");
 const testing = std.testing;
 const Io = std.Io;
-const native_endian = @import("builtin").cpu.arch.endian();
 
 const encoding = @import("../encode.zig");
 const PixelFormat = @import("../pixel.zig").PixelFormat;
@@ -76,11 +75,9 @@ fn pack(out: []u8, gray: []const u8) void {
     var i: usize = 0;
     while (gray.len - i >= 64) : (i += 64) {
         const v: V = gray[i..][0..64].*;
-        const bits: u64 = @bitCast(v >= @as(V, @splat(128)));
-        // Bit k of the mask is pixel k (a bool vector's lanes are in memory
-        // order, so big-endian targets hold them reversed); pixel 8j belongs
-        // in the top bit of octet j.
-        const mask = if (native_endian == .little) bits else @bitReverse(bits);
+        // Bit k of the mask is pixel k; pixel 8j belongs in the top bit of
+        // octet j.
+        const mask: u64 = @bitCast(v >= @as(V, @splat(128)));
         std.mem.writeInt(u64, out[i / 8 ..][0..8], @bitReverse(mask), .big);
     }
     while (i < gray.len) : (i += 8) {

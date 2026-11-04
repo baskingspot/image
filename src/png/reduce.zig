@@ -412,7 +412,7 @@ fn scale(v: u16, base: PixelFormat, depth: u8) u16 {
     return v >> @intCast(from - depth);
 }
 
-const native = builtin.cpu.arch.endian();
+const native = builtin.target.cpu.arch.endian();
 
 /// Whether every alpha in a row of base pixels is the maximum.
 fn allOpaque(comptime base: PixelFormat, r: []const u8) bool {
@@ -593,14 +593,14 @@ test "the plan is the fewest bits per pixel" {
     try testing.expectEqual(ColorType.gray, p.color);
     try testing.expectEqual(4, p.depth);
     // Two of those colors: a 1-bit palette.
-    p = try testPlan(.rgb8, &(grid[0..6].* ** 64), 2);
+    p = try testPlan(.rgb8, &@as([384]u8, std.simd.repeat(384, grid[0..6].*)), 2);
     try testing.expectEqual(ColorType.palette, p.color);
     try testing.expectEqual(1, p.depth);
     // Three colors: a 2-bit palette, once there are pixels enough to pay
     // for PLTE.
     p = try testPlan(.rgb8, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 }, 4);
     try testing.expectEqual(ColorType.rgb, p.color);
-    p = try testPlan(.rgb8, &(.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 } ** 4), 4);
+    p = try testPlan(.rgb8, &@as([48]u8, std.simd.repeat(48, [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 })), 4);
     try testing.expectEqual(ColorType.palette, p.color);
     try testing.expectEqual(2, p.depth);
     try testing.expectEqual(3, p.palette.len);
@@ -631,7 +631,7 @@ test "the plan is the fewest bits per pixel" {
     try testing.expectEqual(ColorType.rgba, p.color);
     // Gray with alpha and few colors: a palette with the transparent entry
     // first.
-    p = try testPlan(.gray_alpha8, &(.{ 5, 255, 6, 255, 7, 128, 5, 255 } ** 16), 4);
+    p = try testPlan(.gray_alpha8, &@as([128]u8, std.simd.repeat(128, [_]u8{ 5, 255, 6, 255, 7, 128, 5, 255 })), 4);
     try testing.expectEqual(ColorType.palette, p.color);
     try testing.expectEqual(1, p.palette.trns_len);
     try testing.expectEqual([4]u8{ 7, 7, 7, 128 }, p.palette.colors[0]);

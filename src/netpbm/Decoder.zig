@@ -134,7 +134,7 @@ const Layout = enum(u3) {
     rgba = 4,
 
     fn count(l: Layout) u3 {
-        return @intFromEnum(l);
+        return @backingInt(l);
     }
 };
 
@@ -317,7 +317,7 @@ fn readHeader(r: *Io.Reader) Error!Header {
     if (sig[0] != 'P') return error.BadSignature;
     if (sig.len == 1) return error.Truncated;
     const magic: Magic = switch (sig[1]) {
-        '1'...'7', 'F', 'f' => |c| @enumFromInt(c),
+        '1'...'7', 'F', 'f' => |c| @fromBackingInt(@intCast(c)),
         else => return error.BadSignature,
     };
     r.toss(2);
@@ -600,7 +600,7 @@ fn readPam(r: *Io.Reader) Error!Header {
     const depth = try dimension(fields[2].?);
     const maxval = try maxvalue(fields[3].?);
     const layout: Layout = if (tuple_len == 0) switch (depth) {
-        1...4 => @enumFromInt(depth),
+        1...4 => @fromBackingInt(@intCast(depth)),
         else => return error.Unsupported,
     } else for (tuple_types) |t| {
         if (std.mem.eql(u8, tuple[0..tuple_len], t.name)) {
@@ -800,7 +800,7 @@ fn unpack(ras: *const Raster, out: []u8, s: []const u8, k: usize) Error!void {
             }
         },
         .float => {
-            const order: std.builtin.Endian = if (ras.little) .little else .big;
+            const order: std.lang.Endian = if (ras.little) .little else .big;
             const c = ras.channels;
             for (0..k) |p| {
                 var px: [4]u32 = .{ 0, 0, 0, @bitCast(@as(f32, 1)) };
@@ -815,7 +815,7 @@ fn unpack(ras: *const Raster, out: []u8, s: []const u8, k: usize) Error!void {
     }
 }
 
-const native_endian = builtin.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 /// 16-bit samples from big endian to the machine's order; `out` may be
 /// `s`.
@@ -957,11 +957,9 @@ fn plainBlock(ras: *const Raster, out: []u8, j: usize, count: usize, buf: []cons
     return .{ .samples = k - j, .bytes = taken };
 }
 
-/// A bit per lane, lane 0 in the low bit. A bool vector's bit cast puts
-/// lane 0 in the top bit on a big-endian target.
+/// A bit per lane, lane 0 in the low bit.
 fn laneMask(m: @Vector(64, bool)) u64 {
-    const bits: u64 = @bitCast(m);
-    return if (builtin.cpu.arch.endian() == .big) @bitReverse(bits) else bits;
+    return @bitCast(m);
 }
 
 /// How many of the 8 bytes `b` starts with are ASCII digits. A byte that
@@ -1262,7 +1260,7 @@ test "image sequences" {
 }
 
 test "limits and buffers" {
-    const file = "P6 3 2 255\n" ++ "\x00" ** 18;
+    const file = "P6 3 2 255\n" ++ @as([18]u8, @splat(0));
     var out: [64]u8 = undefined;
     var r: Io.Reader = .fixed(file);
     var d: Decoder = .init(&r, .{ .limits = .{ .max_pixels = 5 } });
@@ -1331,13 +1329,13 @@ test "plain samples read in blocks" {
         const width = 1 + random.uintLessThan(u32, 50);
         const count = width * 4 * channels;
         const magic: u8 = if (channels == 3) 3 else 2;
-        var len = (try std.fmt.bufPrint(&file_buf, "P{d} {d} 4 {d}\n", .{ magic, width, maxval })).len;
+        var len = (try std.mem.print(&file_buf, "P{d} {d} 4 {d}\n", .{ magic, width, maxval })).len;
         for (samples[0..count]) |*sample| {
             sample.* = random.uintAtMost(u16, maxval);
             const zeros = if (random.uintLessThan(u8, 16) == 0) random.uintAtMost(usize, 4) else 0;
             @memset(file_buf[len..][0..zeros], '0');
             len += zeros;
-            len += (try std.fmt.bufPrint(file_buf[len..], "{d}", .{sample.*})).len;
+            len += (try std.mem.print(file_buf[len..], "{d}", .{sample.*})).len;
             for (0..1 + random.uintLessThan(usize, 3)) |_| {
                 file_buf[len] = spaces[random.uintLessThan(usize, spaces.len)];
                 len += 1;

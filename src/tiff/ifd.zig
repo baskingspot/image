@@ -8,7 +8,7 @@
 const std = @import("std");
 const testing = std.testing;
 const Io = std.Io;
-const Endian = std.builtin.Endian;
+const Endian = std.lang.Endian;
 
 const decode = @import("../decode.zig");
 
@@ -285,7 +285,7 @@ pub fn readIfd(in: *Input, p: *Page) Error!void {
     p.offset = in.pos;
     p.endian = in.endian;
     const n = if (in.big) try in.int(u64) else try in.int(u16);
-    var seen: std.StaticBitSet(48) = .initEmpty();
+    var seen: std.bit_set.Static(48) = .empty;
     var data_len: u64 = 0;
     var i: u64 = 0;
     while (i < n) : (i += 1) {

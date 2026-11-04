@@ -67,7 +67,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 pub const seeds = [_][]const u8{
     "\x00\x00\x0a\x02\xa5\xff\x0f\x40",
-    "\x00\x00\x82\x2c\x01" ++ "\x5a" ** 38,
+    "\x00\x00\x82\x2c\x01" ++ @as([38]u8, @splat(0x5a)),
 };
 
 test "wbmp on the coverage-guided fuzzer" {

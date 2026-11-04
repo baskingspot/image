@@ -98,8 +98,8 @@ test "packets" {
     try testing.expectEqual(4, try roundTrip("aab"));
     try testing.expectEqual(0, try roundTrip(""));
     // Runs and literals longer than a packet.
-    try testing.expectEqual(4, try roundTrip("x" ** 256));
-    try testing.expectEqual(8, try roundTrip("x" ** 257 ++ "yy"));
+    try testing.expectEqual(4, try roundTrip(&@as([256]u8, @splat('x'))));
+    try testing.expectEqual(8, try roundTrip(@as([257]u8, @splat('x')) ++ "yy"));
     // A run of two that would overfill a literal packet repeats.
     var long: [127 + 3]u8 = undefined;
     for (long[0..127], 0..) |*b, i| b.* = @intCast(i);

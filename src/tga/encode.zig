@@ -49,7 +49,7 @@ fn fileFormat(format: PixelFormat) PixelFormat {
     return if (format.isGray()) .gray8 else .bgr8;
 }
 
-const footer = "\x00" ** 8 ++ "TRUEVISION-XFILE.\x00";
+const footer = @as([8]u8, @splat(0)) ++ "TRUEVISION-XFILE.\x00";
 
 /// Writes `src` as a TGA file to `w`, converting its pixels to what the
 /// file stores. `work` holds at least `workLen(options, src.width,
@@ -158,7 +158,7 @@ test encode {
     const rgb = [_]u8{ 1, 2, 3, 1, 2, 3 };
     var w: Io.Writer = .fixed(&file);
     try encode(&w, try PixelBuffer.init(@constCast(&rgb), .rgb8, 2, 1), .{}, &work);
-    const header = "\x00\x00\x0a" ++ "\x00" ** 9 ++ "\x02\x00\x01\x00\x18\x20";
+    const header = "\x00\x00\x0a" ++ @as([9]u8, @splat(0)) ++ "\x02\x00\x01\x00\x18\x20";
     try testing.expectEqualSlices(u8, header ++ "\x81\x03\x02\x01" ++ footer, w.buffered());
     // Gray with alpha becomes 32-bit, uncompressed, and reads back.
     const ga = [_]u8{ 10, 200, 20, 0, 30, 255 };

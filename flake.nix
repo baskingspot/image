@@ -11,12 +11,12 @@
   outputs =
     inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
-      # imports and inputsFrom below mirror each other, except the toolchain
-      # version: pick that once, in the import.
+      # imports and inputsFrom below mirror each other, including the
+      # toolchain version: change both together.
       imports = with inputs.baskingspot.flakeModules; [
         base
         docs
-        zig."0.16"
+        zig."0.17"
       ];
 
       perSystem =
@@ -46,7 +46,7 @@
             inputsFrom = with config.devShells; [
               base
               docs
-              zig
+              config.devShells."zig-0-17"
             ];
 
             # Project-specific tools.

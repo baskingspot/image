@@ -83,7 +83,7 @@ const SinkReturn = SinkParam("lf", 3);
 /// Parameter `i` of the sink's `field` callback, or its return type at 3.
 fn SinkParam(comptime field: []const u8, comptime i: usize) type {
     const f = @typeInfo(@typeInfo(@FieldType(Sink, field)).pointer.child).@"fn";
-    return if (i < f.params.len) f.params[i].type.? else f.return_type.?;
+    return if (i < f.param_types.len) f.param_types[i].? else f.return_type.?;
 }
 
 var sink_pixels: [harness.limits.max_pixels * 8]u8 = undefined;

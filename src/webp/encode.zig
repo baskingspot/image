@@ -164,7 +164,7 @@ fn tiles(width: u32, height: u32, bits: u5) u64 {
 /// The transform images' groups and histograms, after the main image's.
 const Sub = enum { predictor, color, palette, entropy, single };
 
-const sub_count = @typeInfo(Sub).@"enum".fields.len;
+const sub_count = @typeInfo(Sub).@"enum".field_names.len;
 
 /// Where each piece of work memory sits, in bytes from a 16-aligned base.
 const Layout = struct {
@@ -410,7 +410,7 @@ const Stream = struct {
         }
         for (st.steps[0..st.step_count]) |*step| {
             bw.put(1, 1);
-            bw.put(@intFromEnum(step.kind), 2);
+            bw.put(@backingInt(step.kind), 2);
             switch (step.kind) {
                 .predictor, .color => bw.put(step.bits - 2, 3),
                 .color_index => bw.put(step.image.?.width - 1, 8),
@@ -450,7 +450,7 @@ const sub_params: lz77.Params = .{ .chain = 8 };
 /// Codes `px`, the transform image `sub`, with `sub`'s one group and no
 /// color cache, into `tokens`.
 fn codeSub(wk: Work, l: Layout, sub: Sub, px: []const u32, width: u32, tokens: []u32) Coded {
-    const k = l.clusters + @intFromEnum(sub);
+    const k = l.clusters + @backingInt(sub);
     const group = &wk.slice(codes.Group, l.groups, k + 1)[k];
     const histo = &wk.slice(codes.Histogram, l.histos, k + 1)[k];
     const s = wk.one(codes.Scratch, l.scratch);
@@ -614,7 +614,7 @@ const Encoding = struct {
 };
 
 const Mode = enum { direct, subtract_green, spatial, spatial_green, palette };
-const modes_n = @typeInfo(Mode).@"enum".fields.len;
+const modes_n = @typeInfo(Mode).@"enum".field_names.len;
 
 /// The modes worth trying for `argb`, best estimate first, into `order`;
 /// returns how many there are. The estimate is each mode's entropy over
@@ -696,7 +696,7 @@ fn rankModes(
     var all = [modes_n]Mode{ .direct, .subtract_green, .spatial, .spatial_green, .palette };
     std.sort.insertion(Mode, all[0..n], &cost, struct {
         fn less(c: *const [modes_n]f64, a: Mode, b: Mode) bool {
-            return c[@intFromEnum(a)] < c[@intFromEnum(b)];
+            return c[@backingInt(a)] < c[@backingInt(b)];
         }
     }.less);
     order.* = all;
@@ -805,7 +805,7 @@ fn build(wk: Work, l: Layout, plan: Plan, mode: Mode, st: *Stream, meta: *Coded,
     // Again along the cheapest path, by what the last parse's symbols
     // cost.
     for (0..plan.passes) |_| {
-        const k = l.clusters + @intFromEnum(Sub.single);
+        const k = l.clusters + @backingInt(Sub.single);
         const h = &wk.slice(codes.Histogram, l.histos, k + 1)[k];
         h.clear();
         lz77.histogram(main_px, tokens, h);
@@ -852,12 +852,12 @@ fn chooseGroups(st: *Stream, wk: Work, l: Layout, plan: Plan, green_size: usize,
     const tokens = st.main.tokens;
     const cur_w = st.main.width;
     const height = st.height;
-    const single = &sub_group[@intFromEnum(Sub.single)];
-    sub_histo[@intFromEnum(Sub.single)].clear();
-    lz77.histogram(main_px, tokens, &sub_histo[@intFromEnum(Sub.single)]);
-    single.build(&sub_histo[@intFromEnum(Sub.single)], green_size, s);
+    const single = &sub_group[@backingInt(Sub.single)];
+    sub_histo[@backingInt(Sub.single)].clear();
+    lz77.histogram(main_px, tokens, &sub_histo[@backingInt(Sub.single)]);
+    single.build(&sub_histo[@backingInt(Sub.single)], green_size, s);
     st.main.groups = single[0..1];
-    st.main.histos = sub_histo[@intFromEnum(Sub.single)..][0..1];
+    st.main.histos = sub_histo[@backingInt(Sub.single)..][0..1];
     st.main.meta = null;
     st.main.meta_bits = 0;
     if (l.meta_bits == 0) return;
@@ -954,7 +954,7 @@ fn toArgb(src: PixelBuffer, argb: []u32) void {
         const bytes = std.mem.sliceAsBytes(out);
         const row = src.row(@intCast(y));
         if (src.format == .bgra8) @memcpy(bytes, row[0 .. w * 4]) else conv.run(bytes, row, w);
-        if (builtin.cpu.arch.endian() == .big) for (out) |*p| {
+        if (builtin.target.cpu.arch.endian() == .big) for (out) |*p| {
             p.* = @byteSwap(p.*);
         };
     }

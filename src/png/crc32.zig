@@ -40,8 +40,8 @@ pub fn update(crc: u32, bytes: []const u8) u32 {
     return sliced(crc, bytes);
 }
 
-const has_clmul = builtin.cpu.arch == .x86_64 and
-    std.Target.x86.featureSetHas(builtin.cpu.features, .pclmul);
+const has_clmul = builtin.target.cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(builtin.target.cpu.features, .pclmul);
 
 const V = @Vector(2, u64);
 

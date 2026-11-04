@@ -82,7 +82,7 @@ pub fn check(input: []const u8, choice: u64) !void {
 pub fn optionsFor(input: []const u8, choice: u64) lossy.EncodeOptions {
     var o: lossy.EncodeOptions = .{
         .quality = @intCast((choice >> 8) % 101),
-        .effort = @enumFromInt((choice >> 16) % 3),
+        .effort = @fromBackingInt(@intCast((choice >> 16) % 3)),
         .alpha_compression = (choice >> 24) % 4 != 0,
     };
     if ((choice >> 20) % 4 == 0) {
@@ -270,7 +270,7 @@ const Blobs = struct {
 
     fn write(context: *anyopaque, blob: image.Blob, at: u64, bytes: []const u8) void {
         const b: *Blobs = @ptrCast(@alignCast(context));
-        const i = @intFromEnum(blob.kind);
+        const i = @backingInt(blob.kind);
         if (at == 0) {
             b.seen[i] += 1;
             b.hasher[i] = .init(0);

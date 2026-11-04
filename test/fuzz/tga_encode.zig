@@ -44,8 +44,8 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 /// Seeds for the coverage-guided fuzzer.
 pub const seeds = [_][]const u8{
-    "\x05\x03" ++ "\x01\x02\x03\x04" ** 8,
-    "\x2f\x01" ++ "\x80" ** 64 ++ "\x01\x02",
+    "\x05\x03" ++ @as([32]u8, std.simd.repeat(32, "\x01\x02\x03\x04".*)),
+    "\x2f\x01" ++ @as([64]u8, @splat(0x80)) ++ "\x01\x02",
 };
 
 test "tga_encode on the coverage-guided fuzzer" {

@@ -274,11 +274,11 @@ const Sizes = struct {
         var t: usize = 0;
         var learning: usize = 0;
         var after: usize = 0;
-        inline for (@typeInfo(Sizes).@"struct".fields) |f| {
-            const part = std.math.add(usize, @field(s, f.name), 64) catch return null;
-            const sum = if (comptime isLearning(f.name))
+        inline for (@typeInfo(Sizes).@"struct".field_names) |name| {
+            const part = std.math.add(usize, @field(s, name), 64) catch return null;
+            const sum = if (comptime isLearning(name))
                 &learning
-            else if (comptime isAfterLearning(f.name))
+            else if (comptime isAfterLearning(name))
                 &after
             else
                 &t;

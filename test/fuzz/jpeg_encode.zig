@@ -56,7 +56,7 @@ pub fn check(input: []const u8, choice: u64) !void {
     var options: image.jpeg.EncodeOptions = .{};
     options.quality = if (pick % 4 == 0) 100 else @intCast(pick / 4 % 101);
     pick /= 404;
-    options.subsampling = @enumFromInt(pick % 3);
+    options.subsampling = @fromBackingInt(@intCast(pick % 3));
     pick /= 3;
     options.progressive = pick % 2 == 1;
     options.optimize = pick / 2 % 2 == 1;
@@ -129,7 +129,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 pub const seeds = [_][]const u8{
     "\x0f\x0f" ++ "\x10\x20\x30\x11\x22\x33\x80\x80\x80",
-    "\x2f\x10" ++ "\x00" ** 64 ++ "\xff" ** 64,
+    "\x2f\x10" ++ @as([64]u8, @splat(0)) ++ @as([64]u8, @splat(0xff)),
     "\x00\x00\x7f",
 };
 

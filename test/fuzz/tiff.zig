@@ -20,7 +20,7 @@ pub fn check(input: []const u8, choice: u64) !void {
 const Out = struct {
     buf: []u8,
     len: usize = 0,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
     big: bool,
     full: bool = false,
 
@@ -132,7 +132,7 @@ const Compression = enum(u16) { none = 1, lzw = 5, deflate = 8, packbits = 32773
 
 /// JPEGTables: a quantization table of ones.
 const jpeg_tables = "\xff\xd8" ++ jpeg_dqt ++ "\xff\xd9";
-const jpeg_dqt = "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64;
+const jpeg_dqt = "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01));
 
 /// A flat baseline JPEG stream of `w` by `h` with `comps` components, the
 /// first sampled `sub`: every block's DC difference and AC coefficients
@@ -350,7 +350,7 @@ fn page(random: std.Random, o: *Out) ?[2]usize {
     const bilevel = (model == .gray or model == .white) and bits == 1 and spp == 1;
     const comps = [_]Compression{ .none, .none, .lzw, .lzw, .deflate, .packbits, .mh, .g3, .g4 };
     var comp = comps[random.uintLessThan(usize, if (bilevel) comps.len else 6)];
-    if (random.uintLessThan(u8, 64) == 0) comp = @enumFromInt(random.uintLessThan(u16, 10));
+    if (random.uintLessThan(u8, 64) == 0) comp = @fromBackingInt(@intCast(random.uintLessThan(u16, 10)));
     const jpeg_ok = bits == 8 and fmt == 1 and model != .palette and (planar or spp == 1 or spp == 3 or spp == 4);
     if (jpeg_ok and random.uintLessThan(u8, 6) == 0) comp = .jpeg;
     const jpeg_split = random.boolean();
@@ -454,7 +454,7 @@ fn page(random: std.Random, o: *Out) ?[2]usize {
     add(&entries, &ne, 257, 4, one.of(h));
     for (S.bits_v[0..spp]) |*b| b.* = bits;
     add(&entries, &ne, 258, 3, S.bits_v[0..spp]);
-    add(&entries, &ne, 259, 3, one.of(@intFromEnum(comp)));
+    add(&entries, &ne, 259, 3, one.of(@backingInt(comp)));
     add(&entries, &ne, 262, 3, one.of(photometric));
     if (random.uintLessThan(u8, 8) == 0) add(&entries, &ne, 266, 3, one.of(2));
     if (!tiled) {

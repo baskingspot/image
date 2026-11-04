@@ -50,7 +50,7 @@ pub const EncodeOptions = struct {
     /// sources and 65535 for wider ones. PBM and PFM have none.
     maxval: u16 = 0,
     /// PFM's byte order.
-    pfm_endian: std.builtin.Endian = .little,
+    pfm_endian: std.lang.Endian = .little,
 };
 
 pub const EncodeError = encoding.Error || error{
@@ -186,7 +186,7 @@ fn samples(w: *Io.Writer, src: PixelBuffer, layout: Layout, maxval: u16) EncodeE
     }
 }
 
-const native_endian = builtin.cpu.arch.endian();
+const native_endian = builtin.target.cpu.arch.endian();
 
 /// Whether to scale from 16-bit samples: for a 16-bit file, and for any
 /// maxval from a source wider than 8 bits, so that the maxval's scaling is
@@ -305,7 +305,7 @@ fn plainSamples(w: *Io.Writer, src: PixelBuffer, layout: Layout, maxval: u16) En
                     v = if (table) |t| t[span[j]] else span[j];
                 }
                 var digits: [5]u8 = undefined;
-                const text = std.fmt.bufPrint(&digits, "{d}", .{v}) catch unreachable;
+                const text = std.mem.print(&digits, "{d}", .{v}) catch unreachable;
                 if (len > 0 and len + 1 + text.len > line_max) {
                     line[len] = '\n';
                     try w.writeAll(line[0 .. len + 1]);
@@ -326,7 +326,7 @@ fn plainSamples(w: *Io.Writer, src: PixelBuffer, layout: Layout, maxval: u16) En
 }
 
 /// PFM: float samples, bottom row first, in `endian` order.
-fn floats(w: *Io.Writer, src: PixelBuffer, channels: usize, endian: std.builtin.Endian) EncodeError!void {
+fn floats(w: *Io.Writer, src: PixelBuffer, channels: usize, endian: std.lang.Endian) EncodeError!void {
     const conv: Converter = .init(.rgba_f32, src.format);
     const sbpp = src.format.bytesPerPixel();
     var span: [span_len]u8 align(16) = undefined;

@@ -72,9 +72,9 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 /// Seeds for the coverage-guided fuzzer.
 pub const seeds = [_][]const u8{
-    "\x05\x03" ++ "\x01\x02\x03\x04" ** 8,
-    "\x2f\x11" ++ "\x80" ** 64 ++ "\x01\x02",
-    "\xf0\x40" ++ "\x00\x10\x20\x30\x40\x50\x60\x70\x80\x90" ** 16,
+    "\x05\x03" ++ @as([32]u8, std.simd.repeat(32, "\x01\x02\x03\x04".*)),
+    "\x2f\x11" ++ @as([64]u8, @splat(0x80)) ++ "\x01\x02",
+    "\xf0\x40" ++ @as([160]u8, std.simd.repeat(160, "\x00\x10\x20\x30\x40\x50\x60\x70\x80\x90".*)),
 };
 
 test "jxl_encode on the coverage-guided fuzzer" {

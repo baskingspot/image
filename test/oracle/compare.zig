@@ -74,8 +74,8 @@ pub fn main(init: std.process.Init) !void {
     const oracle: Oracle = .{ .io = io, .gpa = gpa, .path = "zig-out/bin/image-oracle" };
     var mismatches: usize = 0;
     var ran: usize = 0;
-    inline for (@typeInfo(formats).@"struct".decls) |d| {
-        const format = @field(formats, d.name);
+    inline for (@typeInfo(formats).@"struct".decl_names) |name| {
+        const format = @field(formats, name);
         const wanted = for (only.items) |o| {
             if (std.mem.eql(u8, o, format.name)) break true;
         } else only.items.len == 0;
@@ -608,7 +608,7 @@ const Stats = struct {
         const accepted = for (mine) |m| {
             if (m.accepted) break true;
         } else false;
-        const kind: []const u8 = if (mismatch) "mismatch" else try std.fmt.allocPrint(gpa, "{s}{s}differ{s}", .{
+        const kind: []const u8 = if (mismatch) "mismatch" else try gpa.print("{s}{s}differ{s}", .{
             if (accepted) "ours accepts, " else "ours rejects, ",
             differs.items,
             if (from_corpus) " (corpus)" else "",
@@ -622,9 +622,9 @@ const Stats = struct {
             // Saved as mismatch-ID or split-K-ID, K the kind's line in the
             // summary, from 1.
             const path = if (mismatch)
-                try std.fmt.allocPrint(gpa, "{s}/mismatch-{d}.input", .{ dir, id })
+                try gpa.print("{s}/mismatch-{d}.input", .{ dir, id })
             else
-                try std.fmt.allocPrint(gpa, "{s}/split-{d}-{d}.input", .{ dir, s.split.getIndex(kind).?, id });
+                try gpa.print("{s}/split-{d}-{d}.input", .{ dir, s.split.getIndex(kind).?, id });
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = input });
             if (mismatch) {
                 std.debug.print("MISMATCH {s}: ours differs from {s}: {s}\n", .{ F.name, differs.items, path });

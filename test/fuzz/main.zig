@@ -142,9 +142,9 @@ fn Runner(comptime T: type) type {
             shared.heartbeat = 0;
             shared.inputs = 0;
             corpus = try loadCorpus();
-            const dir = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ out, T.name });
+            const dir = try gpa.print("{s}/{s}", .{ out, T.name });
             try std.Io.Dir.cwd().createDirPath(io, dir);
-            const log_path = try std.fmt.allocPrintSentinel(gpa, "{s}/child.log", .{dir}, 0);
+            const log_path = try gpa.printSentinel("{s}/child.log", .{dir}, 0);
             const start = nowMs();
             const deadline = start + @as(i64, @intCast(seconds)) * 1000;
             std.debug.print("fuzz {s}: seed {d}, {d}s, {d} corpus files\n", .{ T.name, seed, seconds, corpus.len });
@@ -200,7 +200,7 @@ fn Runner(comptime T: type) type {
 
         fn runOne(input: []const u8, choice: u64) void {
             T.check(input, choice) catch |e| {
-                const msg = std.fmt.bufPrint(&shared.finding, "{t}", .{e}) catch "?";
+                const msg = std.mem.print(&shared.finding, "{t}", .{e}) catch "?";
                 shared.finding[msg.len] = 0;
                 std.debug.print("property: {t}\n", .{e});
                 linux.exit_group(3);
@@ -253,11 +253,12 @@ fn Runner(comptime T: type) type {
             var last = @atomicLoad(u64, &shared.heartbeat, .seq_cst);
             var since = nowMs();
             while (true) {
-                var status: u32 = 0;
+                var status: i32 = 0;
                 const rc = linux.waitpid(pid, &status, linux.W.NOHANG);
                 if (rc == pid) {
-                    if (linux.W.IFEXITED(status)) return .{ .exited = linux.W.EXITSTATUS(status) };
-                    return .{ .signaled = @intFromEnum(linux.W.TERMSIG(status)) };
+                    const s: u32 = @bitCast(status);
+                    if (linux.W.IFEXITED(s)) return .{ .exited = linux.W.EXITSTATUS(s) };
+                    return .{ .signaled = @backingInt(linux.W.TERMSIG(s)) };
                 }
                 const beat = @atomicLoad(u64, &shared.heartbeat, .seq_cst);
                 if (beat != last) {
@@ -285,23 +286,22 @@ fn Runner(comptime T: type) type {
             const log = readLog(log_path);
             const sig = try gpa.dupe(u8, signature(log));
             const hash = std.hash.Wyhash.hash(0, input) % 1_000_000;
-            const base = try std.fmt.allocPrint(gpa, "{s}/{t}-{d}", .{ dir, kind, hash });
+            const base = try gpa.print("{s}/{t}-{d}", .{ dir, kind, hash });
             std.debug.print("FINDING: {t} ({s}), {d} bytes, choice {d}: {s}.input\n", .{
                 kind, sig, input.len, choice, base,
             });
-            try writeFile(try std.fmt.allocPrint(gpa, "{s}.input", .{base}), input);
-            try writeFile(try std.fmt.allocPrint(gpa, "{s}.txt", .{base}), try std.fmt.allocPrint(
-                gpa,
+            try writeFile(try gpa.print("{s}.input", .{base}), input);
+            try writeFile(try gpa.print("{s}.txt", .{base}), try gpa.print(
                 "target: {s}\nkind: {t}\nchoice: {d}\nsignature: {s}\n" ++
                     "repro: zig-out/bin/fuzz repro {s} {s}.input {d}\n\n{s}",
                 .{ T.name, kind, choice, sig, T.name, base, choice, log },
             ));
             // One minimized input per kind and signature is enough.
-            const key = try std.fmt.allocPrint(gpa, "{t}|{s}", .{ kind, sig });
+            const key = try gpa.print("{t}|{s}", .{ kind, sig });
             if (minimized.contains(key)) return;
             try minimized.put(gpa, key, {});
             const min = try minimize(dir, kind, sig, input, choice);
-            try writeFile(try std.fmt.allocPrint(gpa, "{s}.min", .{base}), min);
+            try writeFile(try gpa.print("{s}.min", .{base}), min);
             std.debug.print("  minimized to {d} bytes: {s}.min\n", .{ min.len, base });
         }
 
@@ -309,7 +309,7 @@ fn Runner(comptime T: type) type {
         /// the input still fails the same way. Each try runs in a fresh
         /// child.
         fn minimize(dir: []const u8, kind: Kind, sig: []const u8, input: []const u8, choice: u64) ![]const u8 {
-            const log_path = try std.fmt.allocPrintSentinel(gpa, "{s}/minimize.log", .{dir}, 0);
+            const log_path = try gpa.printSentinel("{s}/minimize.log", .{dir}, 0);
             var best = input;
             const stop = nowMs() + 60_000;
             var chunk: usize = @max(1, best.len / 2);

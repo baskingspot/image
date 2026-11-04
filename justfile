@@ -40,13 +40,13 @@ cache-guard:
 [group("test")]
 test: cache-guard
     zig build test --summary all
-    zig build test -Doptimize=ReleaseSafe --summary all
+    zig build test -Doptimize=safe --summary all
     # The unit tests in ReleaseFast too, which leaves `undefined` memory as it
     # was where Debug and ReleaseSafe write 0xaa over it: only there does a
     # result that reads memory never set (an encoder's table left uncleared)
     # vary. Built after ReleaseSafe, not beside it, so one build's compilers
     # run at a time (docs/slop/results/test-memory-20261102.md).
-    zig build test-unit -Doptimize=ReleaseFast --summary all
+    zig build test-unit -Doptimize=fast --summary all
 
 [doc("Unit tests on a big-endian target, s390x, under qemu")]
 [group("test")]
@@ -97,7 +97,7 @@ corpus-sums *DIRS:
 [doc("Run every fuzz target (or TARGETS) for SECONDS in all, or SECONDS each when written N/target (such as 60/target), ReleaseSafe; findings go to zig-out/fuzz/")]
 [group("fuzz")]
 fuzz SECONDS="600" SEED="" *TARGETS: cache-guard
-    zig build fuzz -Doptimize=ReleaseSafe
+    zig build fuzz -Doptimize=safe
     zig-out/bin/fuzz run {{ TARGETS }} \
         {{ if SECONDS =~ '/target$' { "--seconds-each " + trim_end_match(SECONDS, "/target") } else { "--seconds " + SECONDS } }} \
         {{ if SEED == "" { "" } else { "--seed " + SEED } }}
@@ -105,7 +105,7 @@ fuzz SECONDS="600" SEED="" *TARGETS: cache-guard
 [doc("Run the fuzz targets on Zig's coverage-guided fuzzer for N inputs (such as 1M)")]
 [group("fuzz")]
 fuzz-zig N="1M": cache-guard
-    zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }}
+    zig build fuzz-zig -Doptimize=safe --fuzz={{ N }}
 
 [doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, `just fuzz SECONDS` (N in all or N/target each), and 100K inputs on Zig's fuzzer")]
 [group("fuzz")]
@@ -171,7 +171,7 @@ oracle N="100000" SEED="1" *FORMATS: cache-guard
     set -euo pipefail
     # The C oracle builds while Zig builds the comparison.
     just oracle-build &
-    zig build oracle -Doptimize=ReleaseSafe
+    zig build oracle -Doptimize=safe
     wait $!
     zig-out/bin/oracle-compare {{ N }} {{ SEED }} {{ FORMATS }}
 

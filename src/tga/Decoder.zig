@@ -817,7 +817,7 @@ test "color maps" {
         .height = 1,
         .depth = 24,
     });
-    _ = try testDecode((skip ++ "\xff" ** 6 ++ "\x07\x08\x09"), .bgr8, out[0..3]);
+    _ = try testDecode((skip ++ @as([6]u8, @splat(0xff)) ++ "\x07\x08\x09"), .bgr8, out[0..3]);
     try testing.expectEqualSlices(u8, &.{ 7, 8, 9 }, out[0..3]);
     // Work memory one entry short.
     var r: Io.Reader = .fixed((head ++ map ++ "\x03\x00\x02\x00\x03\x00"));
@@ -848,7 +848,7 @@ test "malformed streams" {
             .depth = 8,
         }) },
     };
-    for (bad) |c| try testing.expectError(c[0], testDecode((c[1] ++ "\x00" ** 8), .gray8, &out));
+    for (bad) |c| try testing.expectError(c[0], testDecode((c[1] ++ @as([8]u8, @splat(0))), .gray8, &out));
     // Runs that cross scan lines are fine; past the last pixel they are not.
     _ = try testDecode((head ++ "\x83\x05"), .gray8, out[0..4]);
     try testing.expectError(error.RunPastEnd, testDecode((head ++ "\x84\x05"), .gray8, out[0..4]));
@@ -941,7 +941,7 @@ test "the footer and extension area" {
     try testing.expectEqual(null, config.background);
     // Right before the footer, after a scan-line table; and through a
     // reader that hands over 3 bytes at a time.
-    const before = image ++ "\x00" ** 4 ++ ext ++ testFooter(image.len + 4);
+    const before = image ++ @as([4]u8, @splat(0)) ++ ext ++ testFooter(image.len + 4);
     _, t = try testDecode(before, .gray8, &out);
     try testing.expectEqual(e, t.extension.?);
     var buffer: [decode.min_buffer_len]u8 = undefined;
@@ -954,7 +954,7 @@ test "the footer and extension area" {
     try testing.expectEqual(null, try d.decodeFrame(try PixelBuffer.init(&out, .gray8, 1, 1), &.{}));
     try testing.expectEqual(e, d.trailer().?.extension.?);
     // Elsewhere: the offset is reported, the area is not read.
-    const elsewhere = image ++ "\x00" ** 4 ++ ext ++ "\x00" ++ testFooter(image.len + 4);
+    const elsewhere = image ++ @as([4]u8, @splat(0)) ++ ext ++ "\x00" ++ testFooter(image.len + 4);
     _, t = try testDecode(elsewhere, .gray8, &out);
     try testing.expectEqual(image.len + 4, t.extension_offset);
     try testing.expectEqual(null, t.extension);

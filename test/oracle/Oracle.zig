@@ -16,7 +16,7 @@ const PixelFormat = @import("image").PixelFormat;
 comptime {
     // oracle.h's `enum pixel_format` lists these, in order, and oracle.c's
     // `pixel_bytes` and `known` cover them: add a new format there too.
-    std.debug.assert(@intFromEnum(PixelFormat.cmyk16) == 23 and std.enums.values(PixelFormat).len == 24);
+    std.debug.assert(@backingInt(PixelFormat.cmyk16) == 23 and std.enums.values(PixelFormat).len == 24);
 }
 
 io: Io,
@@ -121,7 +121,7 @@ pub fn run(oracle: Oracle, requests: []const Request) RunError![]Response {
     for (responses, requests) |*resp, req| {
         const b = reader.interface.takeArray(21) catch return readError(&reader);
         resp.* = .{
-            .status = @enumFromInt(b[0]),
+            .status = @fromBackingInt(@intCast(b[0])),
             .width = mem.readInt(u32, b[1..5], .little),
             .height = mem.readInt(u32, b[5..9], .little),
             .len = mem.readInt(u32, b[9..13], .little),
@@ -158,7 +158,7 @@ fn writeRequests(w: *Io.Writer, requests: []const Request) Io.Writer.Error!void 
         try w.writeByte(@intCast(req.op.len));
         try w.writeAll(req.op);
         // The high bit asks for the pixels.
-        try w.writeByte(@intFromEnum(req.format) | @as(u8, if (req.pixels) 0x80 else 0));
+        try w.writeByte(@backingInt(req.format) | @as(u8, if (req.pixels) 0x80 else 0));
         try w.writeInt(u64, req.max_pixels, .little);
         // The same input as the last request's goes once (oracle.c). An
         // encode op's input is the source's width and height, then its

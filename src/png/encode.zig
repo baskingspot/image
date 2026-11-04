@@ -256,7 +256,7 @@ fn write(
     std.mem.writeInt(u32, ihdr[0..4], width, .big);
     std.mem.writeInt(u32, ihdr[4..8], height, .big);
     ihdr[8] = plan.depth;
-    ihdr[9] = @intFromEnum(plan.color);
+    ihdr[9] = @backingInt(plan.color);
     ihdr[10..13].* = .{ 0, 0, 0 };
     try writeChunk(w, "IHDR", &ihdr);
     try writeMetadata(w, options, fixed);
@@ -295,8 +295,8 @@ fn write(
             const d = delay(f.duration);
             std.mem.writeInt(u16, fctl[20..22], d[0], .big);
             std.mem.writeInt(u16, fctl[22..24], d[1], .big);
-            fctl[24] = @intFromEnum(f.disposal);
-            fctl[25] = @intFromEnum(f.blend);
+            fctl[24] = @backingInt(f.disposal);
+            fctl[25] = @backingInt(f.blend);
             try writeChunk(w, "fcTL", &fctl);
         }
         var chunks: Chunks = .init(w, fixed.chunk[0..], if (i == 0) "IDAT" else "fdAT", if (i == 0) null else &seq);
@@ -404,9 +404,9 @@ fn writeImage(
             var outs: [5][]u8 = undefined;
             for (&outs, rows.outs) |*o, r| o.* = r[0..len];
             filter = forward.choose(&outs, cur, prev, bpp);
-            filtered = outs[@intFromEnum(filter)];
+            filtered = outs[@backingInt(filter)];
         }
-        try z.writeByte(@intFromEnum(filter));
+        try z.writeByte(@backingInt(filter));
         try z.writeAll(filtered);
         prev = cur;
     }
@@ -579,7 +579,7 @@ fn writeMetadata(w: *Io.Writer, o: EncodeOptions, fixed: *Work) EncodeError!void
         std.mem.writeInt(u32, &b, g, .big);
         try writeChunk(w, "gAMA", &b);
     }
-    if (o.srgb) |intent| try writeChunk(w, "sRGB", &.{@intFromEnum(intent)});
+    if (o.srgb) |intent| try writeChunk(w, "sRGB", &.{@backingInt(intent)});
     if (o.icc) |icc| {
         // The chunk's length is the compressed profile's: compress it once
         // to count, then again into the chunk.
@@ -827,7 +827,7 @@ test "the bytes do not depend on what the work memory held" {
                     // match-finder entries that point back at this
                     // image's own bytes, the stale state most likely to
                     // change a match if a stream did not start clean.
-                    else => try encode(&sink.writer, top, .{ .effort = @enumFromInt(dirt - 3) }, work),
+                    else => try encode(&sink.writer, top, .{ .effort = @fromBackingInt(@intCast(dirt - 3)) }, work),
                 }
                 // ICO's two passes: the length, then the bytes.
                 sink = .init(&.{});

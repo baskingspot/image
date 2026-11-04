@@ -208,8 +208,8 @@ test "multi-byte integers" {
     _ = try testDecode("\x00\x00\x80\x80\x01\x01\x80", .gray8, out[0..1]);
     // Any number of leading zero groups: a height of 12 in nine octets, as
     // Wuffs and ImageMagick read it.
-    const tall = "\x00\x00\x01" ++ "\x80" ** 8 ++ "\x0c";
-    try testing.expectEqual(12, (try testDecode(tall ++ "\xff" ** 12, .gray8, out[0..12])).height);
+    const tall = "\x00\x00\x01" ++ @as([8]u8, @splat(0x80)) ++ "\x0c";
+    try testing.expectEqual(12, (try testDecode(tall ++ @as([12]u8, @splat(0xff)), .gray8, out[0..12])).height);
     // 2^24 - 1 is a size; 2^24 is not, even after zero groups.
     var none: Io.Reader = .fixed("\x00\x00\x80\x87\xff\xff\x7f\x00");
     var d: Decoder = .init(&none, .{ .limits = .none });

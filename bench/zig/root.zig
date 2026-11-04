@@ -31,8 +31,8 @@ const Fn = *const fn (in: [*]const u8, len: usize, out: [*]u8, cap: usize) callc
 extern fn bench_register(op: [*:0]const u8, f: Fn) void;
 
 fn benchInit() callconv(.c) void {
-    inline for (@typeInfo(Self).@"struct".decls) |d| {
-        const table = @field(Self, d.name);
+    inline for (@typeInfo(Self).@"struct".decl_names) |name| {
+        const table = @field(Self, name);
         if (@TypeOf(table) == type and @hasDecl(table, "ops")) {
             inline for (table.ops) |op| bench_register(op[0], wrap(op[1]));
         }

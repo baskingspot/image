@@ -77,8 +77,8 @@ pub fn init(f: Format, reader: *Io.Reader, options: decode.Options) error{Unsupp
             if (comptime !supports(tag)) return error.Unsupported;
             const D = Impl(tag);
             var o: D.Options = .{};
-            inline for (@typeInfo(decode.Options).@"struct".fields) |field| {
-                if (@hasField(D.Options, field.name)) @field(o, field.name) = @field(options, field.name);
+            inline for (@typeInfo(decode.Options).@"struct".field_names) |name| {
+                if (@hasField(D.Options, name)) @field(o, name) = @field(options, name);
             }
             return .{ .impl = @unionInit(Union, @tagName(tag), D.init(reader, o)) };
         },
@@ -159,7 +159,7 @@ fn withTrailer(impl: anytype) ?decode.Config {
 }
 
 test "detect and decode" {
-    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ @as([7]u8, @splat(0)) ++ "\x01";
     var r: Io.Reader = .fixed(file);
     var d: Decoder = try .initDetect(&r, .{});
     try testing.expectEqual(Format.qoi, d.format());
@@ -188,12 +188,12 @@ test "a seeker reaches the format's decoder" {
     if (comptime !supports(.ico)) return error.SkipZigTest;
     // An ICO of two 1 by 1, 32-bit entries: the directory lists A at 86,
     // then B at 38, behind it. A's pixel is (3, 2, 1, 255), B's (6, 5, 4, 128).
-    const info = "\x28\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x01\x00\x20\x00" ++ "\x00" ** 24;
+    const info = "\x28\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x01\x00\x20\x00" ++ @as([24]u8, @splat(0));
     const file = "\x00\x00\x01\x00\x02\x00" ++
         "\x01\x01\x00\x00\x01\x00\x20\x00\x30\x00\x00\x00\x56\x00\x00\x00" ++
         "\x01\x01\x00\x00\x01\x00\x20\x00\x30\x00\x00\x00\x26\x00\x00\x00" ++
-        info ++ "\x04\x05\x06\x80" ++ "\x00" ** 4 ++
-        info ++ "\x01\x02\x03\xff" ++ "\x00" ** 4;
+        info ++ "\x04\x05\x06\x80" ++ @as([4]u8, @splat(0)) ++
+        info ++ "\x01\x02\x03\xff" ++ @as([4]u8, @splat(0));
     var out: [4]u8 = undefined;
     const dst = try PixelBuffer.init(&out, .rgba8, 1, 1);
     for ([_]bool{ true, false }) |seek| {
@@ -219,7 +219,7 @@ test "a seeker reaches the format's decoder" {
 
 test "the final config, with what followed the frames" {
     // QOI has nothing after its pixels: its config, once the frames end.
-    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ @as([7]u8, @splat(0)) ++ "\x01";
     var r: Io.Reader = .fixed(file);
     var d: Decoder = try .initDetect(&r, .{});
     const config = try d.decodeConfig();
@@ -244,7 +244,7 @@ test "the final config, with what followed the frames" {
         fn decodeConfig(_: *Self) error{}!decode.Config {
             return .{ .width = 2, .height = 3, .native = .rgba8, .metadata = .{ .gamma = 45455 } };
         }
-        fn applyTrailer(_: *const Self, c: *decode.Config) void {
+        pub fn applyTrailer(_: *const Self, c: *decode.Config) void {
             c.background = .{ 1, 2, 3, 255 };
             c.metadata.orientation = .right_top;
         }
@@ -259,7 +259,7 @@ test "the final config, with what followed the frames" {
 test "the next frame's config, before it is drawn" {
     var out: [4]u8 = undefined;
     // QOI has no decodeFrameConfig: its one frame is the canvas.
-    const qoi = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    const qoi = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ @as([7]u8, @splat(0)) ++ "\x01";
     var r: Io.Reader = .fixed(qoi);
     var d: Decoder = try .initDetect(&r, .{});
     const dst = try PixelBuffer.init(&out, .rgba8, 1, 1);

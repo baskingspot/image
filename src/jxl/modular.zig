@@ -477,7 +477,7 @@ pub const Image = struct {
         } else {
             const indices = try arena.alloc(i32, @as(usize, w) * h);
             @memcpy(indices, idx_ch.data);
-            const pred: Predictor = @enumFromInt(t.predictor);
+            const pred: Predictor = @fromBackingInt(@intCast(t.predictor));
             for (0..nb) |c| {
                 const ch = &img.buf[c0 + c];
                 var wp: Wp = undefined;
@@ -725,7 +725,7 @@ pub fn readTree(br: *BitReader, arena: *Arena, limit_in: usize) Error!Tree {
             nodes[n] = .{
                 .property = -1,
                 .child = leaf_id,
-                .predictor = @enumFromInt(pred),
+                .predictor = @fromBackingInt(@intCast(pred)),
                 .value = offset,
                 .multiplier = @intCast((mul_bits + 1) << @intCast(mul_log)),
             };

@@ -132,7 +132,7 @@ const mode_table = blk: {
         var v: u8 = 0;
         for (c[0]) |ch| v = v << 1 | (ch - '0');
         const len = c[0].len;
-        for (0..1 << (7 - len)) |k| t[(@as(usize, v) << (7 - len)) | k] = @as(u8, @intFromEnum(c[1])) << 4 | len;
+        for (0..1 << (7 - len)) |k| t[(@as(usize, v) << (7 - len)) | k] = @as(u8, @backingInt(c[1])) << 4 | len;
     }
     break :blk t;
 };
@@ -335,7 +335,7 @@ pub const Decoder = struct {
             const m = mode_table[@intCast(try d.peek(7))];
             if (m == 0) return error.BadFax;
             try d.advance(@intCast(m & 15));
-            switch (@as(Mode, @enumFromInt(m >> 4))) {
+            switch (@as(Mode, @fromBackingInt(@intCast(m >> 4)))) {
                 .invalid => unreachable,
                 .extension => return error.Unsupported,
                 .pass => {

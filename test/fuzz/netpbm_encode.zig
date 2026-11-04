@@ -50,7 +50,7 @@ fn checkKind(input: []const u8, choice: u64) !void {
     const kind = kinds[(choice / formats.len) % kinds.len];
     const maxvals = [_]u16{ 0, 1, 2, 3, 100, 254, 255, 256, 1000, 65534, 65535 };
     const maxval = maxvals[(choice / formats.len / kinds.len) % maxvals.len];
-    const endian: std.builtin.Endian = if (choice >> 40 & 1 == 0) .little else .big;
+    const endian: std.lang.Endian = if (choice >> 40 & 1 == 0) .little else .big;
     const len = PixelBuffer.len(format, width, height).?;
     const body = input[2..];
     for (source[0..len], 0..) |*b, i| b.* = body[i % body.len];
@@ -132,7 +132,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 pub const seeds = [_][]const u8{
     "\x07\x05\x00\x10\x80\xff\x7f\x01",
-    "\x27\x27" ++ "\x12\x34\x56\x78\x9a\xbc\xde\xf0" ** 4,
+    "\x27\x27" ++ @as([32]u8, std.simd.repeat(32, "\x12\x34\x56\x78\x9a\xbc\xde\xf0".*)),
 };
 
 test "netpbm_encode on the coverage-guided fuzzer" {

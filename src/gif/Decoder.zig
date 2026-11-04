@@ -262,7 +262,7 @@ fn readColors(d: *Decoder, table: *[256][4]u8, n: u16) Error!void {
     try d.readSlice(raw[0 .. @as(usize, n) * 3]);
     for (table[0..n], 0..) |*c, i| {
         const v = std.mem.readInt(u32, raw[i * 3 ..][0..4], .little) | 0xff00_0000;
-        c.* = @bitCast(std.mem.nativeToLittle(u32, v));
+        c.* = @bitCast(v);
     }
 }
 
@@ -976,7 +976,7 @@ test "a minimum code size of 0, as Wuffs and giflib read it" {
     _ = try d.decodeConfig();
     var out: [16]u8 = undefined;
     _ = (try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 2, 2), work)).?;
-    try testing.expectEqualSlices(u8, &(.{ 0, 0, 255, 255 } ** 4), &out);
+    try testing.expectEqualSlices(u8, &@as([16]u8, std.simd.repeat(16, [_]u8{ 0, 0, 255, 255 })), &out);
     try testing.expectEqual(null, try d.decodeFrame(try PixelBuffer.init(&out, .rgba8, 2, 2), work));
 }
 
@@ -995,7 +995,7 @@ test "too much LZW data: TooMuchData, or dropped with ignore_too_much_data" {
             while (try d.decodeFrame(dst, w)) |_| {}
         }
     };
-    const want = [4]u8{ 2, 2, 2, 255 } ++ .{ 1, 1, 1, 255 } ** 2 ++ .{ 2, 2, 2, 255 };
+    const want = [4]u8{ 2, 2, 2, 255 } ++ @as([8]u8, std.simd.repeat(8, [_]u8{ 1, 1, 1, 255 })) ++ .{ 2, 2, 2, 255 };
     // Three pixels too many, in order and interlaced: dropped.
     for ([_]bool{ false, true }) |interlaced| {
         var t: TestGif = .{};
@@ -1050,7 +1050,7 @@ test "too much LZW data: TooMuchData, or dropped with ignore_too_much_data" {
         } else {
             try Run.run(t.bytes.items, true, work, &out);
             const first: [4]u8 = if (case.w == 1 and case.h == 1) .{ 2, 2, 2, 255 } else .{ 0, 0, 0, 0 };
-            try testing.expectEqualSlices(u8, &(first ++ .{ 0, 0, 0, 0 } ** 3), &out);
+            try testing.expectEqualSlices(u8, &(first ++ @as([12]u8, @splat(0))), &out);
         }
     }
 }
@@ -1064,7 +1064,8 @@ test "ICC and XMP blobs, before and after the frames, through any reader" {
     for (&profile, 0..) |*b, i| b.* = @truncate(i * 7);
     // An XMP packet whose bytes, read as sub-blocks of 5, 255, 3, and 16,
     // land in the trailer.
-    const packet = "\x05<?xpa\xff" ++ ("-" ** 255) ++ "\x03cke\x10t begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>";
+    const packet = "\x05<?xpa\xff" ++ @as([255]u8, @splat('-')) ++
+        "\x03cke\x10t begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>";
     var trailer: [xmp_trailer_len]u8 = undefined;
     trailer[0] = 1;
     for (trailer[1..257], 0..) |*b, i| b.* = @intCast(255 - i);
@@ -1078,7 +1079,7 @@ test "ICC and XMP blobs, before and after the frames, through any reader" {
         /// Checks the pieces come in order, with a length only on the last.
         fn write(context: *anyopaque, blob: decode.Blob, at: u64, bytes: []const u8) void {
             const s: *Self = @ptrCast(@alignCast(context));
-            const k = @intFromEnum(blob.kind);
+            const k = @backingInt(blob.kind);
             std.debug.assert(at == s.ends[k]);
             std.debug.assert(!s.last[k]);
             const to: []u8 = if (blob.kind == .icc) &s.icc else &s.xmp;

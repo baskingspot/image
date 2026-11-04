@@ -14,7 +14,8 @@ pub const Y = @Vector(16, i16);
 /// Eight 32-bit lanes.
 pub const D = @Vector(8, i32);
 
-pub const has_avx2 = builtin.cpu.arch == .x86_64 and std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
+pub const has_avx2 = builtin.target.cpu.arch == .x86_64 and
+    std.Target.x86.featureSetHas(builtin.target.cpu.features, .avx2);
 
 /// Each pair of lanes of `p` times `k0` and `k1`, summed (x86's pmaddwd).
 pub inline fn madd(p: Y, comptime k0: i16, comptime k1: i16) D {
@@ -22,7 +23,7 @@ pub inline fn madd(p: Y, comptime k0: i16, comptime k1: i16) D {
         // LLVM sees through the pairs to the inputs they came from and
         // multiplies each separately, at twice the cost, so the
         // instruction is spelled out.
-        const k: Y = @as([16]i16, [2]i16{ k0, k1 } ** 8);
+        const k: Y = std.simd.repeat(16, [2]i16{ k0, k1 });
         return asm ("vpmaddwd %[k], %[p], %[r]"
             : [r] "=x" (-> D),
             : [p] "x" (p),

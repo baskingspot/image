@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
 
     // Every step below needs testingx, which is lazy so a consumer never
     // fetches it. On the first configure pass it is not fetched yet, and the
-    // build runner fetches it and reruns this script.
+    // build system fetches it and reruns this script.
     const testingx = b.lazyDependency("testingx", .{ .target = target }) orelse return;
     const runner: std.Build.Step.Compile.TestRunner = .{
         .path = testingx.path("src/runner.zig"),
@@ -30,7 +30,6 @@ pub fn build(b: *std.Build) void {
 
     const mod_tests = b.addTest(.{ .root_module = mod, .test_runner = runner });
     const run_mod_tests = b.addRunArtifact(mod_tests);
-    run_mod_tests.addArg(b.fmt("--seed=0x{x}", .{b.graph.random_seed}));
     const test_step = b.step("test", "Run the unit tests and each fuzz target once over its seeds");
     test_step.dependOn(&run_mod_tests.step);
     b.step("test-unit", "Run the unit tests alone").dependOn(&run_mod_tests.step);
@@ -118,9 +117,8 @@ pub fn build(b: *std.Build) void {
 
     // The benchmark's Zig arm, bench-image: bench/zig's operations under
     // the C arms' harness (bench/c/arm.c). Built with -Dbench-optimize,
-    // ReleaseFast unless set, whatever -Doptimize says.
-    const bench_optimize = b.option(std.builtin.OptimizeMode, "bench-optimize", "The Zig arm's mode") orelse
-        .ReleaseFast;
+    // fast unless set, whatever -Doptimize says.
+    const bench_optimize = b.option(std.lang.Optimize, "bench-optimize", "The Zig arm's mode") orelse .fast;
     const bench_image = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,

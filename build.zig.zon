@@ -25,7 +25,7 @@
     .fingerprint = 0xc53d045f8cbbc2c1, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -35,16 +35,17 @@
         // The test runner. Lazy: only the root build uses it, and build.zig
         // returns before this is fetched for a consumer.
         .testingx = .{
-            .url = "https://baskingspot.dev/testingx/v0.2.0.tar.gz",
-            .hash = "testingx-0.2.0-ib95-5lNAwA8WZQH6Q6eDm2hgfC3ixFJuhkOrR8gcZAm",
+            .url = "https://baskingspot.dev/testingx/v0.4.0.tar.gz",
+            .hash = "testingx-0.4.0-ib95-2JkAwDVM639ma-akYafT4bdewLfpFaAEnLBzQXG",
             .lazy = true,
         },
-        // Pinned to a commit after 0.2.0 for its inflate fast path, which
-        // PNG decode needs, and its lazy deflate levels, which PNG encode
-        // uses; move to the next release when there is one.
+        // Pinned to compress's zig-0.17 branch: a commit after 0.2.0 for its
+        // inflate fast path, which PNG decode needs, and its lazy deflate
+        // levels, which PNG encode uses, ported to Zig 0.17; move to the
+        // next release that builds on 0.17 when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#61998af71afe2be9782cbc0e92becef1910dd937",
-            .hash = "compress-0.2.0-VxR1WicKPACPVwwitSGbzmk_C2Cg0Y2-hTnz75TPrIBD",
+            .url = "git+https://github.com/baskingspot/compress#fac0a9038117c028717b8f769f2536f679981bea",
+            .hash = "compress-0.2.0-VxR1WrgVPAAX0-dTtN27xfqmveZqH3tO9867bHXCntoF",
         },
     },
     // Specifies the set of files and directories that are included in this package.

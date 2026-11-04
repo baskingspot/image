@@ -16,7 +16,7 @@ test "name a file's format" {
 test "decode any format" {
     // A 1 by 1 QOI file. `initDetect` peeks at the first bytes and leaves
     // them in the reader for the format's decoder.
-    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ "\x00" ** 7 ++ "\x01";
+    const file = "qoif\x00\x00\x00\x01\x00\x00\x00\x01\x04\x00\xfe\x01\x02\x03" ++ @as([7]u8, @splat(0)) ++ "\x01";
     var reader: std.Io.Reader = .fixed(file);
     var decoder: image.Decoder = try .initDetect(&reader, .{});
     try testing.expectEqual(image.Format.qoi, decoder.format());

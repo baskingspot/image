@@ -131,7 +131,7 @@ pub fn read(
             for (blendings[total * stride ..][0..stride]) |*b| {
                 const mode = try r.read(br, ctx_blend_mode);
                 if (mode >= 8) return error.BadImage;
-                b.* = .{ .mode = @enumFromInt(mode), .alpha = 0, .clamp = false };
+                b.* = .{ .mode = @fromBackingInt(@intCast(mode)), .alpha = 0, .clamp = false };
                 if (b.mode.usesAlpha() and num_ec > 1) {
                     const a = try r.read(br, ctx_alpha);
                     if (a >= num_ec) return error.BadImage;

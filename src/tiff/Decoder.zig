@@ -662,7 +662,7 @@ const Arrays = struct {
     counts: ifd.Field,
     offsets_bytes: []const u8,
     counts_bytes: []const u8,
-    endian: std.builtin.Endian,
+    endian: std.lang.Endian,
 
     fn offset(a: *const Arrays, i: u64) u64 {
         if (i >= a.offsets.count) return 0;
@@ -905,7 +905,7 @@ fn jpegError(e: jpeg.Decoder.Error, src: *const Source) Error {
 }
 
 fn inSet(comptime S: type, comptime name: []const u8) bool {
-    for (@typeInfo(S).error_set.?) |f| if (std.mem.eql(u8, f.name, name)) return true;
+    for (@typeInfo(S).error_set.error_names.?) |n| if (std.mem.eql(u8, n, name)) return true;
     return false;
 }
 
@@ -1336,7 +1336,7 @@ const TestPage = struct {
 
 /// A TIFF file of `pages`, each page's IFD and data together, in order.
 /// `loop` makes the last IFD's next offset point at the first.
-fn testFile(gpa: std.mem.Allocator, endian: std.builtin.Endian, big: bool, pages: []const TestPage, loop: bool) ![]u8 {
+fn testFile(gpa: std.mem.Allocator, endian: std.lang.Endian, big: bool, pages: []const TestPage, loop: bool) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
     try out.appendSlice(gpa, if (endian == .little) "II" else "MM");
@@ -1500,19 +1500,19 @@ fn testFile(gpa: std.mem.Allocator, endian: std.builtin.Endian, big: bool, pages
     return out.toOwnedSlice(gpa);
 }
 
-fn testInt(comptime T: type, gpa: std.mem.Allocator, out: *std.ArrayList(u8), endian: std.builtin.Endian, v: T) !void {
+fn testInt(comptime T: type, gpa: std.mem.Allocator, out: *std.ArrayList(u8), endian: std.lang.Endian, v: T) !void {
     var b: [@sizeOf(T)]u8 = undefined;
     std.mem.writeInt(T, &b, v, endian);
     try out.appendSlice(gpa, &b);
 }
 
-fn testPut(buf: []u8, at: usize, big: bool, endian: std.builtin.Endian, v: u64) void {
+fn testPut(buf: []u8, at: usize, big: bool, endian: std.lang.Endian, v: u64) void {
     if (big) {
         std.mem.writeInt(u64, buf[at..][0..8], v, endian);
     } else std.mem.writeInt(u32, buf[at..][0..4], @intCast(v), endian);
 }
 
-fn testWord(gpa: std.mem.Allocator, out: *std.ArrayList(u8), endian: std.builtin.Endian, big: bool, v: u64) !void {
+fn testWord(gpa: std.mem.Allocator, out: *std.ArrayList(u8), endian: std.lang.Endian, big: bool, v: u64) !void {
     if (big) try testInt(u64, gpa, out, endian, v) else try testInt(u32, gpa, out, endian, @intCast(v));
 }
 
@@ -1598,7 +1598,7 @@ test "strips and tiles, chunky and planar, each compression and predictor, both 
             .ifd_first = random.boolean(),
             .pixels = pixels,
         };
-        const endian: std.builtin.Endian = if (round / 128 % 2 == 0) .little else .big;
+        const endian: std.lang.Endian = if (round / 128 % 2 == 0) .little else .big;
         const file = try testFile(gpa, endian, random.boolean(), &.{pg}, false);
         defer gpa.free(file);
         errdefer std.debug.print("round {} page {} {}\n", .{ round, pg, endian });
@@ -1748,7 +1748,7 @@ test "JPEG tiles take their tables from JPEGTables and are cut off at the image'
     // A flat 8×8 gray stream (sample 128), its quantization table in
     // JPEGTables and its Huffman tables the standard ones, as one tile of
     // a 5×3 page, black-is-zero and white-is-zero.
-    const tables = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ "\x01" ** 64 ++ "\xff\xd9";
+    const tables = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x01)) ++ "\xff\xd9";
     const stream = "\xff\xd8" ++
         "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++
@@ -1789,10 +1789,10 @@ test "JPEG strips keep the tables an earlier strip's stream defines, as libjpeg 
     // sample 128 + q / 8 for quantizer q. JPEGTables has q = 8; the first
     // strip's stream defines q = 16, which the second strip's stream,
     // defining none, keeps.
-    const tables = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ "\x08" ** 64 ++ "\xff\xd9";
+    const tables = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x08)) ++ "\xff\xd9";
     const frame = "\xff\xc0\x00\x0b\x08\x00\x08\x00\x08\x01\x01\x11\x00" ++
         "\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" ++ "\x5a\xff\xd9";
-    const s0 = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ "\x10" ** 64 ++ frame;
+    const s0 = "\xff\xd8" ++ "\xff\xdb\x00\x43\x00" ++ @as([64]u8, @splat(0x10)) ++ frame;
     const s1 = "\xff\xd8" ++ frame;
     const tables_at = 8 + 2 + 10 * 12 + 4;
     const s0_at = tables_at + tables.len;
@@ -1815,7 +1815,7 @@ test "JPEG strips keep the tables an earlier strip's stream defines, as libjpeg 
 test "JPEG gray with alpha is a two-component stream, its samples as stored" {
     // A flat 8×8 stream of two components (gray 136, alpha 120).
     const stream = "\xff\xd8" ++
-        "\xff\xdb\x00\x43\x00\x40" ++ "\x01" ** 63 ++
+        "\xff\xdb\x00\x43\x00\x40" ++ @as([63]u8, @splat(0x01)) ++
         "\xff\xc0\x00\x0e\x08\x00\x08\x00\x08\x02\x01\x11\x00\x02\x11\x00" ++
         "\xff\xda\x00\x0a\x02\x01\x00\x02\x00\x00\x3f\x00" ++
         "\x5a\x4a\xff\xd9";

@@ -211,7 +211,7 @@ pub const gain_map = struct {
         }
 
         fn build(random: std.Random, out: *std.Io.Writer) !void {
-            const be = std.builtin.Endian.big;
+            const be = std.lang.Endian.big;
             const b = encodeRandom(random, &base);
             // 0: a plain JPEG; 1 and 2: a plain second image, after a base
             // image with no XMP or with unrelated XMP; 3 to 5: a gain map

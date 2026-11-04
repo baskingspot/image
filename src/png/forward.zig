@@ -137,12 +137,12 @@ inline fn paethV(a8: V, b8: V, c8: V) V {
 
 /// Picks the filter for a row by the minimum sum of magnitudes, writing
 /// each candidate into its row of `outs`. Returns the filter, whose
-/// filtered bytes are `outs[@intFromEnum(filter)]`.
+/// filtered bytes are `outs[@backingInt(filter)]`.
 pub fn choose(outs: *const [5][]u8, cur: []const u8, prev: []const u8, bpp: usize) Filter {
     var best: Filter = .none;
     var best_sum: u64 = std.math.maxInt(u64);
     inline for (comptime std.enums.values(Filter)) |f| {
-        const sum = apply(f, outs[@intFromEnum(f)], cur, prev, bpp, true);
+        const sum = apply(f, outs[@backingInt(f)], cur, prev, bpp, true);
         if (sum < best_sum) {
             best = f;
             best_sum = sum;
@@ -181,7 +181,7 @@ test "each filter inverts the decoder's" {
             var want: u64 = 0;
             for (out[0..len]) |o| want += @abs(@as(i8, @bitCast(o)));
             try testing.expectEqual(want, sum);
-            try unfilter(@intFromEnum(f), back[0..len], out[0..len], prev[0..len], bpp);
+            try unfilter(@backingInt(f), back[0..len], out[0..len], prev[0..len], bpp);
             try testing.expectEqualSlices(u8, cur[0..len], back[0..len]);
         }
     }

@@ -153,8 +153,8 @@ fn checkAnimation(input: []const u8, choice: u64) !void {
             .y = y,
             // Whole milliseconds, which fcTL holds exactly.
             .duration = @as(u64, body[at % body.len]) * image.flicks_per_second / 1000,
-            .disposal = @enumFromInt(c % 3),
-            .blend = @enumFromInt(c / 3 % 2),
+            .disposal = @fromBackingInt(@intCast(c % 3)),
+            .blend = @fromBackingInt(@intCast(c / 3 % 2)),
         };
         c /= 6;
     }
@@ -245,9 +245,9 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 /// Seeds for the coverage-guided fuzzer.
 pub const seeds = [_][]const u8{
-    "\x05\x03\x02" ++ "\x01\x02\x03\x04" ** 8,
-    "\x2f\x01\x01" ++ "\x80" ** 64 ++ "\x01\x02",
-    "\x07\x07\x03" ++ "\x10\x10\x10\xff\x20\x20\x20\xff\x00\x00\x00\x00" ** 4,
+    "\x05\x03\x02" ++ @as([32]u8, std.simd.repeat(32, "\x01\x02\x03\x04".*)),
+    "\x2f\x01\x01" ++ @as([64]u8, @splat(0x80)) ++ "\x01\x02",
+    "\x07\x07\x03" ++ @as([48]u8, std.simd.repeat(48, "\x10\x10\x10\xff\x20\x20\x20\xff\x00\x00\x00\x00".*)),
 };
 
 test "png_encode on the coverage-guided fuzzer" {

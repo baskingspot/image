@@ -63,6 +63,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- image builds with Zig 0.17 only (`minimum_zig_version` is `0.17.0`); Zig 0.16 no longer builds it.
 - Faster where large buffers are cleared, since Zig 0.16 links compiler_rt's byte-at-a-time `memset` even with libc: BMP RLE decode 1.57× and ICO decode 1.48× (geomean), JPEG decode 1.14× (progressive 1.26×), JPEG in TIFF 1.21×, TIFF LZW encode 1.11× (2.2× on 16×16), and GIF and WebP lossless encode 1.05–1.15×.
 - `image.jxl.encode` writes smaller files at `.fast` (2.7% on the benchmark corpus) and `.default` (0.9%, cjxl e7's size) at about 0.8× the speed above icon size, encodes icons 1.2–1.7× faster, and touches far less memory up to a megapixel (peak over the corpus 158 to 124 MiB at `.default`, 255 to 144 MiB at `.best`).
 - `image.jxl.encode` at `.default` encodes about 10% faster above icon size, for files 0.15% larger on the benchmark corpus: its tree stops at 1024 leaves.

@@ -154,9 +154,9 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
 
 /// Seeds for the coverage-guided fuzzer.
 pub const seeds = [_][]const u8{
-    "\x05\x03\x02\x07" ++ "\x01\x02\x03\x04" ** 8,
-    "\x2f\x01\x10\x11" ++ "\x80" ** 64 ++ "\x01\x02",
-    "\x30\x30\x01\x02\x03\x04\x05\x06" ++ "\x00\x01\x02\x03" ** 40,
+    "\x05\x03\x02\x07" ++ @as([32]u8, std.simd.repeat(32, "\x01\x02\x03\x04".*)),
+    "\x2f\x01\x10\x11" ++ @as([64]u8, @splat(0x80)) ++ "\x01\x02",
+    "\x30\x30\x01\x02\x03\x04\x05\x06" ++ @as([160]u8, std.simd.repeat(160, "\x00\x01\x02\x03".*)),
 };
 
 test "tiff_encode on the coverage-guided fuzzer" {

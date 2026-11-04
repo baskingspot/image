@@ -82,7 +82,7 @@ const Sink = struct {
 
     fn write(context: *anyopaque, blob: image.Blob, at: u64, bytes: []const u8) void {
         const s: *Sink = @ptrCast(@alignCast(context));
-        const k = @intFromEnum(blob.kind);
+        const k = @backingInt(blob.kind);
         if (blob.kind == .exif or s.ended[k] or at != s.at[k]) return s.fail();
         if (s.blobs[k]) |b| if (b.offset != blob.offset) return s.fail();
         if (blob.len) |n| if (at + bytes.len > n) return s.fail();
@@ -353,7 +353,7 @@ pub fn generate(random: std.Random, buf: []u8) []u8 {
                 o.subBlocks(random, "a comment");
             },
             5 => {
-                o.put("\x21\x01\x0c" ++ "\x00" ** 12);
+                o.put("\x21\x01\x0c" ++ @as([12]u8, @splat(0)));
                 o.subBlocks(random, "text");
             },
             6, 7 => metadataExtension(&o, random),
