@@ -21,7 +21,7 @@ const dst = try image.PixelBuffer.init(pixels, .rgba8, config.width, config.heig
 _ = try decoder.decodeFrame(dst, work) orelse return error.NoFrames;
 ```
 
-No release is tagged, so `zig fetch` pins a commit, and the API can change between commits. [`CHANGELOG.md`](CHANGELOG.md) says what changed.
+Releases are tagged, from v0.1.0. Before 1.0 a minor release can change the API; [`CHANGELOG.md`](CHANGELOG.md) says what to change.
 
 ## What is in it
 
@@ -55,7 +55,7 @@ Not implemented:
 ## Install
 
 ```sh
-zig fetch --save git+https://github.com/baskingspot/image
+zig fetch --save https://baskingspot.dev/image/v0.1.0.tar.gz
 ```
 
 Add the module to your build:
