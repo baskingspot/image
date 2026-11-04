@@ -35,7 +35,7 @@ Each decoder is checked differentially against its reference library on the same
 
 ## Agent notes
 
-Docs split by reader. `README.md`, `CHANGELOG.md`, and `THIRD_PARTY.md` are for a person deciding whether and how to use the package. Agent material goes in `docs/slop/`: design notes, plans, and measurements in `docs/slop/results/`. `docs/slop/plan.md` is the architecture, the decisions still to measure, and who owns which files; update it when a decision lands. `AGENTS.md` and code comments may link `docs/slop/`; no human document links or names it.
+Docs split by reader. `README.md`, `CHANGELOG.md`, and `THIRD_PARTY.md` are for a person deciding whether and how to use the package. Agent material goes in `docs/slop/`: design notes, plans, and measurements in `docs/slop/results/`. `docs/slop/plan.md` is the architecture, the decisions still to measure, and who owns which files; update it when a decision lands. `AGENTS.md` and `//` code comments may link `docs/slop/`; no human document links or names it, and neither do doc comments (`///`, `//!`), which render in the API reference.
 
 ## Rules
 

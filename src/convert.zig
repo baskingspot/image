@@ -3,8 +3,7 @@
 //! Every pair of `PixelFormat`s converts. Integer formats convert through
 //! 16-bit RGBA, and any pair with a float side through `f32` RGBA. Integer
 //! results are Wuffs's pixel swizzler's on every pair it has that keeps
-//! alpha or has none to drop (docs/slop/results/convert-rounding-20261101.md),
-//! with these definitions:
+//! alpha or has none to drop, with these definitions:
 //!
 //! - Widening an 8-bit sample multiplies by 257; narrowing a 16-bit one
 //!   takes its high byte. A float sample is `c / max` one way and `c * max`
@@ -35,6 +34,7 @@
 //! alpha, premultiplying, gray to color, and 8-bit, 16-bit, and float
 //! samples to one another in the same layout, have SIMD paths that give
 //! the same bytes as the general path.
+// Design notes and decisions: docs/slop/results/convert-rounding-20261101.md.
 
 const std = @import("std");
 const testing = std.testing;

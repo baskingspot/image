@@ -3,8 +3,8 @@
 //! color map in the caller's work memory (`Config.work_len`, 4 bytes an
 //! entry); every other image needs none.
 //!
-//! Format: the Truevision TGA File Format Specification, version 2.0
-//! (docs/slop/tga.md has the decisions below and why). Every image type the
+//! Format: the Truevision TGA File Format Specification, version 2.0.
+//! Every image type the
 //! specification defines: color-mapped (1, 9) with 8- or 16-bit indices and
 //! 15-, 16-, 24-, or 32-bit entries, true-color (2, 10) at 15, 16, 24, and
 //! 32 bits, gray (3, 11) at 8 bits and 16 (gray and alpha), run-length
@@ -31,6 +31,7 @@
 //! the input and `trailer` reports what it found. Reading forward only, the
 //! decoder finds an extension area that starts right after the image data or
 //! ends right before the footer, the two places writers put it.
+// Design notes and decisions: docs/slop/tga.md.
 
 const std = @import("std");
 const testing = std.testing;

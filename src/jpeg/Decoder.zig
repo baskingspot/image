@@ -16,10 +16,9 @@
 //! libjpeg-turbo does not decode either, are `Unsupported`.
 //!
 //! The pixels are libjpeg-turbo's with its default settings, bit for bit:
-//! its accurate integer IDCT, its "fancy" upsampling, and its YCbCr to RGB
-//! (owner decision 2; docs/slop/jpeg.md has the details). CMYK and YCCK
-//! images decode to RGB by libjpeg-turbo's naive conversion, or to their
-//! stored inks with `Options.cmyk = .raw`. Samples of other precisions
+//! its accurate integer IDCT, its "fancy" upsampling, and its YCbCr to RGB.
+//! CMYK and YCCK images decode to RGB by libjpeg-turbo's naive conversion,
+//! or to their stored inks with `Options.cmyk = .raw`. Samples of other precisions
 //! than 8 bits are scaled to the native format, rounded: 16-bit past 8
 //! bits, 8-bit below.
 //!
@@ -37,6 +36,7 @@
 //! 21496-1): an MPF APP2 segment, which locates the second image, and
 //! either the gain map namespace in the XMP or ISO 21496-1's APP2
 //! segment. The gain map image after EOI is never read.
+// Design notes and decisions: docs/slop/jpeg.md.
 
 const std = @import("std");
 const testing = std.testing;

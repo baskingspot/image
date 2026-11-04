@@ -2,12 +2,11 @@
 //! a `std.Io.Reader`, writes any `PixelFormat`, and allocates nothing.
 //!
 //! Format: ISO/IEC 18181-1 (the codestream) and 18181-2 (the container).
-//! docs/slop/jxl.md records the design, the work-memory bound, and the
-//! choices made where the specification leaves room.
 //!
 //! Frames are coalesced as the reference decoder does: `decodeFrame`
 //! returns each displayed frame (the last, and every one with a duration)
 //! composited onto the canvas, after the zero-duration frames before it.
+// Design notes and decisions: docs/slop/jxl.md.
 
 const std = @import("std");
 const testing = std.testing;
@@ -52,7 +51,7 @@ pub const Error = decode.Error || error{
     /// The embedded ICC profile's encoding is malformed.
     BadIcc,
     /// The file needs more work memory than `Config.work_len` reserves:
-    /// entropy codes or trees past the budget docs/slop/jxl.md describes,
+    /// entropy codes or trees past their fixed budget,
     /// or a frame of more than twice the canvas's pixels.
     TooComplex,
     /// `decodeJpeg`: the codestream cannot hold a recompressed JPEG.

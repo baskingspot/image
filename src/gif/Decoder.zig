@@ -12,7 +12,7 @@
 //! the first frame, `applyTrailer`. Comments, plain text, and other
 //! application extensions are skipped.
 //!
-//! Frames follow the APNG model (docs/slop/gif.md): `decodeFrame` writes
+//! Frames follow the APNG model: `decodeFrame` writes
 //! each frame into its region of the caller's canvas, which must hold the
 //! previous frame with its disposal applied. The first frame clears the
 //! canvas outside its region to transparent black and writes its
@@ -31,6 +31,7 @@
 //! the last of several graphic control extensions wins, and a byte that
 //! starts no block ends the image as the trailer does. A file cut short
 //! is `Truncated`, even after its last frame, where the trailer should be.
+// Design notes and decisions: docs/slop/gif.md.
 
 const std = @import("std");
 const testing = std.testing;

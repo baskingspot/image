@@ -23,7 +23,7 @@
 //! ignored, as the specification allows, and the first of a duplicate
 //! wins. An unknown critical chunk is
 //! `Unsupported`. An out-of-range palette index is opaque black, as the
-//! specification requires. docs/slop/png.md records these choices.
+//! specification requires.
 //!
 //! APNG: the frames are the animation's. A default image outside the
 //! animation (no fcTL before IDAT) is skipped, as APNG decoders are to do.
@@ -33,6 +33,7 @@
 //! Disposal is the caller's: `Frame.disposal` says what to do with the
 //! region before the next call. A still image's IEND is read by the second
 //! `decodeFrame`, which returns null.
+// Design notes and decisions: docs/slop/png.md.
 
 const std = @import("std");
 const testing = std.testing;

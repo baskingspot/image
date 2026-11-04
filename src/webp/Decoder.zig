@@ -15,7 +15,7 @@
 //! An animation's chunks follow libwebp's demuxer, and its frames are
 //! composited as libwebp's animation decoder composites them, given a
 //! caller that disposes of each frame's region to transparent black.
-//! docs/slop/webp.md records these choices.
+// Design notes and decisions: docs/slop/webp.md.
 
 const std = @import("std");
 const builtin = @import("builtin");

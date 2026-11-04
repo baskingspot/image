@@ -8,8 +8,7 @@
 //! integer and 16, 24, 32, and 64-bit float samples, chunky or planar;
 //! gray, palette, RGB, CMYK (as `cmyk8` or `cmyk16`), and YCbCr with
 //! subsampling. Every IFD in the main chain is a page and a frame.
-//! samples.zig says how samples become the native format;
-//! docs/slop/tiff.md records the decisions.
+//! samples.zig says how samples become the native format.
 //!
 //! The input is read forward, as every decoder here reads it. TIFF's
 //! offsets point anywhere, and the usual writer puts the IFD after the
@@ -32,6 +31,7 @@
 //! and YCbCr decode straight to the caller's rows; other JPEG pages take a
 //! strip or tile of samples. A JPEG stream that is progressive or not
 //! interleaved, which keeps every coefficient, is `error.Unsupported`.
+// Design notes and decisions: docs/slop/tiff.md.
 
 const std = @import("std");
 const testing = std.testing;

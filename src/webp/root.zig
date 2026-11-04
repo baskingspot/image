@@ -1,5 +1,6 @@
-//! WebP (RFC 9649): decode. Lossless and lossy still images with alpha
-//! now; animation comes next, and encoding later.
+//! WebP (RFC 9649): lossless and lossy images with alpha, and animations,
+//! decoded by `Decoder`; `encode` writes lossless and `lossy.encode` lossy
+//! stills.
 
 pub const Decoder = @import("Decoder.zig");
 pub const lossy = @import("vp8_encode.zig");

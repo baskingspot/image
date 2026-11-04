@@ -7,12 +7,12 @@
 //! The box is read twice, once to size the work memory and once into it,
 //! and the `Exif`, `xml `, and codestream boxes may come before or after
 //! it, so the reader must be able to move back: `Options.seeker` is
-//! required (`error.NeedsSeeker`). docs/slop/jxl-jbrd.md records the
-//! design.
+//! required (`error.NeedsSeeker`).
 //!
 //!     var r = JpegReconstructor.init(reader, .{ .seeker = .file(&file_reader) });
 //!     const work = try gpa.alloc(u8, try r.workLen());
 //!     try r.run(writer, work);
+// Design notes and decisions: docs/slop/jxl-jbrd.md.
 
 const std = @import("std");
 const testing = std.testing;
