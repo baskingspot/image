@@ -323,9 +323,12 @@ Running beside wave 1's tail, started early by the owner:
   photo peaks at 107 MiB RSS (libjxl 102), the 1313×6097 screenshot at 76
   (libjxl 83). The extra channels' rings stay at two group rows, the
   minimum, or three with upsampling, where a tail would save about 2 MB.
-  Streaming memory is done. Next, speed: the JPEG XL orb takes
-  single-property trees as tables (`cjxl -e 2`/`-e 3`) and the 8-bit
-  destination. The cheaper XYB power function waits on row 76. Rebuild
+  Streaming memory is done. Speed (results/jxl-sptable-20261104.md,
+  results/jxl-dst8-20261104.md): trees on one property decode as tables
+  (`cjxl -e 2` 1.79×, `-e 3` 1.49×), 8-bit destinations are packed from
+  the frame (+1–1.4% lossy), and `decodeJpeg` hands coefficients in zigzag
+  order (jbrd progressive +2.6%). What remains on the speed list is the
+  cheaper XYB power function, which waits on row 76. Rebuild
   speed (`wave4-jxl-jbrd-speed`, results/jxl-jbrd-speed-20261104.md, the
   Netpbm orb): the writer checks range a block at a time, writes 32 bits at
   a time, and walks masks of coded positions. Baseline +27%, progressive
@@ -334,9 +337,8 @@ Running beside wave 1's tail, started early by the owner:
   baseline rebuild; the rest is `decodeJpeg`'s coefficient pass. Sharing
   the zigzag pass across a block's scans: reordering inside `conform` loses
   (−2.1% baseline); gathering in zigzag order in `decodeJpeg`'s `onBlock`
-  wins (+2.6% progressive, +0.9% baseline) and lands with the JPEG XL orb
-  as one commit over `vardct.zig` and `jbrd.zig`
-  (c6-zigzag-order.patch). AC-refinement correction bits wait in a u64 and
+  wins (+2.6% progressive, +0.9% baseline) and landed with the JPEG XL orb
+  as one commit over `vardct.zig` and `jbrd.zig` (`wave4-jxl-zigzag`). AC-refinement correction bits wait in a u64 and
   go out in one or two puts (`wave4-jxl-jbrd-refine`): progressive +4.2%
   (mosaic +4.1%), baseline unchanged, byte-identical. Next for the Netpbm
   orb: `jbrd.Bits.u32Field`, about 3% of progressive rebuilds.
