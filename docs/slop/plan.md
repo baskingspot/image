@@ -1203,6 +1203,15 @@ width)` for every file with several entries.
     the sRGB curve's linear segment, the same float-evaluation class).
     Lossless frames stay exact; splines keep the conformance bound. Done in
     `wave4-jxl-tol4`: test/oracle/jxl.zig gives frames drawn in floats peak 4.
+78. **JPEG XL lossy tolerance, again. Decided by the owner:** frames drawn in
+    floats get peak 8. A fuzzed far-out-of-gamut XYB animation (27366ec7…)
+    is 5 steps off libjxl; fused multiply-adds don't close it, since the
+    XYB inputs already differ in their last bits and the colour matrix
+    amplifies that out of gamut. Raising one step per finding only moves
+    the line; 8 steps (1.2e-4) is still a small fraction of the conformance
+    bound (262), lossless stays exact, and splines keep the conformance
+    bound. The JPEG XL orb makes the change; the cheaper XYB power function
+    may then be measured against it.
 
 ## Harness requests
 
