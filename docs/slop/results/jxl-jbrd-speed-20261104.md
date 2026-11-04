@@ -168,3 +168,33 @@ changes memory. The gain is small because the shuffle was small: one
 progressive writer's time is in AC refinement's correction bits, which
 go in and out of `scratch` a bit at a time; holding a block's bits in a
 register and writing them in one put is the next candidate.
+
+## AC refinement's correction bits in a register
+
+7. **Kept.** An AC refinement scan's correction bits (the next bit of
+   each coefficient already nonzero) went into `scratch` one bit at a
+   time, a byte's read-modify-write each, and out again one `put` each;
+   flushing an EOB run in the middle of a block also moved the block's
+   bits down to the start of `scratch`. A block's bits since its last
+   symbol now wait in a 64-bit register (a band holds at most 63) and go
+   out in one or two puts; only a block that joins an EOB run copies its
+   bits into `scratch`, packed most significant first a byte at a time,
+   and the run's flush writes them 8 at a time. Nothing moves when a run
+   is flushed mid-block, since the block's bits were never in `scratch`.
+
+Measured as before on origin/main 27fb0cb (8 interleaved rounds,
+`taskset -c 3`, benchstat; raw output `c7-*`):
+
+| change           | operation   | before | after | change | rows faster / slower | mosaic            |
+| ---------------- | ----------- | ------ | ----- | ------ | -------------------- | ----------------- |
+| 7. register bits | baseline    | 79.50  | 79.38 | −0.2%  | 1 / 0                | 121.8 → 122.4 (~) |
+|                  | progressive | 64.22  | 66.90 | +4.2%  | 33 / 0               | 90.7 → 94.5       |
+
+Baseline scans never refine, so their rows only show the noise.
+Progressive rows from 256×256 up gain 3–11% (four within the noise);
+32- and 64-pixel icons about 2%, and 16-pixel ones, whose time is the
+codestream and the box's parse, nothing measurable. Memory is
+unchanged: `scratch` keeps its size, `max_correction_bytes`. Every
+output is the same, byte for byte (`bench-image check` on all 88 rows).
+`perf record` over the progressive rows puts `jbrd.Bits.u32Field`, the
+box's field reader, at about 3% of the samples, as much as `zigzagged`.

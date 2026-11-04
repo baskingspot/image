@@ -111,6 +111,9 @@ reconstruction, which the oracle found by mutating transcodes:
   nonzero after the approximation shift) become a 64-bit mask walked with
   count-trailing-zeros, so the zero runs cost nothing per coefficient.
   Each scan works out its components' block layout once, not per block.
+  An AC refinement's correction bits since the last symbol wait in a
+  64-bit register and go out in one or two writes; only a block that
+  joins an EOB run copies them into `scratch`, packed a byte at a time.
   `JpegReconstructor`'s range check of the coefficients is a 64-lane
   minimum and maximum checked once a component.
 - **Errors.** `BadJbrd` for any broken constraint, `Unsupported` for more

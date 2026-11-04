@@ -949,7 +949,8 @@ const State = struct {
     out: BitOut = undefined,
     pred: [3]i32 = @splat(0),
     eobrun: u32 = 0,
-    /// Correction bits held for the EOB run, one a byte in `scratch`.
+    /// Correction bits held for the EOB run in `scratch`, packed most
+    /// significant first.
     nbe: usize = 0,
     /// Within the current scan: the next block, and the next reset point
     /// and zero run.
@@ -1225,10 +1226,10 @@ const State = struct {
         const eob: u32 = if (ones == 0) 0 else 63 - @clz(ones);
         // The zeros since the last symbol.
         var r: u32 = 0;
-        // Correction bits since the last symbol, held in `scratch` from
-        // `base`, after the EOB run's.
-        var base = st.nbe;
-        var br: usize = 0;
+        // Correction bits since the last symbol, the first the highest of
+        // the low `br`: at most 63, one a coefficient of the band.
+        var bits: u64 = 0;
+        var br: u6 = 0;
         // `lo` is at least 1: the DC is coded apart.
         var last: u32 = @as(u32, lo) - 1;
         while (nonzero != 0) : (nonzero &= nonzero - 1) {
@@ -1237,48 +1238,55 @@ const State = struct {
             last = k;
             const t = abs[k];
             while (r > 15 and k <= eob) : (r -= 16) {
-                try st.flushHolding(&base, br);
+                try st.flushEobrun();
                 try st.symbol(ac, 0xf0);
-                try st.correctionBits(base, br);
+                try st.putBits(bits, br);
                 br = 0;
             }
             if (t > 1) {
-                if (base + br >= st.scratch.len * 8) return error.BadJbrd;
-                st.setCorrection(base + br, @intCast(t & 1));
+                bits = bits << 1 | (t & 1);
                 br += 1;
                 continue;
             }
-            try st.flushHolding(&base, br);
+            try st.flushEobrun();
             try st.symbolBits(ac, @intCast(r << 4 | 1), @intFromBool(zz[k] >= 0), 1);
-            try st.correctionBits(base, br);
+            try st.putBits(bits, br);
             br = 0;
             r = 0;
         }
         r += hi - last;
         if (r > 0 or br > 0) {
-            st.nbe = base + br;
+            try st.holdBits(bits, br);
             if (st.eobrun == 0) st.ac_code = ac;
             st.eobrun += 1;
             if (st.eobrun == 0x7fff or !run) try st.flushEobrun();
         }
     }
 
-    fn setCorrection(st: *State, i: usize, bit: u1) void {
-        const mask = @as(u8, 1) << @intCast(i % 8);
-        if (bit == 1) st.scratch[i / 8] |= mask else st.scratch[i / 8] &= ~mask;
+    /// Writes the low `n` bits of `bits`, `n` at most 63.
+    fn putBits(st: *State, bits: u64, n: u6) WriteError!void {
+        if (n > 32) try st.out.put(@truncate(bits >> 32), n - 32);
+        try st.out.put(@truncate(bits), @min(n, 32));
     }
 
-    fn correctionBits(st: *State, at: usize, n: usize) WriteError!void {
-        for (at..at + n) |i| try st.out.put(st.scratch[i / 8] >> @intCast(i % 8) & 1, 1);
-    }
-
-    /// Flushes the EOB run in the middle of a refined block, and moves the
-    /// block's `br` correction bits from `base` to the start.
-    fn flushHolding(st: *State, base: *usize, br: usize) WriteError!void {
-        if (st.eobrun == 0) return;
-        try st.flushEobrun();
-        for (0..br) |i| st.setCorrection(i, @intCast(st.scratch[(base.* + i) / 8] >> @intCast((base.* + i) % 8) & 1));
-        base.* = 0;
+    /// Holds the low `n` bits of `bits` for the EOB run, after its others
+    /// in `scratch`.
+    fn holdBits(st: *State, bits: u64, n: u6) WriteError!void {
+        var at = st.nbe;
+        if (n > st.scratch.len * 8 - at) return error.BadJbrd;
+        var left: u7 = n;
+        while (left > 0) {
+            const free: u4 = @intCast(8 - at % 8);
+            const take: u4 = @intCast(@min(free, left));
+            const part: u8 = @truncate(bits >> @intCast(left - take) & ((@as(u64, 1) << take) - 1));
+            const b = &st.scratch[at / 8];
+            // A byte's first bit clears it; later ones go below.
+            const placed = part << @intCast(free - take);
+            b.* = if (free == 8) placed else b.* | placed;
+            at += take;
+            left -= take;
+        }
+        st.nbe = at;
     }
 
     /// Writes the pending EOB run and its correction bits.
@@ -1286,7 +1294,11 @@ const State = struct {
         if (st.eobrun == 0) return;
         const r: u5 = @intCast(31 - @clz(st.eobrun));
         try st.symbolBits(st.ac_code, @as(u8, r) << 4, st.eobrun, r);
-        try st.correctionBits(0, st.nbe);
+        // The held bits, packed most significant first, a byte at a time.
+        const full = st.nbe / 8;
+        for (st.scratch[0..full]) |b| try st.out.put(b, 8);
+        const rest: u3 = @intCast(st.nbe % 8);
+        if (rest != 0) try st.out.put(st.scratch[full] >> @intCast(8 - @as(u4, rest)), rest);
         st.eobrun = 0;
         st.nbe = 0;
     }
