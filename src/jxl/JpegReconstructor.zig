@@ -356,14 +356,23 @@ fn runPlan(r: *JpegReconstructor, writer: *Io.Writer, work: []u8) Error!void {
 }
 
 /// Holds the coefficients to libjxl's JPEG bounds, every block of the
-/// components the JPEG has, padding included: DC clamped to ±2047, and any
-/// coefficient past ±4095 refused. A file cjxl writes is within them.
+/// components the JPEG has, padding included: any coefficient past ±4095
+/// is refused. A file cjxl writes is within them. (`decodeJpeg` clamps DC
+/// to ±2047 itself, as libjxl does.)
 fn conform(jpeg: *Decoder.Jpeg, num_components: u2) Error!void {
     const n: usize = if (num_components == 1) 1 else 3;
     for (jpeg.coefs[0..n]) |coefs| {
+        // A block at a time, the bound checked once: a return inside the
+        // loop keeps the compiler from vectorizing it.
+        var lo: @Vector(64, i16) = @splat(0);
+        var hi: @Vector(64, i16) = @splat(0);
         var i: usize = 0;
-        while (i < coefs.len) : (i += 64) coefs[i] = std.math.clamp(coefs[i], -2047, 2047);
-        for (coefs) |v| if (v < -4095 or v > 4095) return error.BadJbrd;
+        while (i < coefs.len) : (i += 64) {
+            const x: @Vector(64, i16) = coefs[i..][0..64].*;
+            lo = @min(lo, x);
+            hi = @max(hi, x);
+        }
+        if (@reduce(.Min, lo) < -4095 or @reduce(.Max, hi) > 4095) return error.BadJbrd;
     }
 }
 
