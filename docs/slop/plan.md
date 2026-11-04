@@ -895,7 +895,17 @@ is `baskingspot/site` branch `image-site` (5557cb1: sites.json and the
 router binding; Terraform reads the roster). Owner steps, in order: `stage`
 to stable, the social preview, `just settings --repo image`, the homepage
 `https://baskingspot.dev/image/`, merge `image-site` and apply Terraform,
-let image's deploy run once on main, then deploy the router.
+let image's deploy run once on main, then deploy the router. Done by the owner on 2026-11-04: `stage` stable, the social preview, the
+settings (signed-commits ruleset, squash only), and the homepage. The site
+Terraform and router wait for Matt.
+
+### Zig 0.17
+
+Started 2026-11-04 by the owner, as one orb
+(T-01a1a754-93ae-703c-9168-db8127d1e993): a long-lived `zig-0.17` branch
+on image, ported to Zig 0.17, while main stays on 0.16. It owns that
+branch, pinning testingx's `zig-0.17` and a `zig-0.17` branch of compress
+if compress needs one. Pixels and encoded bytes must not change.
 
 ## Decisions to measure
 
