@@ -431,6 +431,15 @@ and AVX-512's sixteen lanes for the transform and filters (−1.0%) were
 all bit for bit and inside the noise or slower; an A/A run puts the
 noise at about ±1.5%.
 
+`results/jxl-sptable-20261104.md`: a channel whose reachable splits all
+test one property (2 to 15) decodes through a table of the leaf each
+value reaches, `lo` to `hi` + 1, in the flattened tree's place within
+`flat_bytes`, computing only that property; the loop is specialized for
+cjxl's two such trees (property 9 with the gradient, `-e 2`; property 15
+with the weighted predictor, `-e 3`), +3.6% and +4.5% over the generic
+loop. `-e 2` files +79%, `-e 3` +49%, the bench's `-e 7` unchanged, bit
+for bit, peak RSS and `work_len` unchanged.
+
 ## Next
 
 1. **Memory, further**: little is left in streaming. The extra channels'
@@ -461,9 +470,10 @@ noise at about ±1.5%.
    tuning left that measures: what remains needs another algorithm. The
    XYB to sRGB transform (13% of lossy) with a power function of fewer
    operations, which moves some 16-bit samples a step, so the oracle's
-   lossy tolerance must be rechecked; trees on one property as tables,
-   for `cjxl -e 2` and `-e 3` files; and an 8-bit destination, which
-   still converts from the 16-bit native format.
+   lossy tolerance must be rechecked; and an 8-bit destination, which
+   still converts from the 16-bit native format. Trees on one property
+   are tables now (`cjxl -e 2` files 1.79× faster, `-e 3` 1.49×,
+   results/jxl-sptable-20261104.md).
 3. **JPEG reconstruction** (stage 4), by the Netpbm orb in `jbrd.zig` and
    `JpegReconstructor.zig`, on `Decoder.decodeJpeg`. Its writer is now 29%
    of a baseline rebuild. Shrinking `jpegWorkLen` on small files further

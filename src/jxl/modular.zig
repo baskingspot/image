@@ -1092,6 +1092,11 @@ const Plan = struct {
     uses_wp: bool,
     /// Reachable splits on properties other than the static ones.
     splits: u32,
+    /// The one property every reachable split tests, or -1, and the
+    /// least and greatest values they test it against.
+    single: i32,
+    lo: i32,
+    hi: i32,
 };
 
 fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
@@ -1104,6 +1109,10 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
     var start: u32 = 0;
     var first = true;
     var splits: u32 = 0;
+    var single: i32 = -1;
+    var mixed = false;
+    var lo: i32 = std.math.maxInt(i32);
+    var hi: i32 = std.math.minInt(i32);
     while (sp > 0) {
         sp -= 1;
         var cur = stack[sp];
@@ -1121,6 +1130,10 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
         max_prop = @max(max_prop, nd.property);
         uses_wp = uses_wp or nd.property == wp_prop;
         splits += 1;
+        if (single < 0) single = nd.property;
+        mixed = mixed or single != nd.property;
+        lo = @min(lo, nd.value);
+        hi = @max(hi, nd.value);
         // The tree is less than 2048 deep, so the stack holds the pending
         // second children of one path.
         stack[sp] = nd.child + 1;
@@ -1132,7 +1145,15 @@ fn plan(tree: []const Node, chan: i32, stream: i32) Plan {
         const extra: usize = @intCast(max_prop + 1 - num_nonref);
         num_props = num_nonref + (extra + 3) / 4 * 4;
     }
-    return .{ .start = start, .num_props = num_props, .uses_wp = uses_wp, .splits = splits };
+    return .{
+        .start = start,
+        .num_props = num_props,
+        .uses_wp = uses_wp,
+        .splits = splits,
+        .single = if (mixed) -1 else single,
+        .lo = lo,
+        .hi = hi,
+    };
 }
 
 inline fn makePixel(v: u32, mul: i32, guess: i64) i32 {
@@ -1176,9 +1197,22 @@ fn decodeChannel(
         }
     }
 
+    const statics = [2]i32{ @intCast(ci), @bitCast(stream_id) };
+    if (ft.single >= num_static and ft.single < num_nonref) {
+        // A tree on one property is a table of leaves by its value, from
+        // `lo` (any value up to the least split value) to `hi` + 1 (any
+        // past the greatest): one load a pixel instead of the walk, and
+        // only that property to compute.
+        const n_entries = @as(u64, @intCast(@as(i64, ft.hi) - ft.lo)) + 2;
+        if (n_entries <= table_max and n_entries <= w * h) {
+            const table = try arena.alloc(Node, @intCast(n_entries));
+            fillTable(nodes, ft, statics, table);
+            return decodeTabled(br, arena, img, ci, ft, table, r);
+        }
+    }
+
     const props = try arena.alloc(i32, ft.num_props);
     @memset(props, 0);
-    const statics = [2]i32{ @intCast(ci), @bitCast(stream_id) };
     const flattened = ft.splits <= flat_max_splits and w * h >= flat_min_pixels;
     const flat: ?[]Flat = if (flattened) try flatten(arena, nodes, ft, statics) else null;
     const nref = ft.num_props - num_nonref;
@@ -1205,6 +1239,126 @@ fn decodeChannel(
             const v = makePixel(try r.readInline(br, leaf.child), leaf.multiplier, g);
             ch.data[y * w + x] = v;
             if (ft.uses_wp) wp.update(v, x, y);
+        }
+    }
+}
+
+/// The most entries `decodeChannel` gives a tree on one property as a
+/// table, within `flat_bytes`, which the table replaces.
+const table_max = flat_bytes / @sizeOf(Node);
+
+/// Fills `table` with the leaf the tree `ft` reaches for each value of its
+/// one property from `ft.lo` up, the last entry standing for every value
+/// past `ft.hi`.
+fn fillTable(nodes: []const Node, ft: Plan, statics: [2]i32, table: []Node) void {
+    const Span = struct { node: u32, a: i64, b: i64 };
+    var stack: [2050]Span = undefined;
+    var sp: usize = 1;
+    const last: i64 = @as(i64, ft.hi) + 1;
+    stack[0] = .{ .node = ft.start, .a = ft.lo, .b = last };
+    while (sp > 0) {
+        sp -= 1;
+        const s = stack[sp];
+        const cur = resolve(nodes, s.node, statics);
+        const nd = nodes[cur];
+        if (nd.property < 0) {
+            const from: usize = @intCast(s.a - ft.lo);
+            const to: usize = @intCast(s.b - ft.lo + 1);
+            @memset(table[from..to], nd);
+            continue;
+        }
+        // Values above the split value take the first child; the tree is
+        // less than 2048 deep, so the stack holds one path's second
+        // children.
+        const t: i64 = nd.value;
+        if (s.b > t) {
+            stack[sp] = .{ .node = nd.child, .a = @max(s.a, t + 1), .b = s.b };
+            sp += 1;
+        }
+        if (s.a <= t) {
+            stack[sp] = .{ .node = nd.child + 1, .a = s.a, .b = @min(s.b, t) };
+            sp += 1;
+        }
+    }
+}
+
+/// `decodeChannel` with the tree as a table of leaves by the value of its
+/// one property (`fillTable`), with the property and predictor fixed at
+/// compile time for the trees cjxl writes at efforts 2 and 3 (property 9
+/// with the gradient, property 15 with the weighted predictor).
+fn decodeTabled(
+    br: *BitReader,
+    arena: *Arena,
+    img: *Image,
+    ci: usize,
+    ft: Plan,
+    table: []const Node,
+    r: *entropy.Reader,
+) Error!void {
+    var pred: ?Predictor = table[0].predictor;
+    for (table) |t| {
+        if (t.predictor != pred.?) {
+            pred = null;
+            break;
+        }
+    }
+    if (pred == .gradient and ft.single == 9)
+        return tabledLoop(9, .gradient, br, arena, img, ci, ft, table, r);
+    if (pred == .weighted and ft.single == wp_prop)
+        return tabledLoop(wp_prop, .weighted, br, arena, img, ci, ft, table, r);
+    return tabledLoop(null, null, br, arena, img, ci, ft, table, r);
+}
+
+fn tabledLoop(
+    comptime cp: ?u32,
+    comptime cpred: ?Predictor,
+    br: *BitReader,
+    arena: *Arena,
+    img: *Image,
+    ci: usize,
+    ft: Plan,
+    table: []const Node,
+    r: *entropy.Reader,
+) Error!void {
+    const ch = &img.buf[ci];
+    const w: usize = ch.w;
+    const h: usize = ch.h;
+    const p: u32 = cp orelse @intCast(ft.single);
+    const uses_wp = if (cpred) |c| c == .weighted else ft.uses_wp;
+    var wp: Wp = undefined;
+    if (uses_wp) wp = try .init(arena, img.wp, w);
+    const lo: i64 = ft.lo;
+    const top: i64 = @as(i64, ft.hi) + 1;
+    for (0..h) |y| {
+        var prev9: i32 = 0;
+        for (0..w) |x| {
+            const n = neighbours(ch, x, y);
+            var wp_pred: i64 = 0;
+            var max_err: i64 = 0;
+            if (uses_wp) wp_pred = wp.predict(x, y, n.top, n.left, n.topright, n.topleft, n.toptop, &max_err);
+            const p9: i32 = @truncate(n.left + n.top - n.topleft);
+            const v: i32 = switch (p) {
+                2 => @intCast(y),
+                3 => @intCast(x),
+                4 => @truncate(if (n.top > 0) n.top else -n.top),
+                5 => @truncate(if (n.left > 0) n.left else -n.left),
+                6 => @truncate(n.top),
+                7 => @truncate(n.left),
+                8 => @truncate(n.left - prev9),
+                9 => p9,
+                10 => @truncate(n.left - n.topleft),
+                11 => @truncate(n.topleft - n.top),
+                12 => @truncate(n.top - n.topright),
+                13 => @truncate(n.top - n.toptop),
+                14 => @truncate(n.left - n.leftleft),
+                else => @truncate(max_err),
+            };
+            prev9 = p9;
+            const leaf = table[@intCast(std.math.clamp(@as(i64, v), lo, top) - lo)];
+            const g = predictOne(cpred orelse leaf.predictor, n, wp_pred) +% leaf.value;
+            const px = makePixel(try r.readInline(br, leaf.child), leaf.multiplier, g);
+            ch.data[y * w + x] = px;
+            if (uses_wp) wp.update(px, x, y);
         }
     }
 }
