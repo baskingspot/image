@@ -325,9 +325,13 @@ Running beside wave 1's tail, started early by the owner:
   minimum, or three with upsampling, where a tail would save about 2 MB.
   Streaming memory is done. Next, speed: the JPEG XL orb takes
   single-property trees as tables (`cjxl -e 2`/`-e 3`) and the 8-bit
-  destination; the Netpbm orb takes rebuild speed (0.59× libjxl) in
-  `jbrd.zig` and `JpegReconstructor.zig`. The cheaper XYB power function
-  waits on row 76.
+  destination. The cheaper XYB power function waits on row 76. Rebuild
+  speed (`wave4-jxl-jbrd-speed`, results/jxl-jbrd-speed-20261104.md, the
+  Netpbm orb): the writer checks range a block at a time, writes 32 bits at
+  a time, and walks masks of coded positions. Baseline +27%, progressive
+  +47%, byte-identical; 1.55× libjxl over all rows, the 50 MP mosaic 1.02×
+  baseline (from 0.59×) and 1.60× progressive. The writer is now 16% of a
+  baseline rebuild; the rest is `decodeJpeg`'s coefficient pass.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
