@@ -128,6 +128,43 @@ about 77% of the samples and the writer about 16% (`State.scan` 13.2%,
 block passes through each of its component's scans, about ten in cjpeg's
 default script, each a zigzag shuffle, a shift, and two compares before
 the mask walk. The next gains for baseline are in `decodeJpeg` (the JPEG
-XL orb's); for progressive, in sharing one zigzag pass across a block's
-scans, which needs the coefficients reordered once (a 150 MB store pass
-on the mosaic) and was not tried.
+XL orb's); for progressive, sharing one zigzag pass across a block's
+scans is measured below.
+
+## Sharing the zigzag pass across a block's scans
+
+The progressive writer puts each block in zigzag order once per scan it
+is in, about ten times in cjpeg's default script. Two ways to do it once,
+measured as before (8 interleaved rounds, `taskset -c 3`, benchstat) on
+origin/main 9bf9d88, the build after the changes above; the raw output is
+`c5-*` and `c6-*` in the same directory:
+
+5. **In `conform`, rejected.** `conform` already loads every block for
+   the range check; storing the block back in zigzag order there, with
+   the writer loading it as it is, adds a store pass over all the
+   coefficients (150 MB on the mosaic) and saves less than it costs.
+6. **In `decodeJpeg`, kept as a patch for the JPEG XL orb.**
+   `Jpeg.onBlock` already gathers each block from the transform's
+   transposed layout; gathering it in zigzag order instead costs nothing
+   (the same 64 loads through a different constant table, with the
+   chroma from luma ratios held in the same order), and the writer then
+   loads each block as it is. The change touches `vardct.zig`, the JPEG
+   XL orb's, and must land in one commit with the writer's side, so it
+   is `c6-zigzag-order.patch` (with `vardct.zig`'s test comparing in
+   zigzag order); with it applied, `just test` and `just test-be` pass
+   and `just oracle 100000 1 jxl_jbrd` agrees on 100,120 of 100,120.
+
+| change          | operation   | before | after | change | rows faster / slower | mosaic            |
+| --------------- | ----------- | ------ | ----- | ------ | -------------------- | ----------------- |
+| 5. in `conform` | baseline    | 78.97  | 77.35 | −2.1%  | 0 / 15               | 121.3 → 116.8     |
+|                 | progressive | 63.90  | 63.42 | −0.8%  | 1 / 5                | 91.3 → 88.8 (~)   |
+| 6. in `onBlock` | baseline    | 79.61  | 80.31 | +0.9%  | 8 / 0                | 122.2 → 122.3 (~) |
+|                 | progressive | 63.89  | 65.56 | +2.6%  | 15 / 0               | 93.2 → 94.7 (~)   |
+
+(Rows faster or slower: of 44 an operation, at p ≤ 0.05.) Neither
+changes memory. The gain is small because the shuffle was small: one
+64-lane permute, about 3% of a progressive rebuild's samples
+(`zigzagged`, from `perf record` over the progressive rows). Most of the
+progressive writer's time is in AC refinement's correction bits, which
+go in and out of `scratch` a bit at a time; holding a block's bits in a
+register and writing them in one put is the next candidate.

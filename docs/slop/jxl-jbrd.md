@@ -138,6 +138,11 @@ and extra-precision rules before it, so the oracle compares every input.
 The coefficient pass (`Decoder.decodeJpeg`, the JPEG XL orb's) is most of
 a baseline rebuild's time; the writer is most of the rest.
 
+Coefficients in zigzag order from `decodeJpeg`, so the writer stops
+reordering each block once per scan: +2.6% on progressive rebuilds and
++0.9% on baseline, waiting on the JPEG XL orb, since it changes
+`vardct.zig` (results/jxl-jbrd-speed-20261104.md, change 6).
+
 ## Corpus
 
 `corpus/gen/jxl_jbrd.sh` transcodes (`cjxl --lossless_jpeg=1`, one
