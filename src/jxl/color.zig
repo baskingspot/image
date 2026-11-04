@@ -164,30 +164,25 @@ fn srgb(v: f32) f32 {
 
 const V = @Vector(8, f32);
 
-/// `srgb` eight at a time, with a^(1/2.4) as a^(1/4) times a^(1/6): two
-/// square roots and a cube root by Newton's method, to within a few ulp.
+/// `srgb` eight at a time, with a^(1/2.4) as √(a · a^(-1/6)): a^(-1/6)
+/// from a guess from the exponent's bits (within 3.1%) and three Newton
+/// steps for it, which need no division, to within a few ulp, then one
+/// square root.
 fn srgbV(v: V) V {
+    const U = @Vector(8, u32);
     const a = @abs(v);
-    const cb = cbrtV(a);
-    const p = @sqrt(@sqrt(a)) * @sqrt(cb);
+    const bits: U = @bitCast(a);
+    var r: V = @bitCast(@as(U, @splat(0x4a0e2000)) -% bits / @as(U, @splat(6)));
+    const a6 = a * @as(V, @splat(1.0 / 6.0));
+    inline for (0..3) |_| {
+        const r2 = r * r;
+        r = r * (@as(V, @splat(7.0 / 6.0)) - a6 * r2 * r2 * r2);
+    }
+    const p = @sqrt(a * r);
     const hi = @as(V, @splat(1.055)) * p - @as(V, @splat(0.055));
     const lo = a * @as(V, @splat(12.92));
-    const r = @select(f32, a <= @as(V, @splat(0.0031308)), lo, hi);
-    return @select(f32, v < @as(V, @splat(0)), -r, r);
-}
-
-/// The cube root of non-negative `a`, to within 2 ulp: a guess at
-/// a^(-1/3) from the exponent's bits, two Newton steps for it, which need
-/// no division, then one Newton step for the cube root itself.
-fn cbrtV(a: V) V {
-    const U = @Vector(8, u32);
-    const bits: U = @bitCast(a);
-    var r: V = @bitCast(@as(U, @splat(0x54a0fc5c)) -% bits / @as(U, @splat(3)));
-    const a3 = a * @as(V, @splat(1.0 / 3.0));
-    inline for (0..2) |_| r = r * (@as(V, @splat(4.0 / 3.0)) - a3 * r * r * r);
-    var y = a * r * r;
-    y = y - (y * y * y - a) / (@as(V, @splat(3)) * y * y);
-    return @select(f32, a == @as(V, @splat(0)), a, y);
+    const s = @select(f32, a <= @as(V, @splat(0.0031308)), lo, hi);
+    return @select(f32, v < @as(V, @splat(0)), -s, s);
 }
 
 fn bt709V(v: V) V {
@@ -275,7 +270,7 @@ test "srgb transfer" {
 
 test "power transfer functions" {
     const probes: [8]f32 = .{ 1e-6, 0.002, 0.018, 0.05, 0.21404114, 0.5, 0.999, 3.5 };
-    for ([_]Tf{ .bt709, .dci, .{ .gamma = 0.45455 }, .{ .gamma = 1.0 / 2.2 } }) |t| {
+    for ([_]Tf{ .srgb, .bt709, .dci, .{ .gamma = 0.45455 }, .{ .gamma = 1.0 / 2.2 } }) |t| {
         for ([_]f32{ 1, -1 }) |sign| {
             const v: V = @as(V, probes) * @as(V, @splat(sign));
             const got: [8]f32 = t.encodeV(v);

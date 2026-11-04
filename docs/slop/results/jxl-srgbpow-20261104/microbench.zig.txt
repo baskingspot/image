@@ -1,0 +1,156 @@
+const std = @import("std");
+const V = @Vector(8, f32);
+const U = @Vector(8, u32);
+const I = @Vector(8, i32);
+
+fn cbrtV(a: V) V {
+    const bits: U = @bitCast(a);
+    var r: V = @bitCast(@as(U, @splat(0x54a0fc5c)) -% bits / @as(U, @splat(3)));
+    const a3 = a * @as(V, @splat(1.0 / 3.0));
+    inline for (0..2) |_| r = r * (@as(V, @splat(4.0 / 3.0)) - a3 * r * r * r);
+    var y = a * r * r;
+    y = y - (y * y * y - a) / (@as(V, @splat(3)) * y * y);
+    return @select(f32, a == @as(V, @splat(0)), a, y);
+}
+fn p0(a: V) V {
+    const cb = cbrtV(a);
+    return @sqrt(@sqrt(a)) * @sqrt(cb);
+}
+fn powV(a: V, e: f32) V {
+    const bits: U = @bitCast(a);
+    const shifted = bits -% @as(U, @splat(0x3f3504f3));
+    const k: I = @as(I, @bitCast(shifted)) >> @splat(23);
+    const m: V = @bitCast(bits -% (@as(U, @bitCast(k)) << @splat(23)));
+    const t = (m - @as(V, @splat(1))) / (m + @as(V, @splat(1)));
+    const t2 = t * t;
+    var poly: V = @splat(2.0 / 9.0);
+    poly = poly * t2 + @as(V, @splat(2.0 / 7.0));
+    poly = poly * t2 + @as(V, @splat(2.0 / 5.0));
+    poly = poly * t2 + @as(V, @splat(2.0 / 3.0));
+    poly = poly * t2 + @as(V, @splat(2.0));
+    const log2a = @as(V, @floatFromInt(k)) + t * poly * @as(V, @splat(std.math.log2e));
+    const raw = @as(V, @splat(e)) * log2a;
+    const lo: V = @splat(-126);
+    const x = @select(f32, raw == raw, @min(@max(raw, lo), @as(V, @splat(127))), lo);
+    const n = @round(x);
+    const f = x - n;
+    var p: V = @splat(1.5403530393381606e-4);
+    p = p * f + @as(V, @splat(1.3333558146428443e-3));
+    p = p * f + @as(V, @splat(9.618129107628477e-3));
+    p = p * f + @as(V, @splat(5.550410866482158e-2));
+    p = p * f + @as(V, @splat(2.402265069591007e-1));
+    p = p * f + @as(V, @splat(6.931471805599453e-1));
+    p = p * f + @as(V, @splat(1));
+    const scale: V = @bitCast(@as(U, @bitCast(@as(I, @intFromFloat(n)) + @as(I, @splat(127)))) << @splat(23));
+    const r = p * scale;
+    return @select(f32, a < @as(V, @splat(std.math.floatMin(f32))), @as(V, @splat(0)), r);
+}
+fn p1(a: V) V {
+    return powV(a, 1.0 / 2.4);
+}
+/// a^(5/12) as a·r^7, r = a^(-1/12) by Newton without division.
+fn pN(comptime iters: comptime_int) fn (V) V {
+    return struct {
+        fn f(a: V) V {
+            const bits: U = @bitCast(a);
+            // guess: bits of a^(-1/12) ~ magic - bits/12
+            var r: V = @bitCast(@as(U, @splat(MAGIC)) -% bits / @as(U, @splat(12)));
+            const a12 = a * @as(V, @splat(1.0 / 12.0));
+            inline for (0..iters) |_| {
+                const r2 = r * r;
+                const r4 = r2 * r2;
+                const r12 = r4 * r4 * r4;
+                r = r * (@as(V, @splat(13.0 / 12.0)) - a12 * r12);
+            }
+            const r2 = r * r;
+            const r7 = r2 * r2 * r2 * r;
+            return @select(f32, a == @as(V, @splat(0)), a, a * r7);
+        }
+    }.f;
+}
+// 0x3f800000 * 13/12 for x^(-1/12): magic = (1 + 1/12)*0x3f800000 approx
+const MAGIC: u32 = 0x3f800000 + 0x3f800000 / 12;
+
+
+fn pS6(comptime iters: comptime_int, comptime magic: u32) fn (V) V {
+    return struct {
+        fn f(a: V) V {
+            const bits: U = @bitCast(a);
+            var r: V = @bitCast(@as(U, @splat(magic)) -% bits / @as(U, @splat(6)));
+            const a6 = a * @as(V, @splat(1.0 / 6.0));
+            inline for (0..iters) |_| {
+                const r2 = r * r;
+                const r6 = r2 * r2 * r2;
+                r = r * (@as(V, @splat(7.0 / 6.0)) - a6 * r6);
+            }
+            return @select(f32, a == @as(V, @splat(0)), a, @sqrt(a * r));
+        }
+    }.f;
+}
+fn pC3(a: V) V {
+    const bits: U = @bitCast(a);
+    var r: V = @bitCast(@as(U, @splat(0x54a0fc5c)) -% bits / @as(U, @splat(3)));
+    const a3 = a * @as(V, @splat(1.0 / 3.0));
+    inline for (0..3) |_| r = r * (@as(V, @splat(4.0 / 3.0)) - a3 * r * r * r);
+    const cb = a * r * r;
+    return @select(f32, a == @as(V, @splat(0)), a, @sqrt(@sqrt(a)) * @sqrt(cb));
+}
+
+fn ref(a: f64) f64 {
+    return std.math.pow(f64, a, 1.0 / 2.4);
+}
+
+fn srgbEnc(p: f32) f32 {
+    return 1.055 * p - 0.055;
+}
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const fns = .{ .{ "cur", p0 }, .{ "cbrt3", pC3 }, .{ "s6x2", pS6(2, 0x3f800000 + 0x3f800000 / 6) }, .{ "s6x3", pS6(3, 0x3f800000 + 0x3f800000 / 6) }, .{ "s6x3t", pS6(3, 0x4a0f0000) } };
+    // accuracy over [0.0031308, 64]: max error in 16-bit steps of the encoded value, and how
+    // many samples quantize differently from the f64 reference
+    inline for (fns) |e| {
+        var maxe: f64 = 0;
+        var diff: usize = 0;
+        var n: usize = 0;
+        var a: f32 = 0.0031308;
+        var buf: [8]f32 = undefined;
+        while (a < 64) {
+            for (&buf, 0..) |*b, i| b.* = a * (1 + @as(f32, @floatFromInt(i)) * 1e-7);
+            const out: [8]f32 = e[1](buf);
+            for (buf, out) |x, y| {
+                const r = 1.055 * ref(x) - 0.055;
+                const got: f64 = srgbEnc(y);
+                const err = @abs(got - r) * 65535;
+                maxe = @max(maxe, err);
+                if (r <= 1) {
+                    const q1 = @round(r * 65535);
+                    const q2 = @round(got * 65535);
+                    if (q1 != q2) diff += 1;
+                }
+                n += 1;
+            }
+            a *= 1.0000137;
+        }
+        std.debug.print("{s}: n={d} max err {d:.4} steps, quantize diffs {d}\n", .{ e[0], n, maxe, diff });
+    }
+    // timing
+    const N = 1 << 14;
+    var data: [N]f32 = undefined;
+    var prng = std.Random.DefaultPrng.init(1);
+    for (&data) |*d| d.* = 0.004 + prng.random().float(f32) * 1.2;
+    inline for (fns) |e| {
+        var best: u64 = std.math.maxInt(u64);
+        for (0..30) |_| {
+            const t0: std.Io.Timestamp = .now(io, .awake);
+            var acc: V = @splat(0);
+            for (0..20) |_| {
+                var i: usize = 0;
+                while (i < N) : (i += 8) acc += e[1](data[i..][0..8].*);
+            }
+            std.mem.doNotOptimizeAway(acc);
+            best = @min(best, @as(u64, @intCast(t0.untilNow(io, .awake).nanoseconds)));
+        }
+        std.debug.print("{s}: {d:.3} ns/sample\n", .{ e[0], @as(f64, @floatFromInt(best)) / (20.0 * N) });
+    }
+}

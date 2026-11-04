@@ -1,0 +1,10 @@
+cur: n=5792072 max err 0.0702 steps, quantize diffs 5992
+cbrt3: n=5792072 max err 0.1101 steps, quantize diffs 5547
+s6x2: n=5792072 max err 136.6513 steps, quantize diffs 2607825
+s6x3: n=5792072 max err 0.7183 steps, quantize diffs 72843
+s6x3t: n=5792072 max err 0.0757 steps, quantize diffs 7828
+cur: 0.872 ns/sample
+cbrt3: 0.702 ns/sample
+s6x2: 0.435 ns/sample
+s6x3: 0.605 ns/sample
+s6x3t: 0.605 ns/sample

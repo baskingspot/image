@@ -1,0 +1,8 @@
+a all 483.8
+a icon 3.3
+a 1mp 27.2
+a large 483.6
+b all 483.8
+b icon 3.3
+b 1mp 27.2
+b large 483.6

@@ -450,6 +450,14 @@ pivot and the converter: lossy to RGBA8 +1.1% and +1.4% in two runs,
 inside the noise but with no row slower, bit for bit against the
 converter on every 8-bit format.
 
+`results/jxl-srgbpow-20261104.md`: sRGB's a^(1/2.4) as √(a · a^(-1/6)),
+a^(-1/6) from the exponent's bits and three Newton steps without
+division, instead of a cube root with a division and three square roots:
+the curve 0.87 → 0.61 ns a sample, lossy +0.96% and +1.86% in two runs
+with no row slower. Not bit for bit: 0.038% of 16-bit samples move a
+step, no file's largest difference from libjxl grows, and the 100,000-input
+oracle agrees within decision 78's peak 8.
+
 ## Next
 
 1. **Memory, further**: little is left in streaming. The extra channels'
@@ -478,9 +486,9 @@ converter on every 8-bit format.
    which come after the tree (`results/jxl-mstream2-20261103.md`).
 2. **Speed**, after `results/jxl-speed4-20261103.md`, which found no
    tuning left that measures: what remains needs another algorithm. The
-   XYB to sRGB transform (13% of lossy) with a power function of fewer
-   operations, which moves some 16-bit samples a step, so the oracle's
-   lossy tolerance must be rechecked. Trees on one property are tables
+   XYB to sRGB transform's power is √(a · a^(-1/6)) with Newton steps
+   that need no division (+1–1.9% lossy, 0.038% of 16-bit samples a step
+   away, results/jxl-srgbpow-20261104.md). Trees on one property are tables
    now (`cjxl -e 2` files 1.79× faster, `-e 3` 1.49×,
    results/jxl-sptable-20261104.md), and an 8-bit destination is packed
    from the frame (+1.1–1.4% lossy to RGBA8, results/jxl-dst8-20261104.md).
