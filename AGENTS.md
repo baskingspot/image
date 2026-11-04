@@ -4,7 +4,7 @@ Working notes for AI coding agents in baskingspot/image.
 
 ## What this is
 
-Image decoders and encoders in Zig, with no C: PNG and APNG, JPEG, GIF, WebP, TIFF, JPEG XL, BMP, ICO and CUR, TGA, Netpbm, WBMP, and QOI. Think Wuffs's image formats, plus encoders and the formats Wuffs lacks. It is incubating: unstable, with no promises about its API.
+Image decoders and encoders in Zig, with no C: PNG and APNG, JPEG, GIF, WebP, TIFF, JPEG XL, BMP, ICO and CUR, TGA, Netpbm, WBMP, and QOI. Think Wuffs's image formats, plus encoders and the formats Wuffs lacks. No release is tagged yet, and the API can change between commits.
 
 `docs/slop/plan.md` is the scope, the API, the order of work, and the decisions still to measure. Read it before starting.
 

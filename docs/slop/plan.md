@@ -885,6 +885,18 @@ AI.md link and badge, and the social preview. Owner steps: `stage` to
 stable, the social preview upload, `just settings --repo image`, and the
 site Terraform.
 
+Landed (`graduate`, 4bbf5f3): logos from `just new-library`, the README to
+STRUCTURE.md, the one-page guide with compiled examples (`docs/examples`,
+in `zig build test`), the API reference from docgen, the site build in
+`just ci` (flake gains the baskingspot `docs` module), and a deploy job
+gated on `vars.CLOUDFLARE_ACCOUNT_ID`. The forced audit has no errors; it
+warns on the social preview and site registration. The site registration
+is `baskingspot/site` branch `image-site` (5557cb1: sites.json and the
+router binding; Terraform reads the roster). Owner steps, in order: `stage`
+to stable, the social preview, `just settings --repo image`, the homepage
+`https://baskingspot.dev/image/`, merge `image-site` and apply Terraform,
+let image's deploy run once on main, then deploy the router.
+
 ## Decisions to measure
 
 1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
