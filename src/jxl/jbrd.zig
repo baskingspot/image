@@ -16,6 +16,7 @@
 //! the work memory, and once into it.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const Io = std.Io;
 
@@ -623,6 +624,23 @@ pub const zigzag = [64]u8{
     58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 };
 
+/// A 64-lane comparison as bits, lane 0 the lowest on any CPU (a
+/// bool vector's bit cast puts lane 0 at the top on a big-endian one).
+fn laneBits(lanes: @Vector(64, bool)) u64 {
+    const bits: u64 = @bitCast(lanes);
+    return if (builtin.cpu.arch.endian() == .little) bits else @bitReverse(bits);
+}
+
+/// A block's coefficients in zigzag order, in one shuffle.
+fn zigzagged(blk: *const [64]i16) @Vector(64, i16) {
+    const mask: @Vector(64, i32) = comptime blk: {
+        var m: [64]i32 = undefined;
+        for (zigzag, 0..) |z, i| m[i] = z;
+        break :blk m;
+    };
+    return @shuffle(i16, @as(@Vector(64, i16), blk.*), undefined, mask);
+}
+
 /// The bytes an AC refinement scan's held correction bits take: 0x7FFF
 /// blocks of up to 63, packed.
 pub const max_correction_bytes = (0x7fff * 63 + 7) / 8 + 8;
@@ -864,21 +882,50 @@ const Code = struct {
 };
 
 /// Entropy-coded bits, most significant first, with a 0 stuffed after
-/// each 0xFF byte.
+/// each 0xFF byte. Up to 31 bits wait in `acc` between calls, written 32
+/// at a time.
 const BitOut = struct {
     w: *Io.Writer,
     acc: u64 = 0,
     n: u6 = 0,
 
-    inline fn put(o: *BitOut, bits: u32, len: u5) Io.Writer.Error!void {
-        if (len == 0) return;
-        o.acc = o.acc << len | (bits & ((@as(u32, 1) << len) - 1));
+    /// Appends the low `len` bits of `bits`, `len` at most 32.
+    inline fn put(o: *BitOut, bits: u32, len: u6) Io.Writer.Error!void {
+        const mask = (@as(u64, 1) << len) - 1;
+        o.acc = o.acc << len | (bits & mask);
         o.n += len;
+        if (o.n >= 32) {
+            o.n -= 32;
+            try o.word(@truncate(o.acc >> o.n));
+            o.acc &= (@as(u64, 1) << o.n) - 1;
+        }
+    }
+
+    /// Writes four bytes, straight into the writer's buffer when it has
+    /// room and none of them is 0xFF.
+    fn word(o: *BitOut, x: u32) Io.Writer.Error!void {
+        const w = o.w;
+        // A byte of `x` is 0xFF where one of `~x` is zero.
+        const y = ~x;
+        const has_ff = (y -% 0x01010101) & ~y & 0x80808080 != 0;
+        if (!has_ff and w.buffer.len - w.end >= 4) {
+            std.mem.writeInt(u32, w.buffer[w.end..][0..4], x, .big);
+            w.end += 4;
+            return;
+        }
+        for (0..4) |i| try o.byte(@truncate(x >> @intCast(24 - 8 * i)));
+    }
+
+    fn byte(o: *BitOut, b: u8) Io.Writer.Error!void {
+        try o.w.writeByte(b);
+        if (b == 0xff) try o.w.writeByte(0);
+    }
+
+    /// Writes the whole bytes waiting, leaving fewer than 8 bits.
+    fn flushBytes(o: *BitOut) Io.Writer.Error!void {
         while (o.n >= 8) {
             o.n -= 8;
-            const byte: u8 = @truncate(o.acc >> o.n);
-            try o.w.writeByte(byte);
-            if (byte == 0xff) try o.w.writeByte(0);
+            try o.byte(@truncate(o.acc >> o.n));
         }
         o.acc &= (@as(u64, 1) << o.n) - 1;
     }
@@ -910,16 +957,23 @@ const State = struct {
     reset_at: usize = 0,
     run_at: usize = 0,
 
-    fn symbol(st: *State, code: *const Code, s: u8) WriteError!void {
-        if (code.len[s] == 0) return error.BadJbrd;
-        try st.out.put(code.code[s], code.len[s]);
+    inline fn symbol(st: *State, code: *const Code, s: u8) WriteError!void {
+        return st.symbolBits(code, s, 0, 0);
+    }
+
+    /// Symbol `s`, then the low `n` bits of `bits`, in one write: a code
+    /// is at most 16 bits and `n` at most 15.
+    inline fn symbolBits(st: *State, code: *const Code, s: u8, bits: u32, n: u5) WriteError!void {
+        const len = code.len[s];
+        if (len == 0) return error.BadJbrd;
+        const extra = bits & ((@as(u32, 1) << n) - 1);
+        try st.out.put(@as(u32, code.code[s]) << n | extra, @as(u6, len) + n);
     }
 
     /// Pads the entropy-coded segment to a byte with the box's padding
-    /// bits, or ones.
+    /// bits, or ones, and writes out every bit held.
     fn pad(st: *State) WriteError!void {
-        if (st.out.n == 0) return;
-        const k: u5 = @intCast(8 - @as(u32, st.out.n));
+        const k: u6 = @intCast((8 - @as(u32, st.out.n % 8)) % 8);
         var bits: u32 = 0;
         for (0..k) |_| {
             var bit: u32 = 1;
@@ -931,6 +985,7 @@ const State = struct {
             bits = bits << 1 | bit;
         }
         try st.out.put(bits, k);
+        try st.out.flushBytes();
     }
 
     fn scan(st: *State, s: *const Scan) WriteError!void {
@@ -978,12 +1033,19 @@ const State = struct {
             mcus_x = img.mcusX(nc);
             mcus_y = img.mcusY(nc);
         }
+        // Each component's blocks a row and in an MCU, once a scan.
+        var layout: [3]struct { bw: usize, hb: u32, vb: u32 } = undefined;
+        for (s.components[0..n], layout[0..n]) |c, *l| l.* = .{
+            .bw = img.blocksX(nc, c.index),
+            .hb = if (n == 1) 1 else img.h[c.index],
+            .vb = if (n == 1) 1 else img.v[c.index],
+        };
         const ri: u32 = if (st.dri) j.restart_interval else 0;
         var togo: u32 = ri;
         var rst: u8 = 0;
-        var mcu: u64 = 0;
-        const total = @as(u64, mcus_x) * mcus_y;
-        while (mcu < total) : (mcu += 1) {
+        for (0..mcus_y) |my_| for (0..mcus_x) |mx_| {
+            const mx: u32 = @intCast(mx_);
+            const my: u32 = @intCast(my_);
             if (ri != 0) {
                 if (togo == 0) {
                     try st.flushEobrun();
@@ -995,13 +1057,11 @@ const State = struct {
                 }
                 togo -= 1;
             }
-            const mx: u32 = @intCast(mcu % mcus_x);
-            const my: u32 = @intCast(mcu / mcus_x);
-            for (s.components[0..n]) |c| {
+            for (s.components[0..n], layout[0..n]) |c, l| {
                 const ci = c.index;
-                const bw = img.blocksX(nc, ci);
-                const hb: u32 = if (n == 1) 1 else img.h[ci];
-                const vb: u32 = if (n == 1) 1 else img.v[ci];
+                const bw = l.bw;
+                const hb = l.hb;
+                const vb = l.vb;
                 for (0..vb) |iy| for (0..hb) |ix| {
                     const bx = mx * hb + @as(u32, @intCast(ix));
                     const by = my * vb + @as(u32, @intCast(iy));
@@ -1039,9 +1099,14 @@ const State = struct {
                     st.block +%= 1;
                 };
             }
-        }
+        };
         try st.flushEobrun();
         try st.pad();
+    }
+
+    /// Bits `lo` to `hi` of a block's zigzag positions.
+    fn band(lo: u6, hi: u6) u64 {
+        return (~@as(u64, 0) >> (63 - hi)) & (~@as(u64, 0) << lo);
     }
 
     fn magnitude(x: i32) u5 {
@@ -1053,8 +1118,7 @@ const State = struct {
         // A DC code has no symbol above 11 (`read`), so a larger
         // difference cannot be written.
         if (s > 11) return error.BadJbrd;
-        try st.symbol(code, s);
-        try st.out.put(@bitCast(if (diff < 0) diff - 1 else diff), s);
+        try st.symbolBits(code, s, @bitCast(if (diff < 0) diff - 1 else diff), s);
     }
 
     fn sequential(
@@ -1068,24 +1132,27 @@ const State = struct {
         const x: i32 = blk[0];
         try st.dcDiff(dc, x - st.pred[ci]);
         st.pred[ci] = x;
-        var r: u32 = 0;
-        for (1..64) |k| {
-            const z: i32 = blk[zigzag[k]];
-            if (z == 0) {
-                r += 1;
-                continue;
-            }
+        // The block in zigzag order, and its nonzero AC coefficients as
+        // bits, walked from the lowest.
+        const zv = zigzagged(blk);
+        const zz: [64]i16 = zv;
+        var nonzero = laneBits(zv != @as(@Vector(64, i16), @splat(0)));
+        nonzero &= ~@as(u64, 1);
+        var last: u32 = 0;
+        while (nonzero != 0) : (nonzero &= nonzero - 1) {
+            const k: u32 = @ctz(nonzero);
+            var r = k - last - 1;
             while (r > 15) : (r -= 16) try st.symbol(ac, 0xf0);
+            const z: i32 = zz[k];
             const s = magnitude(z);
             // 8-bit JPEG's AC magnitudes stop at 10 bits, but libjxl writes
             // any its code has a symbol for; the symbol's low nibble
             // bounds it.
             if (s > 15) return error.BadJbrd;
-            try st.symbol(ac, @intCast(r << 4 | s));
-            try st.out.put(@bitCast(if (z < 0) z - 1 else z), s);
-            r = 0;
+            try st.symbolBits(ac, @intCast(r << 4 | s), @bitCast(if (z < 0) z - 1 else z), s);
+            last = k;
         }
-        try st.endBlock(ac, r, zeros, false);
+        try st.endBlock(ac, 63 - last, zeros, false);
     }
 
     /// The end of a block's band after `r` zeros: the original's extra ZRL
@@ -1116,23 +1183,25 @@ const State = struct {
         zeros: u32,
         run: bool,
     ) WriteError!void {
-        var r: u32 = 0;
-        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
-            const z: i32 = blk[zigzag[k]];
-            const t: i32 = @intCast(@abs(z) >> al);
-            if (t == 0) {
-                r += 1;
-                continue;
-            }
-            try st.flushEobrun();
+        const zv = zigzagged(blk);
+        const zz: [64]i16 = zv;
+        const tv = @abs(zv) >> @as(@Vector(64, u4), @splat(al));
+        const tt: [64]u16 = tv;
+        var nonzero = laneBits(tv != @as(@Vector(64, u16), @splat(0))) & band(lo, hi);
+        if (nonzero != 0) try st.flushEobrun();
+        // `lo` is at least 1: the DC is coded apart.
+        var last: u32 = @as(u32, lo) - 1;
+        while (nonzero != 0) : (nonzero &= nonzero - 1) {
+            const k: u32 = @ctz(nonzero);
+            var r = k - last - 1;
             while (r > 15) : (r -= 16) try st.symbol(ac, 0xf0);
+            const t: i32 = tt[k];
             const m = magnitude(t);
             if (m > 15) return error.BadJbrd;
-            try st.symbol(ac, @intCast(r << 4 | m));
-            try st.out.put(@bitCast(if (z < 0) -t - 1 else t), m);
-            r = 0;
+            try st.symbolBits(ac, @intCast(r << 4 | m), @bitCast(if (zz[k] < 0) -t - 1 else t), m);
+            last = k;
         }
-        try st.endBlock(ac, r, zeros, run);
+        try st.endBlock(ac, hi - last, zeros, run);
     }
 
     /// A refining scan of band `lo`..`hi`; `run` allows EOB runs.
@@ -1145,24 +1214,28 @@ const State = struct {
         ac: *const Code,
         run: bool,
     ) WriteError!void {
+        const zv = zigzagged(blk);
+        const zz: [64]i16 = zv;
+        const av = @abs(zv) >> @as(@Vector(64, u4), @splat(al));
+        const abs: [64]u16 = av;
+        const in_band = band(lo, hi);
+        var nonzero = laneBits(av != @as(@Vector(64, u16), @splat(0))) & in_band;
+        const ones = laneBits(av == @as(@Vector(64, u16), @splat(1))) & in_band;
         // The last coefficient that becomes nonzero in this scan.
-        var eob: usize = 0;
-        var abs: [64]u16 = undefined;
-        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
-            abs[k] = @intCast(@abs(@as(i32, blk[zigzag[k]])) >> al);
-            if (abs[k] == 1) eob = k;
-        }
+        const eob: u32 = if (ones == 0) 0 else 63 - @clz(ones);
+        // The zeros since the last symbol.
         var r: u32 = 0;
         // Correction bits since the last symbol, held in `scratch` from
         // `base`, after the EOB run's.
         var base = st.nbe;
         var br: usize = 0;
-        for (@as(usize, lo)..@as(usize, hi) + 1) |k| {
+        // `lo` is at least 1: the DC is coded apart.
+        var last: u32 = @as(u32, lo) - 1;
+        while (nonzero != 0) : (nonzero &= nonzero - 1) {
+            const k: u32 = @ctz(nonzero);
+            r += k - last - 1;
+            last = k;
             const t = abs[k];
-            if (t == 0) {
-                r += 1;
-                continue;
-            }
             while (r > 15 and k <= eob) : (r -= 16) {
                 try st.flushHolding(&base, br);
                 try st.symbol(ac, 0xf0);
@@ -1176,12 +1249,12 @@ const State = struct {
                 continue;
             }
             try st.flushHolding(&base, br);
-            try st.symbol(ac, @intCast(r << 4 | 1));
-            try st.out.put(@intFromBool(blk[zigzag[k]] >= 0), 1);
+            try st.symbolBits(ac, @intCast(r << 4 | 1), @intFromBool(zz[k] >= 0), 1);
             try st.correctionBits(base, br);
             br = 0;
             r = 0;
         }
+        r += hi - last;
         if (r > 0 or br > 0) {
             st.nbe = base + br;
             if (st.eobrun == 0) st.ac_code = ac;
@@ -1212,8 +1285,7 @@ const State = struct {
     fn flushEobrun(st: *State) WriteError!void {
         if (st.eobrun == 0) return;
         const r: u5 = @intCast(31 - @clz(st.eobrun));
-        try st.symbol(st.ac_code, @as(u8, r) << 4);
-        try st.out.put(st.eobrun, r);
+        try st.symbolBits(st.ac_code, @as(u8, r) << 4, st.eobrun, r);
         try st.correctionBits(0, st.nbe);
         st.eobrun = 0;
         st.nbe = 0;
