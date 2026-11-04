@@ -181,6 +181,19 @@ pub const Bits = struct {
     }
 
     fn fill(b: *Bits) Error!void {
+        // Eight bytes in one load when the reader holds them; the whole
+        // ones that fit go in.
+        const buffered = b.r.buffered();
+        if (b.left >= 8 and buffered.len >= 8) {
+            const k: u7 = (64 - b.n) / 8;
+            var word = std.mem.readInt(u64, buffered[0..8], .little);
+            if (k < 8) word &= (@as(u64, 1) << @intCast(8 * k)) - 1;
+            b.buf |= word << @intCast(b.n);
+            b.n += 8 * k;
+            b.left -= k;
+            b.r.toss(k);
+            return;
+        }
         while (b.n <= 56 and b.left > 0) {
             const byte = b.r.takeByte() catch |e| return switch (e) {
                 error.EndOfStream => error.Truncated,
@@ -212,10 +225,13 @@ pub const Bits = struct {
 
     /// A `U32` field: a constant, or `n` bits plus an offset, by a 2-bit
     /// selector.
-    fn u32Field(b: *Bits, d: [4]Dist) Error!u32 {
-        return switch (d[try b.bits(2)]) {
-            .val => |x| x,
-            .bits => |x| try b.bits(x.n) +% x.offset,
+    inline fn u32Field(b: *Bits, comptime d: [4]Dist) Error!u32 {
+        return switch (try b.bits(2)) {
+            inline 0...3 => |i| switch (d[i]) {
+                .val => |x| x,
+                .bits => |x| try b.bits(x.n) +% x.offset,
+            },
+            else => unreachable,
         };
     }
 

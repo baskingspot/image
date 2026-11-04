@@ -198,3 +198,38 @@ unchanged: `scratch` keeps its size, `max_correction_bytes`. Every
 output is the same, byte for byte (`bench-image check` on all 88 rows).
 `perf record` over the progressive rows puts `jbrd.Bits.u32Field`, the
 box's field reader, at about 3% of the samples, as much as `zigzagged`.
+
+## The box's field reader
+
+8. **Kept.** `perf record` over the progressive rows put
+   `jbrd.Bits.u32Field` at 3.2% of the samples, nearly all from `read`,
+   which runs twice a rebuild (counting in `workLen`, then for real in
+   `run`) and reads a `U32` field per Huffman symbol, reset point, and
+   zero run. Each call copied its 48-byte table of distributions onto
+   the stack and switched on it at run time, and `Bits.fill` took a byte
+   at a time through `Io.Reader.takeByte`. `u32Field` is now inline over
+   a comptime table, so each field is a 2-bit read and a branch to a
+   constant or a fixed-width read; `fill` loads eight bytes at once when
+   the reader holds them and the box has them left (byte by byte
+   otherwise, so a trickling reader still works).
+
+Measured as before against origin/main 7197703, after the JPEG XL
+orb's zigzag-order coefficients (change 6, landed as be1bd0a; the
+binaries were built from be1bd0a, whose source 7197703 does not change),
+8 interleaved rounds, `taskset -c 3`, benchstat; raw output `c8-*`, and
+the same change's first A/B on ac692c0 in `c8-ac692c0-*`:
+
+| change, base    | operation   | before | after | change | rows faster / slower | 16×16 icons   | mosaic            |
+| --------------- | ----------- | ------ | ----- | ------ | -------------------- | ------------- | ----------------- |
+| 8. field reader | baseline    | 83.09  | 85.64 | +3.1%  | 13 / 1               | 9.92 → 12.12  | 129.6 → 131.1 (~) |
+|                 | progressive | 68.80  | 70.55 | +2.5%  | 12 / 0               | 10.77 → 12.30 | 98.3 → 96.3 (~)   |
+| 8, on ac692c0   | baseline    | 75.87  | 79.28 | +4.5%  | 18 / 0               | 9.31 → 11.17  | 115.7 → 118.0 (~) |
+|                 | progressive | 63.86  | 65.34 | +2.3%  | 14 / 2               | 10.13 → 11.39 | 88.1 → 89.1 (~)   |
+
+The parse is a fixed cost a file, so the gain is in small images: on
+7197703, baseline icons 1.21–1.24× at 16×16, 1.12–1.16× at 32×32, and
+1.04–1.08× at 64×64; progressive ones 1.13–1.16×, 1.08–1.09×, and 1.04×.
+Rows from 256×256 up are within the noise but for one (+3.8%), and one
+512×512 baseline icon measured 3.4% slower, which the change does not
+reach past the parse. Memory is unchanged, and every output is the same,
+byte for byte (`bench-image check` on all 88 rows, on both bases).

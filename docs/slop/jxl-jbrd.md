@@ -114,6 +114,8 @@ reconstruction, which the oracle found by mutating transcodes:
   An AC refinement's correction bits since the last symbol wait in a
   64-bit register and go out in one or two writes; only a block that
   joins an EOB run copies them into `scratch`, packed a byte at a time.
+  The box's `U32` fields are read inline over comptime tables, and its
+  bits come eight bytes at a time when the reader holds them.
   `JpegReconstructor`'s range check of the coefficients is a 64-lane
   minimum and maximum checked once a component.
 - **Errors.** `BadJbrd` for any broken constraint, `Unsupported` for more
