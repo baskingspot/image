@@ -15,7 +15,9 @@ progressive DC first and refinement, AC first with EOB runs, AC
 refinement), and the coefficients and tables from
 `Decoder.decodeJpeg` (the JPEG XL orb's coefficient pass). A codestream
 that cannot hold a JPEG is `error.NotJpeg`, which includes RGB-stored
-JPEGs for now. Measurements: `results/jxl-jbrd-20261102.md`.
+JPEGs for now. Measurements: `results/jxl-jbrd-20261102.md` (against
+libjxl) and `results/jxl-jbrd-speed-20261104.md` (the writer's speed
+pass, with current figures).
 
 ## Where the syntax comes from
 
@@ -100,6 +102,17 @@ reconstruction, which the oracle found by mutating transcodes:
   pass. It holds the format's 256 trees per category (brotli 1.2.0 writes
   more than 64 at q4 to q9 on 1 MiB inputs), with its state in the work
   memory rather than on the stack.
+- **The writer's inner loops.** Entropy-coded bits wait in a 64-bit
+  accumulator and go out 32 at a time, stored straight into the writer's
+  buffer when it has room and none of the four bytes is 0xFF (byte by
+  byte with stuffing otherwise, so a writer with no buffer works); a
+  symbol and its magnitude bits are one write. A block is put in zigzag
+  order with one 64-lane shuffle, and its coded positions (nonzero, or
+  nonzero after the approximation shift) become a 64-bit mask walked with
+  count-trailing-zeros, so the zero runs cost nothing per coefficient.
+  Each scan works out its components' block layout once, not per block.
+  `JpegReconstructor`'s range check of the coefficients is a 64-lane
+  minimum and maximum checked once a component.
 - **Errors.** `BadJbrd` for any broken constraint, `Unsupported` for more
   than one Exif or XMP marker or a second `jbrd` box (as libjxl), `NoJbrd`
   for a file with no box, and the codestream decoder's errors for its
@@ -119,10 +132,11 @@ CMYK files, so those have no transcode.
 
 ## Open
 
-- libjxl also refuses a colour factor other than 84
-  (`ColorCorrelation::IsJPEGCompatible`), which `decodeJpeg` does not
-  check; no fuzzed input has hit it, at seed 1 with 100,000 inputs on the
-  full corpus and on CI's and at seeds 2 to 10 with 20,000 on CI's.
+Nothing known. `decodeJpeg` now refuses a colour factor other than 84, as
+libjxl's `ColorCorrelation::IsJPEGCompatible` does, with the denominator
+and extra-precision rules before it, so the oracle compares every input.
+The coefficient pass (`Decoder.decodeJpeg`, the JPEG XL orb's) is most of
+a baseline rebuild's time; the writer is most of the rest.
 
 ## Corpus
 

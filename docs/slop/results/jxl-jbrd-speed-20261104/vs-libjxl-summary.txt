@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   libjxl     ±   <1    ~   slowest vs libjxl
+JxlJbrd/icon                      13       26.2     2.27    1%    0    0   1.74 [1.71, 1.78] icon_64-actions_appointment_new-64x64.jxl
+JxlJbrd/1mp                       23      119.0     1.03    1%   10    1   0.90 [0.88, 0.91] pngimg-air_pump_PNG5-999x772.jxl
+JxlJbrd/large                      8      122.5     0.95    1%    6    2   0.91 [0.89, 0.93] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.jxl
+JxlJbrdProgressive/icon           13       24.9     2.66    1%    0    0   2.27 [2.21, 2.30] icon_64-actions_appointment_new-64x64.jxl
+JxlJbrdProgressive/1mp            23       89.7     1.64    1%    0    0   1.48 [1.45, 1.49] photo_kodak-kodim01-768x512.jxl
+JxlJbrdProgressive/large           8       94.4     1.60    1%    0    0   1.55 [1.50, 1.59] photo_wikipedia-001-1276x850.jxl
+all                               88       68.8     1.55         16    3
