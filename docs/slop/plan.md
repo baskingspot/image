@@ -307,7 +307,7 @@ Running beside wave 1's tail, started early by the owner:
   libjxl before, 1 now). Open: a fuzzed far-out-of-gamut XYB frame
   (27366ec7…) is 5 steps off libjxl; fused multiply-adds in the XYB
   transform don't close it (the inputs already differ in their last bits),
-  so it is the reference's float freedom (row 76 open). Streaming also
+  so it is the reference's float freedom (decision 78: peak 8). Streaming also
   covers noise, upsampling (extra channels at the same factor), and patches
   (`wave4-jxl-noiseup`, results/jxl-noiseup-20261103.md); only splines and
   extra channels upsampled by another factor keep a frame whole. A 4000×2667
@@ -328,7 +328,7 @@ Running beside wave 1's tail, started early by the owner:
   (`cjxl -e 2` 1.79×, `-e 3` 1.49×), 8-bit destinations are packed from
   the frame (+1–1.4% lossy), and `decodeJpeg` hands coefficients in zigzag
   order (jbrd progressive +2.6%). What remains on the speed list is the
-  cheaper XYB power function, which waits on row 76. Rebuild
+  cheaper XYB power function, now being measured (decision 78). Rebuild
   speed (`wave4-jxl-jbrd-speed`, results/jxl-jbrd-speed-20261104.md, the
   Netpbm orb): the writer checks range a block at a time, writes 32 bits at
   a time, and walks masks of coded positions. Baseline +27%, progressive
@@ -1210,8 +1210,9 @@ width)` for every file with several entries.
     amplifies that out of gamut. Raising one step per finding only moves
     the line; 8 steps (1.2e-4) is still a small fraction of the conformance
     bound (262), lossless stays exact, and splines keep the conformance
-    bound. The JPEG XL orb makes the change; the cheaper XYB power function
-    may then be measured against it.
+    bound. Done in `wave4-jxl-tol8`: test/oracle/jxl.zig gives frames drawn
+    in floats peak 8, and 27366ec7… agrees. The cheaper XYB power function
+    is measured against it.
 
 ## Harness requests
 
