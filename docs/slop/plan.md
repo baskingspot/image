@@ -869,6 +869,22 @@ orb asks for a change to them, or for text in this file, in its report.
   is a strong reason not to). `src/convert.zig` is the orchestrating
   thread's again.
 
+### Graduation
+
+Started 2026-11-04 by the owner ("let's graduate"), as one orb
+(T-01a1a6ec-67b6-72ea-80ff-10e0959e5195, branch `graduate`), on the
+baskingspot/.github tooling and utf's shape, since the
+`baskingspot-new-repo` skill is not available. It owns `README.md`,
+`docs/content/`, `docs/config.toml`, `docs/static/`, `docs/examples/`,
+`wrangler.jsonc`, the docs recipes in the justfile, the deploy job in
+`.github/workflows/ci.yml`, and `src/root.zig`'s first doc line, and
+prepares the site registration on a `baskingspot/site` branch. The
+tagline stays the GitHub About text. The forced audit (incubating skip and
+admin-only settings check off) found missing logos, the logo header, the
+AI.md link and badge, and the social preview. Owner steps: `stage` to
+stable, the social preview upload, `just settings --repo image`, and the
+site Terraform.
+
 ## Decisions to measure
 
 1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
