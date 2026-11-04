@@ -907,6 +907,32 @@ on image, ported to Zig 0.17, while main stays on 0.16. It owns that
 branch, pinning testingx's `zig-0.17` and a `zig-0.17` branch of compress
 if compress needs one. Pixels and encoded bytes must not change.
 
+Ported 2026-11-04 (results/zig017-20261104.md). The flake takes
+`zig."0.17"` and `devShells."zig-0-17"` from a newer baskingspot/nix;
+testingx is v0.4.0 (it builds on 0.16 and 0.17; its runner picks the seed,
+since `b.graph.random_seed` is gone), and compress is its `zig-0.17`
+branch. What 0.17 changed here: `**` is gone (`@splat`, `std.simd.repeat`
+for multi-byte patterns); `@bitCast` between arrays or vectors and wider
+types is little-endian on every host, so the big-endian `@bitReverse` and
+`@byteSwap` fix-ups around bool-vector masks and byte-lane casts went, and
+native-endian sample loads in `convert.zig` and `jpeg/sample.zig` read and
+write memory with `std.mem.bytesToValue` and `toBytes`; `@hasDecl` sees
+only `pub` declarations; `@typeInfo` is struct-of-arrays (`field_names`,
+`decl_names`, `param_types`, `error_names`); `std.builtin` is `std.lang`,
+`builtin.cpu` is `builtin.target.cpu`, `OptimizeMode` is `Optimize` with
+`debug`/`safe`/`fast`/`small` (the justfile passes those); `@intFromEnum`
+and `@enumFromInt` are `@backingInt` and `@fromBackingInt` (zig fmt);
+`StaticBitSet.initEmpty` is `bit_set.Static.empty`; `allocPrint` and
+`bufPrint` are `Allocator.print` and `mem.print`; `linux.waitpid` takes
+an `*i32` status (the fuzz driver). Zig 0.17 reworked
+`std.sort.pdq`, which orders equal elements differently, and the WebP
+lossless entropy tiles and GIF's quantizer sort with ties: WebP lossless
+and lossy-with-alpha output changed on 32 of the bench corpus rows until
+`src/sort.zig` (0.16's pdq, MIT) took over those three sorts; every
+`bench-image check` row (3,722 decode and encode outputs) is now identical
+to main's. The alternative, breaking ties by index, would make the bytes
+independent of any sort but change them on both branches once.
+
 ## Decisions to measure
 
 1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
