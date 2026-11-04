@@ -336,8 +336,10 @@ Running beside wave 1's tail, started early by the owner:
   (−2.1% baseline); gathering in zigzag order in `decodeJpeg`'s `onBlock`
   wins (+2.6% progressive, +0.9% baseline) and lands with the JPEG XL orb
   as one commit over `vardct.zig` and `jbrd.zig`
-  (c6-zigzag-order.patch). Next for the Netpbm orb: AC-refinement
-  correction bits held in a register and written with one put.
+  (c6-zigzag-order.patch). AC-refinement correction bits wait in a u64 and
+  go out in one or two puts (`wave4-jxl-jbrd-refine`): progressive +4.2%
+  (mosaic +4.1%), baseline unchanged, byte-identical. Next for the Netpbm
+  orb: `jbrd.Bits.u32Field`, about 3% of progressive rebuilds.
 
 Started at once by the owner ("anything we can do in parallel"), each
 owning the files adding-a-format.md assigns to its format plus
