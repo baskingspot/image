@@ -35,6 +35,21 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     b.step("test-unit", "Run the unit tests alone").dependOn(&run_mod_tests.step);
 
+    // The guide's examples are real programs against the public module,
+    // tested with everything else so the guide cannot show code that does
+    // not build.
+    const examples = b.addTest(.{
+        .name = "examples",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("docs/examples/root.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "image", .module = mod }},
+        }),
+        .test_runner = runner,
+    });
+    test_step.dependOn(&b.addRunArtifact(examples).step);
+
     // The fuzz targets import `image`, and `compress` to build inputs (zlib
     // streams for PNG, say).
     const fuzz_imports: []const std.Build.Module.Import = &.{

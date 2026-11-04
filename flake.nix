@@ -15,6 +15,7 @@
       # version: pick that once, in the import.
       imports = with inputs.baskingspot.flakeModules; [
         base
+        docs
         zig."0.16"
       ];
 
@@ -44,6 +45,7 @@
           devShells.default = pkgs.mkShell {
             inputsFrom = with config.devShells; [
               base
+              docs
               zig
             ];
 

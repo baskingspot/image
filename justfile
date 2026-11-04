@@ -1,8 +1,8 @@
 # image: Image decoders and encoders in Zig with no C: PNG, JPEG, GIF, WebP, TIFF, JPEG XL, and more. `just --list` shows the recipes.
 # AGENTS.md holds the working conventions.
 
-markdown := "README.md AGENTS.md CHANGELOG.md THIRD_PARTY.md bench/README.md corpus/README.md docs/slop .github"
-zig_sources := "src build.zig build.zig.zon test bench/zig docs/slop/results"
+markdown := "README.md AGENTS.md CHANGELOG.md THIRD_PARTY.md bench/README.md corpus/README.md docs/slop docs/content docs/config.toml .github"
+zig_sources := "src build.zig build.zig.zon test bench/zig docs/slop/results docs/examples"
 
 # The arms `just bench-compare` runs, this package's first; the C arms come
 # from bench/c/arms.tsv.
@@ -36,7 +36,7 @@ cache-guard:
         rm -rf .zig-cache
     fi
 
-[doc("Unit tests and each fuzz target over its seeds, in Debug and ReleaseSafe; the unit tests in ReleaseFast")]
+[doc("Unit tests, the guide's examples, and each fuzz target over its seeds, in Debug and ReleaseSafe; the unit tests in ReleaseFast")]
 [group("test")]
 test: cache-guard
     zig build test --summary all
@@ -380,6 +380,27 @@ bench-summary DIR="zig-out/bench-compare":
     : > "{{ DIR }}/rows.txt"
     awk -v rows="{{ DIR }}/rows.txt" -f bench/summary.awk "${files[@]}"
 
-[doc("Everything CI runs")]
+[doc("Build the site into zig-out/site/image/: the guide (Zola, from docs/) and the API reference (docgen JSON, rendered by the theme's api.html) under api/. The router in baskingspot/site serves /image/... from it")]
+[group("docs")]
+doc: api
+    baskingspot-docs build image
+
+[doc("Edit the guide with live reload (http://127.0.0.1:1111), API reference included")]
+[group("docs")]
+guide: api
+    baskingspot-docs serve image
+
+# The API reference data. docgen comes from the baskingspot flake's docs shell,
+# so this is not a Zig build dependency.
+[private]
+api:
+    docgen --root src/root.zig --title image --repo-url https://github.com/baskingspot/image --rev main --format json --out docs/data
+
+[doc("Deploy the rendered docs to Cloudflare as an assets-only Worker (config in wrangler.jsonc). Needs CLOUDFLARE_API_TOKEN in the environment, plus CLOUDFLARE_ACCOUNT_ID if the token can see more than one account")]
+[group("docs")]
+doc-deploy: doc
+    wrangler deploy
+
+[doc("Everything CI runs: the tests, the big-endian tests, lint, the oracle comparison, and the docs build")]
 [group("ci")]
-ci: test test-be lint oracle-ci
+ci: test test-be lint oracle-ci doc

@@ -6,3 +6,6 @@ zig-pkg/
 corpus/fetched/
 bench/corpus-gen/
 bench/rust/target/
+docs/data/
+docs/themes/
+docs/public/

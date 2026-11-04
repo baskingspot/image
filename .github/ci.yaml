@@ -6,3 +6,4 @@ jobs:
   - recipe: test
   - recipe: test-be
   - recipe: lint
+  - recipe: doc
