@@ -751,7 +751,7 @@ fn groupIn(arena: *Arena, ctx: *Context, g: usize) Error!void {
             .group_dim = d.group_dim,
             .visible = ctx.counts[0],
             .nonvisible = ctx.counts[1],
-        }, d.group_dim * ctx.fh.upsampling);
+        }, if (ctx.fh.upsampling != 1) upChunk(ctx.fh.upsampling) * ctx.fh.upsampling else d.group_dim);
     }
     if (ctx.rows_in >= 2) try emitBand(arena, ctx, ctx.rows_in - 2);
     if (ctx.rows_in == d.ysize_groups) try emitBand(arena, ctx, ctx.rows_in - 1);
@@ -846,9 +846,9 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
         patches.apply(dict, image, ctx.refs, all, stride, w, w, h, ya, yb);
     }
     if (ctx.drawn_splines) |*sp| sp.drawRows(at, stride, ya, yb);
-    var out: Band = undefined;
+    const sink = ctx.band.?;
     if (n == 1) {
-        out = .{
+        const out: Band = .{
             .planes = at,
             .stride = stride,
             .extra = &b.img,
@@ -857,43 +857,59 @@ fn emitBand(arena: *Arena, ctx: *Context, k: usize) Error!void {
             .y0 = y0,
             .rows = y1 - y0,
         };
+        if (ctx.noise_stream) |*ns| ns.band(&ctx.noise.?, at, stride, y0, y1, vd.base_x, vd.base_b);
+        sink.write(sink.ctx, &out);
     } else {
+        // Upsampled, noised, color-transformed, and written `upChunk`
+        // source rows at a time. Each part's rows are contiguous and start
+        // a multiple of eight samples into the frame, so the transform
+        // takes the samples eight at a time as on whole planes, and the
+        // last part's tail as the whole frame's.
         const dw: usize = d.width_up;
         const dh: usize = d.height_up;
-        const oy0 = y0 * n;
-        const rows = @min(dh, y1 * n) - oy0;
         const kern: upsample.Kernel = .init(image, n);
+        const step = upChunk(n);
         var up: [3][]f32 = undefined;
-        for (&up, at) |*o, p| {
-            o.* = try arena.alloc(f32, rows * dw);
-            upsample.upsampleRows(&kern, p, ya, w, h, stride, y0, y1, o.*, dw, dh, dw);
-        }
+        for (&up) |*o| o.* = try arena.alloc(f32, step * n * dw);
         const ec = try arena.alloc([]f32, ne);
-        for (ec, ecf.?) |*o, t| {
-            o.* = try arena.alloc(f32, rows * dw);
-            upsample.upsampleRows(&kern, t, ya, w, h, w, y0, y1, o.*, dw, dh, dw);
+        for (ec) |*o| o.* = try arena.alloc(f32, step * n * dw);
+        var sy = y0;
+        while (sy < y1) : (sy += step) {
+            const sy1 = @min(y1, sy + step);
+            const oy0 = sy * n;
+            const rows = @min(dh, sy1 * n) - oy0;
+            if (rows == 0) break;
+            var part: [3][]f32 = undefined;
+            for (&part, up, at) |*o, buf, p| {
+                o.* = buf[0 .. rows * dw];
+                upsample.upsampleRows(&kern, p, ya, w, h, stride, sy, sy1, o.*, dw, dh, dw);
+            }
+            for (ec, ecf.?) |o, t| upsample.upsampleRows(&kern, t, ya, w, h, w, sy, sy1, o, dw, dh, dw);
+            if (ctx.noise_stream) |*ns| ns.band(&ctx.noise.?, part, dw, oy0, oy0 + rows, vd.base_x, vd.base_b);
+            colorTransformPlanes(ctx.image, ctx.fh, part);
+            const out: Band = .{
+                .planes = part,
+                .stride = dw,
+                .extra = &b.img,
+                .extra_y = b.y,
+                .ec = ec,
+                .y0 = oy0,
+                .rows = rows,
+                .transformed = true,
+            };
+            sink.write(sink.ctx, &out);
         }
-        out = .{ .planes = up, .stride = dw, .extra = &b.img, .extra_y = b.y, .ec = ec, .y0 = oy0, .rows = rows };
     }
-    if (ctx.noise_stream) |*ns| {
-        ns.band(&ctx.noise.?, out.planes.?, out.stride, out.y0, out.y0 + out.rows, vd.base_x, vd.base_b);
-    }
-    if (n != 1) {
-        // Here rather than as the rows are written: the band's rows are
-        // contiguous and start a multiple of eight samples into the frame,
-        // so the transform takes the samples eight at a time as on whole
-        // planes, and the last band's tail as the whole frame's.
-        var planes: [3][]f32 = undefined;
-        for (&planes, out.planes.?) |*o, p| o.* = p[0 .. out.rows * out.stride];
-        colorTransformPlanes(ctx.image, ctx.fh, planes);
-        out.transformed = true;
-    }
-    const sink = ctx.band.?;
-    sink.write(sink.ctx, &out);
     ctx.bands_out += 1;
     // The next band's window reads the margin above it, which the next
     // group row takes from the ring.
     if (y1 < h) vd.keepTail(y1 - margin, margin);
+}
+
+/// The source rows of an upsampled band upsampled and written at a time:
+/// 64 output rows.
+pub fn upChunk(n: usize) usize {
+    return 64 / n;
 }
 
 /// A streamed frame's Modular channels for rows `y0 .. y0 + rows`, and

@@ -144,9 +144,10 @@ same order as on the whole frame; an error the checks find is returned
 after the last group, where the whole frame would draw them. With upsampling, the window's margin
 is sixteen rows, so that two filtered rows each side of the band remain,
 which the patches and the upsampling of the band (`upsample.upsampleRows`)
-read, the extra channels' too, and the band is color-transformed into
-contiguous rows of the frame's width, which start a multiple of eight
-samples into the frame, so the transform's vector and scalar parts fall on
+read, the extra channels' too. The band is upsampled, noised,
+color-transformed, and written in parts of 64 output rows
+(`frame.upChunk`), each contiguous rows of the frame's width, which start
+a multiple of eight samples into the frame, so the transform's vector and scalar parts fall on
 the same samples as on whole planes. Noise is drawn per tile of a group's
 size after upsampling, each tile's generator filling one plane after
 another, so its random rows are made a tile row at a time into a ring that
@@ -432,10 +433,17 @@ noise at about ±1.5%.
 
 ## Next
 
-1. **Memory, further**: the extra channels' rings at one group row and
-   the margin; an upsampled band in parts rather than whole (a band of a
-   4000×2667 `--resampling=2` file is 512 rows of three 4000-sample
-   planes, 24.6 MB). Reference slots sized by the frames saved in them
+1. **Memory, further**: little is left in streaming. The extra channels'
+   rings stay at two group rows (three when upsampled): band k's extra
+   channels are group row k's, final once its groups are in, but the band
+   is written only after group row k+1, whose groups decode the next rows
+   into the ring, so two group rows is the least without holding the band
+   elsewhere at the same cost; with upsampling, a tail of two rows (as
+   `keepTail` does for VarDCT) instead of the third group row would save
+   one group row of each extra channel, 2.0 MB of a 4000×2667 2× photo
+   with alpha's 33.1 MB arena peak and 116 MiB RSS
+   (results/jxl-upparts-20261104.md), which is not worth the Modular ring
+   and transform code it needs. Reference slots sized by the frames saved in them
    would not lower peak RSS, so they are not planned: the slots take most
    of that file's 693 MB arena peak, but `saveFrame` writes a smaller
    frame (cjxl's patch dictionary strip) compactly at the start of its
@@ -443,7 +451,9 @@ noise at about ±1.5%.
    are never touched: the file's peak RSS is 128 MiB in the bench's Zig
    arm, of which 81 MiB is the output (libjxl: 103 MiB), and the
    1313×6097 screenshot's 85 MiB (61 MiB output; libjxl 83 MiB)
-   (results/jxl-splines-20261103.md). `work_len` would not shrink either:
+   (results/jxl-splines-20261103.md), 107 and 76 MiB since upsampled
+   bands are written in parts (results/jxl-upparts-20261104.md).
+   `work_len` would not shrink either:
    it is a bound fixed before the frames are known. `work_len` for Modular
    stays the whole frame's until `decodeConfig` can learn the transforms,
    which come after the tree (`results/jxl-mstream2-20261103.md`).

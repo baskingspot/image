@@ -1,0 +1,7 @@
+bigup2np before   peak 45388160 of 160451183 (28%) | after   peak 23884160 of 138611183 (17%)
+bigup2npa before   peak 61807168 of 229554950 (26%) | after   peak 33135168 of 202547450 (16%)
+spu before   peak 15294720 of 78054340 (19%) | after   peak 10434496 of 72652840 (14%)
+up4 before   peak 51784576 of 101687966 (50%) | after   peak 51784576 of 101687966 (50%)
+bigup2.jxl before   peak 693053760 of 3046683185 (22%) | after   peak 671549760 of 3046683185 (22%)
+bigboth.jxl before   peak 730398016 of 3046683185 (23%) | after   peak 687390016 of 3046683185 (22%)
+screenshot_web-amazon_com-1313x6097.jxl before   peak 667975424 of 2756533828 (24%) | after   peak 658645312 of 2756533828 (23%)

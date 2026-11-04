@@ -329,20 +329,26 @@ fn frameBound(h: *const headers.ImageHeader, f: ?*const headers.FrameHeader, str
         total += pre_px * 12 + pre_px / 16;
     }
     // Upsampled planes, the extra channels as floats, the noise's planes,
-    // and patches and splines at their budgets; a streamed frame's
-    // upsampled planes and extra channels are a band's, and its noise a
-    // band and a group row of random rows.
+    // and patches and splines at their budgets; a streamed frame's extra
+    // channels as floats are a band's (with two rows each side when
+    // upsampled), its upsampled planes a part of a band's
+    // (`frame.upChunk`), and its noise that part and a group row of
+    // random rows.
     var band_px = up_px;
+    var up_part_px: u128 = 0;
     var noise_bytes = up_px * 12 + 64 * @as(u128, h.width) * 4;
     if (stream) {
         const fh = f.?;
         const dims: headers.Dims = .init(fh);
-        const rows = @as(u64, dims.group_dim) * fh.upsampling;
-        band_px = @min(up_px, @as(u128, rows) * fh.width);
-        noise_bytes = @min(noise_bytes, noise.Stream.bytes(fh.width, rows, dims.group_dim));
+        const n = fh.upsampling;
+        const rows: u64 = if (n == 1) dims.group_dim else dims.group_dim + 4;
+        band_px = @min(pre_px, @as(u128, rows) * dims.width);
+        const part_rows: u64 = if (n == 1) dims.group_dim else frame.upChunk(n) * n;
+        up_part_px = @min(up_px, @as(u128, part_rows) * fh.width);
+        noise_bytes = @min(noise_bytes, noise.Stream.bytes(fh.width, part_rows, dims.group_dim));
     }
     if (upsampled or flags & headers.flag_patches != 0) total += ne * band_px * 4 + pre_px * 4;
-    if (upsampled) total += band_px * 12;
+    if (upsampled) total += if (stream) (3 + ne) * up_part_px * 4 else band_px * 12;
     if (flags & headers.flag_noise != 0) total += noise_bytes;
     if (flags & headers.flag_patches != 0) total += patches.budgetBytes(@intCast(pad_px), h.num_ec);
     if (flags & headers.flag_splines != 0) total += splines.workBytes(@intCast(pre_px));
