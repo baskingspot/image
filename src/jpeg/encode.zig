@@ -964,9 +964,14 @@ fn rgbToYcc(rgb: []const u8, y: []u8, cb: []u8, cr: []u8, width: usize) void {
         const yv = (simd.madd(rg, 19595, 22086) + simd.madd(bg, 7471, 16384) + k(32768)) >> @splat(16);
         const cbv = (simd.madd(rg, -11059, -21709) + (b << @splat(15)) + k((128 << 16) + 32767)) >> @splat(16);
         const crv = (simd.madd(bg, -5329, -27439) + (r << @splat(15)) + k((128 << 16) + 32767)) >> @splat(16);
-        y[x..][0..8].* = @as(@Vector(8, u8), @intCast(yv));
-        cb[x..][0..8].* = @as(@Vector(8, u8), @intCast(cbv));
-        cr[x..][0..8].* = @as(@Vector(8, u8), @intCast(crv));
+        // Truncates, not @intCast: Zig 0.17 marks a signed-to-unsigned
+        // vector @intCast `trunc nsw`, which lets LLVM pack with signed
+        // saturation, so 128-255 became 127
+        // (docs/slop/results/zig017-20261104.md).
+        const U = @Vector(8, u32);
+        y[x..][0..8].* = @as(@Vector(8, u8), @truncate(@as(U, @bitCast(yv))));
+        cb[x..][0..8].* = @as(@Vector(8, u8), @truncate(@as(U, @bitCast(cbv))));
+        cr[x..][0..8].* = @as(@Vector(8, u8), @truncate(@as(U, @bitCast(crv))));
     }
     for (x..width) |i| {
         const r: i32 = rgb[3 * i];

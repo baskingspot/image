@@ -933,6 +933,15 @@ and lossy-with-alpha output changed on 32 of the bench corpus rows until
 to main's. The alternative, breaking ties by index, would make the bytes
 independent of any sort but change them on both branches once.
 
+CI on the branch then failed JPEG on GitHub's runner, which has no AVX-512:
+Zig 0.17 marks a signed-to-unsigned `@intCast` `trunc nsw`, so LLVM
+narrowed clamped vectors with signed saturation (128-255 to 127). The three
+vector sites that hit it (`jpeg/idct.zig`'s two stores, `jpeg/encode.zig`'s
+YCbCr store) use `@truncate` instead; `just test-cpu` runs the tests built
+for baseline and `x86_64_v3`, in `just ci` and CI, so a host with AVX-512
+cannot hide such a bug. The reduction, the IR audit, and a draft upstream
+issue (not filed; the owner decides) are in results/zig017-20261104.md.
+
 ## Decisions to measure
 
 1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
