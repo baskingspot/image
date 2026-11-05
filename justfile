@@ -48,6 +48,21 @@ test: cache-guard
     # run at a time (docs/slop/results/test-memory-20261102.md).
     zig build test-unit -Doptimize=fast --summary all
 
+[doc("Unit tests, the guide's examples, and each fuzz target over its seeds in ReleaseSafe, built for baseline x86-64 and for x86-64-v3, on an x86-64 host")]
+[group("test")]
+test-cpu: cache-guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A host with AVX-512 takes other vector paths than one without, so a
+    # codegen bug in the paths without it passes on such a host. Zig 0.17's
+    # signed-to-unsigned vector @intCast did (docs/slop/results/zig017-20261104.md).
+    if [ "$(uname -m)" != x86_64 ]; then
+        echo "test-cpu: not an x86-64 host, skipped" >&2
+        exit 0
+    fi
+    zig build test -Doptimize=safe -Dcpu=baseline --summary all
+    zig build test -Doptimize=safe -Dcpu=x86_64_v3 --summary all
+
 [doc("Unit tests on a big-endian target, s390x, under qemu")]
 [group("test")]
 test-be: cache-guard
@@ -401,6 +416,6 @@ api:
 doc-deploy: doc
     wrangler deploy
 
-[doc("Everything CI runs: the tests, the big-endian tests, lint, the oracle comparison, and the docs build")]
+[doc("Everything CI runs: the tests, the tests built for older x86-64 CPUs, the big-endian tests, lint, the oracle comparison, and the docs build")]
 [group("ci")]
-ci: test test-be lint oracle-ci doc
+ci: test test-cpu test-be lint oracle-ci doc

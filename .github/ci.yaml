@@ -4,6 +4,7 @@
 # schedule instead (.github/workflows/fuzz.yml).
 jobs:
   - recipe: test
+  - recipe: test-cpu
   - recipe: test-be
   - recipe: lint
   - recipe: doc
