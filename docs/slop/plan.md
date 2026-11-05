@@ -905,7 +905,16 @@ Started 2026-11-04 by the owner, as one orb
 (T-01a1a754-93ae-703c-9168-db8127d1e993): a long-lived `zig-0.17` branch
 on image, ported to Zig 0.17, while main stays on 0.16. It owns that
 branch, pinning testingx's `zig-0.17` and a `zig-0.17` branch of compress
-if compress needs one. Pixels and encoded bytes must not change.
+if compress needs one. Pixels and encoded bytes must not change. Landed on the
+branch (image c595951, compress b1387a3), GitHub CI green on both: Zig
+0.17 tags `@intCast`'s truncate `nsw` from a signed source to an unsigned
+destination, so LLVM picked `packsswb` for JPEG's clamped stores off
+AVX-512; three sites `@truncate` instead, and `just test-cpu` (baseline and
+`x86_64_v3`, ReleaseSafe) runs in `just ci` and CI. compress's large
+`undefined` Debug locals blew up arm and riscv64 instruction selection and
+are heap-allocated. A Zig issue is drafted in results/zig017-20261104.md,
+not filed. Row 77 (sort ties: vendored 0.16 pdq or ties by index) is the
+owner's.
 
 ## Decisions to measure
 
