@@ -899,6 +899,19 @@ let image's deploy run once on main, then deploy the router. Done by the owner o
 settings (signed-commits ruleset, squash only), and the homepage. The site
 Terraform and router wait for Matt.
 
+### Resizing
+
+Started 2026-11-05 by the owner ("Go for it"), which moves resizing out of
+"Not in phase 1": `image.resize` beside `image.convert`, caller-owned work
+memory, any pixel format in and out, stb's filters and edge modes, a
+row-streaming `Resizer`, and `resize.orient` for the EXIF transforms. The
+first user is rockorager/monstar's glyph scaling (`stbir_resize_uint8` on
+`gray8` and premultiplied BGRA). One orb
+(T-01a1ab29-d8d3-73e6-8779-42942d5eceaa, branch `wave6-resize`) owns
+`src/resize*`, its root line, the resize oracle, fuzz target, bench arm,
+example, guide chapter, and `docs/slop/resize.md`. stb_image_resize2 is the
+bar and the oracle.
+
 ### Zig 0.17
 
 Started 2026-11-04 by the owner, as one orb
