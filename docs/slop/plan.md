@@ -947,8 +947,9 @@ destination, so LLVM picked `packsswb` for JPEG's clamped stores off
 AVX-512; three sites `@truncate` instead, and `just test-cpu` (baseline and
 `x86_64_v3`, ReleaseSafe) runs in `just ci` and CI. compress's large
 `undefined` Debug locals blew up arm and riscv64 instruction selection and
-are heap-allocated. A Zig issue is drafted in results/zig017-20261104.md,
-not filed. Row 77 (sort ties: vendored 0.16 pdq or ties by index) is the
+are heap-allocated. The `@intCast` flag is fixed in Zig 0.17.1 (checked with the repro:
+208, not 127), so the branch moves to 0.17.1 and drops the workaround; no
+issue filed. Row 77 (sort ties: vendored 0.16 pdq or ties by index) is the
 owner's.
 
 ## Decisions to measure
@@ -1295,6 +1296,22 @@ width)` for every file with several entries.
     bound. Done in `wave4-jxl-tol8`: test/oracle/jxl.zig gives frames drawn
     in floats peak 8, and 27366ec7… agrees. The cheaper XYB power function
     is measured against it.
+79. **Sort ties. Decided by the owner:** encoders that sort break equal
+    keys by index (the WebP lossless tile sort and GIF's quantizer box
+    sorts, as the JPEG XL encoder already does), so no `std.sort` change
+    moves their bytes; the vendored Zig 0.16 pdq on `zig-0.17` goes. WebP
+    and GIF encoded bytes change once.
+80. **Resize default at 1:1. Decided by the owner:** Catmull-Rom, as
+    stb_image_resize2: it passes through its samples, so an axis that keeps
+    its size is copied; v0.97's Mitchell blurred it (monstar's glyphs lose
+    that blur).
+81. **Transparent pixels after resizing. Decided by the owner:** a
+    straight-alpha pixel whose alpha rounds to 0 is written transparent
+    black.
+82. **Resize speed. Decided by the owner:** a fixed-point 8-bit path and
+    cheaper per-call setup, against libvips on large 8-bit downscales and
+    stb2 on icons, with a stated 8-bit tolerance against stb2; 16-bit and
+    float stay on f64 weights. stb2's bugs found by the oracle are not filed.
 
 ## Harness requests
 
