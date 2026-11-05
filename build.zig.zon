@@ -44,8 +44,8 @@
         // levels, which PNG encode uses, ported to Zig 0.17; move to the
         // next release that builds on 0.17 when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#fac0a9038117c028717b8f769f2536f679981bea",
-            .hash = "compress-0.2.0-VxR1WrgVPAAX0-dTtN27xfqmveZqH3tO9867bHXCntoF",
+            .url = "git+https://github.com/baskingspot/compress#b1387a3eb961293724bc3a31b3bcec58c3ef6f17",
+            .hash = "compress-0.2.0-VxR1WtQZPAAmvCPqUYJb-XvaXJxs5tzB7NIObXUrVr3e",
         },
     },
     // Specifies the set of files and directories that are included in this package.
