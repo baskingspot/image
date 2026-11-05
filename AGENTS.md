@@ -10,7 +10,7 @@ Image decoders and encoders in Zig, with no C: PNG and APNG, JPEG, GIF, WebP, TI
 
 ## Environment
 
-Zig 0.17 only. The flake is the tool contract, from `baskingspot/nix`: `nix develop` provides Zig, `ziglint`, and the base tools, and nothing comes from the system PATH. The justfile is the command interface: `just test`, `just lint`, `just ci`. Run `just fmt` before you commit. `.agents/setup` installs Nix when an orb lacks it and warms the dev shell.
+Zig 0.17 only, 0.17.1 or later. The flake is the tool contract, from `baskingspot/nix`: `nix develop` provides Zig, `ziglint`, and the base tools, and nothing comes from the system PATH. The justfile is the command interface: `just test`, `just lint`, `just ci`. Run `just fmt` before you commit. `.agents/setup` installs Nix when an orb lacks it and warms the dev shell.
 
 ## Safety
 

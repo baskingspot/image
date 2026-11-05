@@ -356,12 +356,7 @@ fn kernel(
     inline for (0..size) |r| {
         const v: I = @truncate(samples[r]);
         const w = ((v +% half) & mask) - half + center;
-        const c = @max(@min(w, max), @as(I, @splat(0)));
-        // A truncate, not @intCast: Zig 0.17 marks a signed-to-unsigned
-        // vector @intCast `trunc nsw`, which lets LLVM pack with signed
-        // saturation, so 128-255 became 127
-        // (docs/slop/results/zig017-20261104.md).
-        const s: @Vector(8, Sample(bits)) = @truncate(c);
+        const s: @Vector(8, Sample(bits)) = @intCast(@max(@min(w, max), @as(I, @splat(0))));
         const a: [8]Sample(bits) = s;
         @memcpy(out[r * stride ..][0..size], a[0..size]);
     }
@@ -472,8 +467,7 @@ fn pair(a: Job, b: Job) void {
     }
     const rows = transpose16(cols);
     inline for (0..8) |r| {
-        // A truncate, not @intCast, as in `kernel`.
-        const s: @Vector(16, u8) = @truncate(@as(@Vector(16, u16), @bitCast(rows[r])));
+        const s: @Vector(16, u8) = @intCast(rows[r]);
         const half: [2][8]u8 = @bitCast(s);
         a.out[r * a.stride ..][0..8].* = half[0];
         b.out[r * b.stride ..][0..8].* = half[1];

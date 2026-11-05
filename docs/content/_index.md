@@ -34,7 +34,7 @@ const image = b.dependency("image", .{ .target = target, .optimize = optimize })
 exe.root_module.addImport("image", image.module("image"));
 ```
 
-image builds with Zig 0.17 only. It depends on [compress](https://baskingspot.dev/compress/) for zlib, DEFLATE, and Brotli, which brings fastmem, and on nothing else.
+image builds with Zig 0.17 only, 0.17.1 or later. It depends on [compress](https://baskingspot.dev/compress/) for zlib, DEFLATE, and Brotli, which brings fastmem, and on nothing else.
 
 ## Import it
 

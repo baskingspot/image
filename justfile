@@ -54,8 +54,9 @@ test-cpu: cache-guard
     #!/usr/bin/env bash
     set -euo pipefail
     # A host with AVX-512 takes other vector paths than one without, so a
-    # codegen bug in the paths without it passes on such a host. Zig 0.17's
-    # signed-to-unsigned vector @intCast did (docs/slop/results/zig017-20261104.md).
+    # codegen bug in the paths without it passes on such a host. Zig
+    # 0.17.0's signed-to-unsigned vector @intCast did, fixed in 0.17.1
+    # (docs/slop/results/zig017-20261104.md).
     if [ "$(uname -m)" != x86_64 ]; then
         echo "test-cpu: not an x86-64 host, skipped" >&2
         exit 0

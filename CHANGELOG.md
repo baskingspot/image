@@ -7,7 +7,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
-- image builds with Zig 0.17 only (`minimum_zig_version` is `0.17.0`); Zig 0.16 no longer builds it.
+- image builds with Zig 0.17.1 or a later 0.17 only (`minimum_zig_version` is `0.17.1`); Zig 0.16 no longer builds it, and Zig 0.17.0 miscompiles the JPEG codec on x86-64 without AVX-512.
 
 ## [0.1.0] - 2026-11-04
 

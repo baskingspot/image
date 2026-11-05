@@ -1,6 +1,9 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    # A nixpkgs master commit, the merge of zig_0_17 0.17.0 -> 0.17.1:
+    # nixos-unstable still has 0.17.0. Back to nixos-unstable once it has
+    # 0.17.1.
+    nixpkgs.url = "github:nixos/nixpkgs/212e30a1c30f68dc530636849eddef168d9497d0";
     flake-parts.follows = "baskingspot/flake-parts";
     baskingspot = {
       url = "github:baskingspot/nix";

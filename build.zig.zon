@@ -25,7 +25,7 @@
     .fingerprint = 0xc53d045f8cbbc2c1, // Changing this has security and trust implications.
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
@@ -44,7 +44,7 @@
         // levels, which PNG encode uses, ported to Zig 0.17; move to the
         // next release that builds on 0.17 when there is one.
         .compress = .{
-            .url = "git+https://github.com/baskingspot/compress#b1387a3eb961293724bc3a31b3bcec58c3ef6f17",
+            .url = "git+https://github.com/baskingspot/compress#02b5b9d6afade34a7928f54d711da88c7f42aaed",
             .hash = "compress-0.2.0-VxR1WtQZPAAmvCPqUYJb-XvaXJxs5tzB7NIObXUrVr3e",
         },
     },
