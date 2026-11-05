@@ -1,0 +1,49 @@
+# Not part of the change: Swap3 at 16 pixels as committed ("after"), and
+# a probe of it whose block is a byte @shuffle of the l * 3 * @sizeOf(T)
+# input bytes, each sample's bytes moving together, instead of a @bitCast
+# to @Vector(l * 3, T) ("probe"). One run, 2000 calls a sample, best of 5,
+# pinned to core 2. Symbol sizes from nm -S, in bytes.
+== p-after-native
+8291 convert.Swap3(u16).run
+1069 convert.Swap3(u8).run
+1886 convert.Swap4(u16).run
+736 convert.Swap4(u8).run
+rgb16->bgr16	16	25 MP/s
+rgb16->bgr16	1000	24 MP/s
+rgba16->bgra16	16	415 MP/s
+rgba16->bgra16	1000	402 MP/s
+rgb8->bgr8	16	3719 MP/s
+rgb8->bgr8	1000	16140 MP/s
+== p-probe-native
+1171 convert.Swap3(u16).run
+893 convert.Swap3(u8).run
+1886 convert.Swap4(u16).run
+736 convert.Swap4(u8).run
+rgb16->bgr16	16	3132 MP/s
+rgb16->bgr16	1000	9479 MP/s
+rgba16->bgra16	16	415 MP/s
+rgba16->bgra16	1000	399 MP/s
+rgb8->bgr8	16	3721 MP/s
+rgb8->bgr8	1000	18520 MP/s
+== p-after-baseline
+5888 convert.Swap3(u16).run
+2775 convert.Swap3(u8).run
+1124 convert.Swap4(u16).run
+439 convert.Swap4(u8).run
+rgb16->bgr16	16	27 MP/s
+rgb16->bgr16	1000	26 MP/s
+rgba16->bgra16	16	894 MP/s
+rgba16->bgra16	1000	1049 MP/s
+rgb8->bgr8	16	1398 MP/s
+rgb8->bgr8	1000	1720 MP/s
+== p-probe-baseline
+1340 convert.Swap3(u16).run
+1568 convert.Swap3(u8).run
+1124 convert.Swap4(u16).run
+439 convert.Swap4(u8).run
+rgb16->bgr16	16	2673 MP/s
+rgb16->bgr16	1000	3017 MP/s
+rgba16->bgra16	16	927 MP/s
+rgba16->bgra16	1000	1081 MP/s
+rgb8->bgr8	16	2309 MP/s
+rgb8->bgr8	1000	2504 MP/s

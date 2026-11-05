@@ -13,6 +13,7 @@ All notable changes to image are recorded here. The format follows
 ### Changed
 
 - image builds with Zig 0.17.1 or a later 0.17 only (`minimum_zig_version` is `0.17.1`); Zig 0.16 no longer builds it, and Zig 0.17.0 miscompiles the JPEG codec on x86-64 without AVX-512.
+- `image.convert` between `rgb8` and `bgr8` (and `rgb16` and `bgr16`) runs 16-pixel blocks again instead of 64: Zig 0.17 compiles the 64-pixel kernel a byte at a time, which made 24-bit TGA decoding about 140× slower and took 73–81 KB of code, where it now takes about 9 KB.
 - `image.webp.encode` (lossless, `effort` 1 to 9), `image.webp.lossy.encode` with alpha, and `image.gif.encode` with `quantizer = .median_cut` or `.octree` write different bytes for some images, once: their sorts break ties by index, so a Zig release that changes `std.sort` cannot change their output. Files are within 1.3% of their old size, and each benchmark row's total within 0.11%; the default GIF quantizer, Wu's, is unchanged.
 
 ## [0.1.0] - 2026-11-04

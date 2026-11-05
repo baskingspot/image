@@ -471,14 +471,12 @@ fn disjoint(a: []const u8, b: []const u8) bool {
     return @intFromPtr(a.ptr) >= @intFromPtr(b.ptr) + b.len or @intFromPtr(b.ptr) >= @intFromPtr(a.ptr) + a.len;
 }
 
-/// Blocks of pixels, then the tail as one more block. `K.block(l, o, i)`
-/// converts `l` pixels, for `l` of `K.wide` and `K.narrow`: wide blocks
-/// once there are that many pixels (stores of whole cache lines where the
-/// format allows), narrow ones below that. Every kernel works pixel by
+/// Blocks of `K.pixels` pixels, then the tail as one more block.
+/// `K.block(l, o, i)` converts `l` pixels. Every kernel works pixel by
 /// pixel, so the tail's block may overlap the last one: it writes the same
 /// bytes again. When the buffers overlap, or there is no whole block, the
-/// narrow blocks run alone and the tail goes through a padded copy
-/// instead, which reads no byte this call wrote.
+/// blocks run alone and the tail goes through a padded copy instead, which
+/// reads no byte this call wrote.
 fn blocks(
     comptime K: type,
     comptime dst: PixelFormat,
@@ -489,49 +487,22 @@ fn blocks(
 ) void {
     const db = comptime dst.bytesPerPixel();
     const sb = comptime src.bytesPerPixel();
-    if (n >= K.narrow and disjoint(out, in)) {
-        if (K.wide != K.narrow and n >= K.wide + 64) {
-            // Wide blocks from the first pixel whose output starts a cache
-            // line, so their stores split none; narrow ones before it.
-            const k = lineStart(db, @intFromPtr(out.ptr));
-            if (k >= K.narrow) {
-                overlapped(db, sb, K.narrow, out[0 .. k * db], in[0 .. k * sb], k, K.block);
-            } else if (k != 0) {
-                @call(.always_inline, K.block, .{ K.narrow, out[0 .. K.narrow * db], in[0 .. K.narrow * sb] });
-            }
-            overlapped(db, sb, K.wide, out[k * db ..], in[k * sb ..], n - k, K.block);
-        } else if (K.wide != K.narrow and n >= K.wide) {
-            overlapped(db, sb, K.wide, out, in, n, K.block);
-        } else {
-            overlapped(db, sb, K.narrow, out, in, n, K.block);
-        }
+    const l = K.pixels;
+    if (n >= l and disjoint(out, in)) {
+        overlapped(db, sb, l, out, in, n, K.block);
         return;
     }
-    const full = n / K.narrow * K.narrow;
+    const full = n / l * l;
     var i: usize = 0;
-    while (i < full) : (i += K.narrow) {
-        const o = out[i * db ..][0 .. K.narrow * db];
-        @call(.always_inline, K.block, .{ K.narrow, o, in[i * sb ..][0 .. K.narrow * sb] });
+    while (i < full) : (i += l) {
+        const o = out[i * db ..][0 .. l * db];
+        @call(.always_inline, K.block, .{ l, o, in[i * sb ..][0 .. l * sb] });
     }
     const m = n - full;
     if (m != 0) {
         const o = out[full * db ..][0 .. m * db];
-        @call(.never_inline, padded, .{ db, sb, K.narrow, o, in[full * sb ..][0 .. m * sb], K.block });
+        @call(.never_inline, padded, .{ db, sb, l, o, in[full * sb ..][0 .. m * sb], K.block });
     }
-}
-
-/// The first pixel of `db` bytes from `addr` on whose bytes start a
-/// 64-byte line, or 0 when no pixel's do.
-fn lineStart(comptime db: usize, addr: usize) usize {
-    const tz = comptime @ctz(db);
-    const mask = (64 >> tz) - 1;
-    // The inverse of `db`'s odd factor modulo 64 >> tz.
-    const inv = comptime for (1..64) |x| {
-        if ((x * (db >> tz)) & mask == 1) break x;
-    } else unreachable;
-    const need = (0 -% addr) & 63;
-    if (need & ((1 << tz) - 1) != 0) return 0;
-    return ((need >> tz) * inv) & mask;
 }
 
 /// `blocks`'s blocks of `l` pixels over disjoint buffers holding at least
@@ -578,8 +549,7 @@ fn Swap4(comptime T: type) type {
     return struct {
         // 32-byte blocks: on this measure's AVX-512 host, 64-byte ones lost
         // 10% on images past the cache.
-        const wide = 8 / @sizeOf(T);
-        const narrow = 8 / @sizeOf(T);
+        const pixels = 8 / @sizeOf(T);
         const f: PixelFormat = if (T == u8) .rgba8 else .rgba16;
         const g: PixelFormat = if (T == u8) .bgra8 else .bgra16;
         fn run(out: []u8, in: []const u8, n: usize) void {
@@ -603,10 +573,10 @@ fn Swap4(comptime T: type) type {
 /// RGB and BGR, either way.
 fn Swap3(comptime T: type) type {
     return struct {
-        // Wide blocks are 192 bytes: whole 64-byte stores, where 48-byte
-        // blocks split every other store across cache lines.
-        const wide = 64 / @sizeOf(T);
-        const narrow = 16;
+        // 16-pixel blocks, 48 bytes of 8-bit samples. Under Zig 0.17, a
+        // 192-byte shuffle lowers to one byte at a time: 36 KB of code per
+        // sample type, at 20 MP/s (docs/slop/results/convert-swap3-20261105.md).
+        const pixels = 16;
         const f: PixelFormat = if (T == u8) .rgb8 else .rgb16;
         const g: PixelFormat = if (T == u8) .bgr8 else .bgr16;
         fn run(out: []u8, in: []const u8, n: usize) void {
@@ -614,7 +584,6 @@ fn Swap3(comptime T: type) type {
         }
         fn block(comptime l: usize, o: *[l * f.bytesPerPixel()]u8, i: *const [l * f.bytesPerPixel()]u8) void {
             const mask = comptime m: {
-                @setEvalBranchQuota(100_000);
                 var m: [l * 3]i32 = undefined;
                 for (0..l) |p| {
                     for (0..3) |ch| m[p * 3 + ch] = p * 3 + (2 - ch);
@@ -630,8 +599,7 @@ fn Swap3(comptime T: type) type {
 /// RGB or BGR to RGBA or BGRA, opaque.
 fn Expand3(comptime swap: bool) type {
     return struct {
-        const wide = 16;
-        const narrow = 16;
+        const pixels = 16;
         const dst: PixelFormat = if (swap) .bgra8 else .rgba8;
         fn run(out: []u8, in: []const u8, n: usize) void {
             blocks(@This(), dst, .rgb8, out, in, n);
@@ -666,8 +634,7 @@ fn Expand3(comptime swap: bool) type {
 /// RGBA or BGRA to RGB or BGR, dropping straight alpha.
 fn Drop4(comptime swap: bool) type {
     return struct {
-        const wide = 16;
-        const narrow = 16;
+        const pixels = 16;
         const dst: PixelFormat = if (swap) .bgr8 else .rgb8;
         fn run(out: []u8, in: []const u8, n: usize) void {
             blocks(@This(), dst, .rgba8, out, in, n);
@@ -689,8 +656,7 @@ fn Drop4(comptime swap: bool) type {
 /// Straight RGBA to premultiplied RGBA or BGRA.
 fn Premultiply(comptime swap: bool) type {
     return struct {
-        const wide = 16;
-        const narrow = 16;
+        const pixels = 16;
         const dst: PixelFormat = if (swap) .bgra8_premul else .rgba8_premul;
         fn run(out: []u8, in: []const u8, n: usize) void {
             blocks(@This(), dst, .rgba8, out, in, n);
@@ -726,8 +692,7 @@ fn Premultiply(comptime swap: bool) type {
 /// Gray to RGB, RGBA, or BGRA (the same bytes), opaque.
 fn GrayTo(comptime count: usize) type {
     return struct {
-        const wide = 16;
-        const narrow = 16;
+        const pixels = 16;
         const dst: PixelFormat = if (count == 3) .rgb8 else .rgba8;
         fn run(out: []u8, in: []const u8, n: usize) void {
             blocks(@This(), dst, .gray8, out, in, n);
@@ -761,8 +726,7 @@ fn GrayTo(comptime count: usize) type {
 /// every product of two bytes (the test checks all of them).
 fn CmykTo(comptime dst: PixelFormat) type {
     return struct {
-        const wide = 16;
-        const narrow = 16;
+        const pixels = 16;
         const count = dst.channelCount();
         fn run(out: []u8, in: []const u8, n: usize) void {
             blocks(@This(), dst, .cmyk8, out, in, n);
@@ -910,7 +874,7 @@ test "every SIMD path gives the general path's bytes" {
     const random = prng.random();
     var src: [201 * 16]u8 = undefined;
     var want: [201 * 16]u8 = undefined;
-    var got_buf: [201 * 16 + 64]u8 = undefined;
+    var got: [201 * 16]u8 = undefined;
     var fast_pairs: usize = 0;
     for (std.enums.values(PixelFormat)) |d| {
         for (std.enums.values(PixelFormat)) |s| {
@@ -921,24 +885,18 @@ test "every SIMD path gives the general path's bytes" {
                 fill(random, src[0 .. n * s.bytesPerPixel()], s);
                 Stages.init(d, s).run(want[0 .. n * d.bytesPerPixel()], src[0 .. n * s.bytesPerPixel()], n);
                 const len = n * d.bytesPerPixel();
-                // At every offset from a cache line: some kernels align
-                // their stores.
-                for (0..64) |offset| {
-                    const got = got_buf[offset..][0 .. 201 * 16];
-                    @memset(got, 0xAA);
-                    c.run(got, &src, n);
-                    testing.expectEqualSlices(u8, want[0..len], got[0..len]) catch |err| {
-                        std.debug.print("{t} from {t}, {d} pixels at offset {d}\n", .{ d, s, n, offset });
-                        return err;
-                    };
-                    // Nothing past the last pixel is written.
-                    try testing.expectEqual(0xAA, got[len]);
-                }
-                const got = got_buf[0 .. 201 * 16];
+                @memset(&got, 0xAA);
+                c.run(&got, &src, n);
+                testing.expectEqualSlices(u8, want[0..len], got[0..len]) catch |err| {
+                    std.debug.print("{t} from {t}, {d} pixels\n", .{ d, s, n });
+                    return err;
+                };
+                // Nothing past the last pixel is written.
+                try testing.expectEqual(0xAA, got[len]);
                 // A pair of one size converts in place too.
                 if (d.bytesPerPixel() == s.bytesPerPixel()) {
                     @memcpy(got[0..len], src[0..len]);
-                    c.run(got, got, n);
+                    c.run(&got, &got, n);
                     try testing.expectEqualSlices(u8, want[0..len], got[0..len]);
                 }
             }

@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+TgaDecode/icon                    13     2585.9     1.49    2%    0   11   0.99 [0.94, 1.03] icon_64-actions_appointment_new-64x64.tga
+TgaDecode/1mp                     23     2309.0    12.07    3%    0   12   0.99 [0.98, 1.02] icon_512-actions_appointment_new-512x512.tga
+TgaDecode/large                    8     1894.0    12.17    5%    0    4   0.99 [0.88, 1.04] screenshot_web-amazon_com-1313x6097.tga
+TgaDecodeRLE/icon                 13     1227.3     1.43    2%    0   12   0.96 [0.84, 1.08] icon_16-actions_address_book_new-16x16.tga
+TgaDecodeRLE/1mp                  23     1191.5     9.88    2%    1   11   0.99 [0.95, 1.14] screenshot_game-20XX_Menu_picture-634x406.tga
+TgaDecodeRLE/large                 8     1004.7     8.98    6%    0    4   0.99 [0.84, 1.02] textures_plants-plant_02-1024x1316.tga
+all                               88     1638.2     5.98          1   54

@@ -1,5 +1,8 @@
 # Conversion kernels' tails, 2026-11-02
 
+Swap3's 192-byte blocks are reverted under Zig 0.17, which compiles them
+a byte at a time: `convert-swap3-20261105.md`.
+
 `image.convert`'s SIMD kernels ran whole blocks of 16 pixels and sent the
 rest of a call, up to 15 pixels, through the general per-pixel path. On a
 166-pixel row that tail cost about as much as the 160 pixels before it,

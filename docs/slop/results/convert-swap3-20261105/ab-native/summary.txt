@@ -1,0 +1,8 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+TgaDecode/icon                    13     3823.1     1.52    3%    1   11   0.94 [0.70, 0.99] icon_64-actions_appointment_new-64x64.tga
+TgaDecode/1mp                     23     5584.1    13.85    3%    1   11   0.94 [0.86, 1.16] pngimg-Number_2_PNG_images_free_download_PNG14940-600x600.tga
+TgaDecode/large                    8     3160.7    11.94    2%    0    4   0.98 [0.87, 1.02] screenshot_web-cnn_com-1313x5241.tga
+TgaDecodeRLE/icon                 13     1327.3     1.38    3%    3    8   0.94 [0.73, 1.01] icon_32-actions_contact_new-32x32.tga
+TgaDecodeRLE/1mp                  23     2214.5     9.44    3%    2   10   0.83 [0.81, 0.97] test-qoi_logo-448x220.tga
+TgaDecodeRLE/large                 8     1463.8     7.30    3%    0    4   0.99 [0.88, 1.01] textures_plants-plant_02-1024x1316.tga
+all                               88     2819.3     5.98          7   48

@@ -1,0 +1,12 @@
+call	rgb8->bgr8	16	4.6 ns	3514 MP/s
+call	rgb8->bgr8	22	4.7 ns	4685 MP/s
+call	rgb8->bgr8	166	7322.1 ns	23 MP/s
+call	rgb8->bgr8	1000	36854.9 ns	27 MP/s
+call	rgb8->bgr8	8192	289868.7 ns	28 MP/s
+call	rgb16->bgr16	16	545.6 ns	29 MP/s
+call	rgb16->bgr16	22	858.9 ns	26 MP/s
+call	rgb16->bgr16	166	15051.7 ns	11 MP/s
+call	rgb16->bgr16	1000	67872.9 ns	15 MP/s
+call	rgb16->bgr16	8192	531103.3 ns	15 MP/s
+image	rgb8->bgr8	1200x1200	64.50 ms	22 MP/s
+image	rgb8->bgr8	8192x6144	1785.26 ms	28 MP/s

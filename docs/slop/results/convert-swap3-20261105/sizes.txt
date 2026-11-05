@@ -1,0 +1,44 @@
+# nm -S symbol sizes (bytes) of Swap3's kernels in micro/main.zig, Zig 0.17.1 ReleaseFast
+## m-before-native
+37227	convert.Swap3(u16).run
+35891	convert.Swap3(u8).run
+## m-after-native
+8291	convert.Swap3(u16).run
+1069	convert.Swap3(u8).run
+## m-before-baseline
+26469	convert.Swap3(u16).run
+54434	convert.Swap3(u8).run
+## m-after-baseline
+5888	convert.Swap3(u16).run
+2775	convert.Swap3(u8).run
+
+# The same in bench-image (zig build bench -Doptimize=fast [-Dcpu=baseline])
+## bench-before-native
+37227	convert.Swap3(u16).run
+35891	convert.Swap3(u8).run
+## bench-after-native
+8291	convert.Swap3(u16).run
+1069	convert.Swap3(u8).run
+## bench-before-baseline
+26469	convert.Swap3(u16).run
+54434	convert.Swap3(u8).run
+## bench-after-baseline
+5888	convert.Swap3(u16).run
+2775	convert.Swap3(u8).run
+
+# size(1) of bench-image
+   text	   data	    bss	    dec	    hex	filename
+2656257	    752	1383609704	1386266713	52a0c059	bench-before-native
+2592177	    752	1383612344	1386205273	529fd059	bench-after-native
+2734025	    776	1383609768	1386344569	52a1f079	bench-before-baseline
+2661769	    776	1383612392	1386274937	52a0e079	bench-after-baseline
+
+# Instruction counts in Swap3(T).run (objdump -d), top six
+m-before-native Swap3(u8).run:  1584 mov  1440 vpinsrb  720 vpextrb  145 vmovd  119 movzbl  113 vmovdqu 
+m-before-native Swap3(u16).run:  3397 mov  633 vmovdqu  588 vpinsrw  585 shr  165 and  146 shld 
+m-after-native Swap3(u8).run:  22 vpermb  22 vmovdqu8  22 vmovdqu  14 mov  12 add  11 lea 
+m-after-native Swap3(u16).run:  713 mov  132 shr  126 vpinsrw  88 vmovups  68 vmovdqu  51 and 
+m-before-baseline Swap3(u8).run:  2671 movzbl  1893 mov  1716 movd  832 punpcklbw  384 punpcklwd  355 movdqa 
+m-before-baseline Swap3(u16).run:  1619 mov  730 movdqa  386 movq  308 pshufd  146 shld  118 xor 
+m-after-baseline Swap3(u8).run:  75 mov  72 movd  66 movzbl  53 movdqa  48 por  48 movzwl 
+m-after-baseline Swap3(u16).run:  328 mov  159 movdqa  72 movq  66 pshufd  38 xor  33 shld 

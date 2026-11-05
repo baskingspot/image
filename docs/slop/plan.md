@@ -990,6 +990,18 @@ intrinsics disabled, an `undefined` local over 512 KiB is still an inline
 copy, and compress keeps those buffers on the heap. Both are in
 results/zig017-20261104.md.
 
+Zig 0.17.1 lowers Swap3's 192-byte `@shuffle` (RGB↔BGR, 64 pixels a
+block, results/convert-tails-20261102.md) one byte at a time, AVX-512 or
+not: 36 KB of code per sample type and about 20 MP/s, 140× off on 24-bit
+TGA decode. The port's speed check timed no TGA or BMP row. Swap3 runs
+16-pixel blocks again, so every kernel has one block size, and `blocks`'s
+cache-line-aligned wide path and `lineStart` are gone
+(results/convert-swap3-20261105.md: 9 KB for both kernels, rgb8→bgr8
+16 GP/s native and 1.6 GP/s baseline per 1000-pixel call). `Swap3(u16)`
+stays slow (about 25 MP/s at any block size): Zig 0.17.1 lowers its
+`@bitCast` from bytes to `@Vector(48, u16)` with shifts and inserts; a
+byte shuffle measured 9.5 GP/s in a probe and is not made yet.
+
 ## Decisions to measure
 
 1. **Streaming model. Decided: pull from `std.Io.Reader`.** Measured in
