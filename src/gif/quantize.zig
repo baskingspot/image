@@ -416,7 +416,9 @@ fn medianCut(list: []Cell, max: u16, out: *Palette) void {
                 return x.c[ctx.d] < y.c[ctx.d];
             }
         };
-        sort.pdq(Cell, list[b.start..b.end], Ctx{ .d = d }, Ctx.less);
+        // Stable, so equal keys keep their order in the list (ties by
+        // index), whatever the sort algorithm.
+        std.sort.block(Cell, list[b.start..b.end], Ctx{ .d = d }, Ctx.less);
         // The first cell past half the pixels starts the upper box, which
         // keeps at least one cell.
         var acc: f64 = 0;
@@ -483,11 +485,14 @@ fn octree(work: *Work, max: u16, out: *Palette) void {
         const Ctx = struct {
             const Self = @This();
             nodes: []const Node,
+            // Ties by index, so the order is the comparison's alone.
             fn less(ctx: Self, x: u16, y: u16) bool {
-                return ctx.nodes[x].w < ctx.nodes[y].w;
+                const wx = ctx.nodes[x].w;
+                const wy = ctx.nodes[y].w;
+                return wx < wy or (wx == wy and x < y);
             }
         };
-        sort.pdq(u16, work.order[0..n], Ctx{ .nodes = work.nodes[first..][0..count] }, Ctx.less);
+        std.sort.pdq(u16, work.order[0..n], Ctx{ .nodes = work.nodes[first..][0..count] }, Ctx.less);
         for (work.order[0..n]) |i| {
             if (leaves <= max) break;
             const children = childLeaves(work, level, i);

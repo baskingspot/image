@@ -43,6 +43,20 @@
             dontUnpack = true;
             installPhase = "install -Dm644 $src $out/include/wuffs-v0.4.c";
           };
+          # stb_image_resize 0.97, the resize oracle for the calls
+          # rockorager/monstar makes (test/oracle/resize_stb097.c): stb
+          # moved it to deprecated/ when 2.0 replaced it, and nixpkgs's stb
+          # installs only stb_image_resize2.h. Pinned to that commit.
+          stb-image-resize-097 = pkgs.stdenvNoCC.mkDerivation {
+            pname = "stb-image-resize";
+            version = "0.97";
+            src = pkgs.fetchurl {
+              url = "https://raw.githubusercontent.com/nothings/stb/c4bbb6e75f688318b2df2b70c2df2d641c1a8481/deprecated/stb_image_resize.h";
+              sha256 = "1iifscc0mxvv3jhd9rrizqkb4ys3jz6rrqy2668dyj5vpanpa3ka";
+            };
+            dontUnpack = true;
+            installPhase = "install -Dm644 $src $out/include/stb_image_resize097/stb_image_resize.h";
+          };
         in
         {
           devShells.default = pkgs.mkShell {
@@ -69,6 +83,7 @@
               # decoder's gain map flag.
               libultrahdr
               stb
+              stb-image-resize-097
               wuffs-c
               # qoi.h, the reference QOI decoder, and its qoiconv, which
               # encodes the QOI benchmark corpus with the reference encoder;
@@ -82,6 +97,8 @@
               # gifski, a GIF encoder arm (its C library, libgifski) and the
               # quantizer the GIF encoder's quality is measured against.
               gifski
+              # libvips, a resize arm (its reduce operations).
+              vips
               # The Rust (image, zune-image) and Go (image) arms.
               cargo
               rustc

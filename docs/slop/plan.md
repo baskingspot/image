@@ -39,13 +39,20 @@ Shared by every format:
   f32 for float and HDR sources (TIFF float, PFM, JPEG XL), and premultiplied
   or straight alpha. It also reports the source's native format, so a caller
   can ask for that and skip conversion. Conversion and swizzle are SIMD.
+- **Resizing** (`image.resize`, added to scope by the owner on 2026-11-05;
+  it was under Not in phase 1): separable filters from nearest neighbor to
+  Lanczos-3, four edge modes, stored values or sRGB in linear light, any
+  pixel format in and out, whole buffers or a row at a time, caller-owned
+  work memory; and `resize.orient`, the eight EXIF orientations applied
+  into a buffer. Its first user is rockorager/monstar, which resizes glyph
+  bitmaps with stb_image_resize. docs/slop/resize.md has the design.
 
 ## Not in phase 1
 
 - AVIF and HEIC: an AV1 or HEVC decoder in a container, each a project of its
   own, and HEVC is patent-encumbered.
-- Color management (applying ICC profiles), resizing beyond JPEG's and JPEG
-  XL's own downscaled decode, and drawing: separate libraries.
+- Color management (applying ICC profiles) and drawing: separate libraries.
+  (Resizing was here until the owner put it in scope; see above.)
 - SVG, PSD, OpenEXR, Radiance HDR, DDS and other GPU textures (ETC2), and
   Wuffs's own NIE, Handsum, and Thumbhash.
 - Wuffs's non-image packages. Compression belongs in `baskingspot/compress`,
@@ -899,13 +906,51 @@ let image's deploy run once on main, then deploy the router. Done by the owner o
 settings (signed-commits ruleset, squash only), and the homepage. The site
 Terraform and router wait for Matt.
 
+### Resizing
+
+Started 2026-11-05 by the owner ("Go for it"), which moves resizing out of
+"Not in phase 1": `image.resize` beside `image.convert`, caller-owned work
+memory, any pixel format in and out, stb's filters and edge modes, a
+row-streaming `Resizer`, and `resize.orient` for the EXIF transforms. The
+first user is rockorager/monstar's glyph scaling (`stbir_resize_uint8` on
+`gray8` and premultiplied BGRA). One orb
+(T-01a1ab29-d8d3-73e6-8779-42942d5eceaa, branch `wave6-resize`) owns
+`src/resize*`, its root line, the resize oracle, fuzz target, bench arm,
+example, guide chapter, and `docs/slop/resize.md`. stb_image_resize2 is the
+bar and the oracle.
+
+Landed on the branch (resize.md, results/resize-20261105.md): `image.resize`
+with every filter, edge mode, and colorspace the owner listed, `Resizer`,
+and `orient` (its own commit). The oracle agrees with stb_image_resize2 2.18 within 1 step at 8
+bits, 8 at 16 bits and floats, and 16 for straight alpha past 8 bits (alpha
+at least half), after working around four stb2 bugs it documents; and with
+stb 0.97's `stbir_resize_uint8` within 1, except where an axis keeps its
+size, where 0.97 uses Mitchell and stb2 and image Catmull-Rom. 0.97× stb2
+over the bench rows, 0.83–1.20× on glyph sizes, 0.74× on photo thumbnails,
+where libvips's integer reduce is twice as fast. Beyond the files above it
+added `bench/c/libvips-resize.c` (a second arm), `bench/c/stb-resize.c`,
+`bench/c/resize-sizes.h`, and `bench/corpus/resize.*`, and flake.nix gained
+`stb-image-resize-097` (the oracle for monstar's calls) and `vips`. Owner
+calls: the default at 1:1 (Catmull-Rom, as stb2), transparent black where
+written alpha is 0, and an integer path for large 8-bit downscales.
+
 ### Zig 0.17
 
 Started 2026-11-04 by the owner, as one orb
 (T-01a1a754-93ae-703c-9168-db8127d1e993): a long-lived `zig-0.17` branch
 on image, ported to Zig 0.17, while main stays on 0.16. It owns that
 branch, pinning testingx's `zig-0.17` and a `zig-0.17` branch of compress
-if compress needs one. Pixels and encoded bytes must not change.
+if compress needs one. Pixels and encoded bytes must not change. Landed on the
+branch (image c595951, compress b1387a3), GitHub CI green on both: Zig
+0.17 tags `@intCast`'s truncate `nsw` from a signed source to an unsigned
+destination, so LLVM picked `packsswb` for JPEG's clamped stores off
+AVX-512; three sites `@truncate` instead, and `just test-cpu` (baseline and
+`x86_64_v3`, ReleaseSafe) runs in `just ci` and CI. compress's large
+`undefined` Debug locals blew up arm and riscv64 instruction selection and
+are heap-allocated. The `@intCast` flag is fixed in Zig 0.17.1 (checked with the repro:
+208, not 127), so the branch moves to 0.17.1 and drops the workaround; no
+issue filed. Row 77 (sort ties: vendored 0.16 pdq or ties by index) is the
+owner's.
 
 Ported 2026-11-04 (results/zig017-20261104.md). The flake takes
 `zig."0.17"` and `devShells."zig-0-17"` from a newer baskingspot/nix;
@@ -1286,6 +1331,25 @@ width)` for every file with several entries.
     bound. Done in `wave4-jxl-tol8`: test/oracle/jxl.zig gives frames drawn
     in floats peak 8, and 27366ec7… agrees. The cheaper XYB power function
     is measured against it.
+79. **Sort ties. Decided by the owner:** encoders that sort break equal
+    keys by index (the WebP lossless tile sort and GIF's quantizer box
+    sorts, as the JPEG XL encoder already does), so no `std.sort` change
+    moves their bytes; the vendored Zig 0.16 pdq on `zig-0.17` goes. WebP
+    and GIF encoded bytes change once. Landed (results/sort-ties-20261105.md):
+    the tile and octree sorts compare the index after the key, and the
+    median-cut sort is `std.sort.block`, stable; files within 1.3%, rows
+    within 0.11%.
+80. **Resize default at 1:1. Decided by the owner:** Catmull-Rom, as
+    stb_image_resize2: it passes through its samples, so an axis that keeps
+    its size is copied; v0.97's Mitchell blurred it (monstar's glyphs lose
+    that blur).
+81. **Transparent pixels after resizing. Decided by the owner:** a
+    straight-alpha pixel whose alpha rounds to 0 is written transparent
+    black.
+82. **Resize speed. Decided by the owner:** a fixed-point 8-bit path and
+    cheaper per-call setup, against libvips on large 8-bit downscales and
+    stb2 on icons, with a stated 8-bit tolerance against stb2; 16-bit and
+    float stay on f64 weights. stb2's bugs found by the oracle are not filed.
 
 ## Harness requests
 

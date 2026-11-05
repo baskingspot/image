@@ -9,6 +9,7 @@ pub const detect = @import("detect.zig");
 pub const pixels = @import("pixels.zig");
 pub const encode = @import("encode.zig");
 pub const metadata = @import("metadata.zig");
+pub const resize = @import("resize.zig");
 
 test {
     std.testing.refAllDecls(@This());

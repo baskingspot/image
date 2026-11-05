@@ -11,6 +11,7 @@ Each decoder is tested against its reference library on the same files, and fuzz
 - [Decoding](#decoding): `decodeConfig` reads the header into a `Config`, and `decodeFrame` writes each frame into a `PixelBuffer` you own, with `Config.work_len` bytes of work memory and `Limits` checked first.
 - [Detection](#detection): `image.detect` names a file's `Format` from its first 18 bytes, and `image.Decoder` decodes any format behind one interface.
 - [Pixel formats](#pixel-formats): 24 `PixelFormat`s from `gray8` to `rgba_f32_premul`, buffers with a stride, and `image.convert` between every pair.
+- [Resizing](#resizing): `image.resize` scales a buffer to any size and pixel format with the usual filters, whole or a row at a time, in work memory you own.
 - [Encoding](#encoding): `encode(writer, pixels, options, work)` in every namespace, with `workLen` for the work memory, plus animations and multi-page files.
 - [Metadata](#metadata): `Config.metadata` reports orientation, color, and density, and a `BlobSink` receives ICC, EXIF, and XMP bytes; nothing is applied to the pixels.
 - [Format notes](#format-notes): what each format's decoder and encoder do where the specification leaves room, and the options that change it.
@@ -298,6 +299,102 @@ Swizzles, adding and dropping alpha, premultiplying, gray to color, and 8-bit, 1
 
 `Converter.run` may convert in place when both formats have the same pixel size.
 
+# Resizing
+
+## Resize an image
+
+`image.resize.resize` scales a whole `PixelBuffer` into another of any size and pixel format. Like a decoder it allocates nothing: `resize.workLen` says how much work memory the pair of sizes, formats, and options takes, and the filter weights are computed into it once.
+
+```zig
+// A 4 by 4 gray glyph, shrunk to 2 by 2 with the default filter.
+const glyph = [_]u8{
+    0,   0,   0,   0,
+    0,   255, 255, 0,
+    0,   255, 255, 0,
+    0,   0,   0,   0,
+};
+const src: image.PixelBuffer = try .init(@constCast(&glyph), .gray8, 4, 4);
+var out: [2 * 2]u8 = undefined;
+const dst: image.PixelBuffer = try .init(&out, .gray8, 2, 2);
+
+const options: image.resize.Options = .{};
+var work: [4096]u8 = undefined;
+const len = image.resize.workLen(.gray8, 2, 2, .gray8, 4, 4, options) orelse return error.ImageTooLarge;
+try image.resize.resize(dst, src, work[0..len], options);
+```
+
+The work memory grows with the widths and the filter's reach, and with the heights only through the weights: a 4000×3000 photo to 256×192 takes 408 KiB with the default filter, and a 64-pixel glyph to 16 pixels 5 KiB in gray or 10 KiB in BGRA. `workLen` returns null when the sizes overflow `usize`, and `resize` returns `error.WorkTooSmall` or `error.BufferTooSmall` before it writes anything.
+
+The source is filtered in its own channel layout, at `f32` precision, along the rows and down the columns. Straight-alpha formats are premultiplied before filtering and unpremultiplied after, so a transparent pixel's color does not bleed into its neighbors; a pixel whose alpha rounds to 0 is written transparent black. Premultiplied formats, such as the BGRA bitmaps FreeType renders color glyphs into, are filtered as they are. When the destination's layout differs, the rows are converted with `image.convert`:
+
+```zig
+// Straight-alpha RGBA in, premultiplied BGRA twice the size out: the
+// source is premultiplied before it is filtered.
+const src_pixels = [_]u8{ 255, 0, 0, 255, 255, 0, 0, 0 };
+const src: image.PixelBuffer = try .init(@constCast(&src_pixels), .rgba8, 2, 1);
+var out: [4 * 2 * 4]u8 = undefined;
+const dst: image.PixelBuffer = try .init(&out, .bgra8_premul, 4, 2);
+const options: image.resize.Options = .{ .filter = .triangle };
+var work: [4096]u8 = undefined;
+const len = image.resize.workLen(.bgra8_premul, 4, 2, .rgba8, 2, 1, options).?;
+try image.resize.resize(dst, src, work[0..len], options);
+```
+
+## Pick the options
+
+`resize.Options` has three fields, and its defaults are stb_image_resize's `stbir_resize_uint8`'s:
+
+| Field        | Values                                                                                   | Default                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `filter`     | `point`, `box`, `triangle`, `b_spline`, `catmull_rom`, `mitchell`, `lanczos3`, `default` | `default`: Catmull-Rom on an axis that grows, Mitchell on one that shrinks |
+| `edge`       | `clamp`, `reflect`, `wrap`, `zero`                                                       | `clamp`, the edge pixel repeated                                           |
+| `colorspace` | `linear`, `srgb`                                                                         | `linear`, the stored values filtered                                       |
+
+Destination pixel `j`'s center lies at source position `(j + 0.5) · src / dst − 0.5`, and on an axis that shrinks the filter is stretched by the ratio, so it averages everything a destination pixel covers. `point` copies the pixel under each center, exactly. `box` averages by area, so halving is the mean of each 2×2 block. Catmull-Rom, Mitchell, and Lanczos-3 have negative lobes: they keep edges sharp and can overshoot, and integer results are clamped. B-spline and Mitchell blur even at the same size; the other filters, and `default`, which picks Catmull-Rom there, copy the image.
+
+`linear` filters the numbers as stored, as stb_image_resize, libvips, and Pillow do. `srgb` decodes 8- and 16-bit color from the sRGB curve before filtering and encodes it after, which keeps thin bright lines from darkening when they shrink; alpha, float samples, and CMYK are filtered as stored either way.
+
+## Resize a row at a time
+
+`resize.Resizer` takes source rows as they arrive and hands back destination rows as soon as the rows they read are in. Its work memory holds as many rows as the vertical filter spans, not a frame (except with `edge = .wrap`, whose first rows read the last ones), so it pairs with a decoder that writes rows or a source too large to hold:
+
+```zig
+// Rows go in as they arrive and come out as soon as the rows they
+// read are in; the work memory holds a few rows, not the image.
+const sw = 8;
+const sh = 8;
+const options: image.resize.Options = .{};
+var work: [8192]u8 = undefined;
+const len = image.resize.workLen(.rgb8, 3, 3, .rgb8, sw, sh, options).?;
+var resizer: image.resize.Resizer = try .init(.rgb8, 3, 3, .rgb8, sw, sh, options, work[0..len]);
+var row: [sw * 3]u8 = undefined;
+var out: [3][3 * 3]u8 = undefined;
+var taken: usize = 0;
+for (0..sh) |y| {
+    @memset(&row, @intCast(y * 32));
+    try resizer.push(&row);
+    while (taken < out.len and resizer.take(&out[taken])) taken += 1;
+}
+```
+
+`push` returns `error.RowReady` while a destination row waits to be taken, since the next source row may overwrite a row it reads. `take` returns false until the rows are in.
+
+## Orient a photo
+
+Decoders report `Config.metadata.orientation` and leave the pixels as stored. `image.resize.orient` writes them turned and flipped into another buffer of the same format, so the image comes out upright; the four orientations that swap the axes need a buffer as wide as the source is tall:
+
+```zig
+// A 2 by 1 image whose orientation says its first row belongs on the
+// right: turned a quarter clockwise, it comes out 1 by 2.
+const src_pixels = [_]u8{ 10, 20 };
+const src: image.PixelBuffer = try .init(@constCast(&src_pixels), .gray8, 2, 1);
+var out: [2]u8 = undefined;
+const dst: image.PixelBuffer = try .init(&out, .gray8, 1, 2);
+try image.resize.orient(dst, src, .right_top);
+```
+
+To orient and resize, resize first when the image shrinks, so `orient` moves fewer pixels, and give `resize` the destination size with the axes swapped back.
+
 # Encoding
 
 ## Encode an image
@@ -376,7 +473,7 @@ Decoders report metadata in `Config.metadata` and never apply it. The pixels are
 | `jpeg_reconstruction`                                          | the JPEG XL file can rebuild its original JPEG                                                           |
 | `gain_map`                                                     | the JPEG carries an HDR gain map, which is not decoded                                                   |
 
-To show a photo upright, rotate or flip by `orientation` yourself. `image.exif.orientation(bytes)` reads the tag from EXIF data you hold, and `Orientation.toExif` gives the 1 to 8 value.
+To show a photo upright, pass `orientation` to `image.resize.orient` ([Orient a photo](#orient-a-photo)). `image.exif.orientation(bytes)` reads the tag from EXIF data you hold, and `Orientation.toExif` gives the 1 to 8 value.
 
 ## Collect ICC, EXIF, and XMP
 
@@ -467,36 +564,37 @@ try testing.expectEqual(image.Orientation.right_top, decoder.finalConfig().?.met
 
 Each format's best library is the bar, on throughput and on peak memory. These numbers come from `just bench-compare` on one core of a 2.6 GHz Intel Xeon (Ice Lake) cloud host in November 2026: image in ReleaseFast for the native CPU, the C libraries at `-O3 -march=native`. A ratio is image's throughput over the reference's, so above 1 is faster. Ranges are the geometric means of three size classes: icons up to 64×64, images up to a megapixel, and larger ones up to a 50-megapixel mosaic.
 
-| Format and operation | Against       | Result                                                                                                                           |
-| -------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| PNG decode           | Wuffs         | 1.34–1.62×, at 240 MiB peak RSS over the rows against Wuffs's 384                                                                |
-| PNG encode           | libpng        | 2.3–3.5× libpng's speed at `.default`, with files 1.3% smaller than libpng's and libspng's                                       |
-| JPEG decode          | libjpeg-turbo | 3–5× on icons and 1.03–1.35× on photos past a megapixel, with the same pixels                                                    |
-| JPEG encode          | libjpeg-turbo | 2.16× over every row, 1.18× on baseline 4:2:0 past a megapixel, with the same bytes                                              |
-| GIF decode           | Wuffs         | 1.12× over 52 rows, with the lowest peak RSS of every library measured                                                           |
-| WebP decode          | libwebp       | lossless 2.14×, 1.15×, 1.11×; lossy 1.77×, 1.14×, 1.04×; animation 1.50× and 1.23×                                               |
-| WebP lossless encode | libwebp       | 1.96× over every row, and smaller in total at every effort                                                                       |
-| WebP lossy encode    | libwebp       | `.default` 1.30–1.44× `cwebp -m 4`, 2.7% smaller at equal PSNR and 4.4% at equal SSIM                                            |
-| TIFF decode          | libtiff       | icons 1.3–6.5×; past icons PackBits 1.6–1.75×, Group 4 1.2–1.5×, JPEG 1.1–1.3×, Deflate 1.06–1.16×, LZW 0.89–1.00×               |
-| TIFF encode          | libtiff       | PackBits 1.5–2.8×, LZW 1.25–1.70×, Deflate below 0.8×, compress's DEFLATE against zlib                                           |
-| JPEG XL decode       | libjxl        | lossy about 0.9× on a 1200×1200 photo, both on one thread; 1.3–1.4× on icons                                                     |
-| JPEG XL rebuild      | libjxl        | `JpegReconstructor` 1.55× over every row                                                                                         |
-| JPEG XL encode       | libjxl        | `.default` writes about `cjxl -e 7`'s sizes, 0.84× its speed on icons and faster above, at 131 MiB peak RSS against libjxl's 261 |
-| BMP decode           | Wuffs         | 1.30× on icons, 0.97–0.99× above                                                                                                 |
-| TGA decode           | Wuffs         | 1.68×, 1.14×, 1.00×; RLE 2.57× and 4.45×                                                                                         |
-| QOI decode           | Wuffs         | 1.64–1.83×                                                                                                                       |
-| QOI encode           | qoi.h         | 1.5×, with the same bytes                                                                                                        |
-| Netpbm decode        | Wuffs         | no row slower                                                                                                                    |
+| Format and operation | Against           | Result                                                                                                                           |
+| -------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| PNG decode           | Wuffs             | 1.34–1.62×, at 240 MiB peak RSS over the rows against Wuffs's 384                                                                |
+| PNG encode           | libpng            | 2.3–3.5× libpng's speed at `.default`, with files 1.3% smaller than libpng's and libspng's                                       |
+| JPEG decode          | libjpeg-turbo     | 3–5× on icons and 1.03–1.35× on photos past a megapixel, with the same pixels                                                    |
+| JPEG encode          | libjpeg-turbo     | 2.16× over every row, 1.18× on baseline 4:2:0 past a megapixel, with the same bytes                                              |
+| GIF decode           | Wuffs             | 1.12× over 52 rows, with the lowest peak RSS of every library measured                                                           |
+| WebP decode          | libwebp           | lossless 2.14×, 1.15×, 1.11×; lossy 1.77×, 1.14×, 1.04×; animation 1.50× and 1.23×                                               |
+| WebP lossless encode | libwebp           | 1.96× over every row, and smaller in total at every effort                                                                       |
+| WebP lossy encode    | libwebp           | `.default` 1.30–1.44× `cwebp -m 4`, 2.7% smaller at equal PSNR and 4.4% at equal SSIM                                            |
+| TIFF decode          | libtiff           | icons 1.3–6.5×; past icons PackBits 1.6–1.75×, Group 4 1.2–1.5×, JPEG 1.1–1.3×, Deflate 1.06–1.16×, LZW 0.89–1.00×               |
+| TIFF encode          | libtiff           | PackBits 1.5–2.8×, LZW 1.25–1.70×, Deflate below 0.8×, compress's DEFLATE against zlib                                           |
+| JPEG XL decode       | libjxl            | lossy about 0.9× on a 1200×1200 photo, both on one thread; 1.3–1.4× on icons                                                     |
+| JPEG XL rebuild      | libjxl            | `JpegReconstructor` 1.55× over every row                                                                                         |
+| JPEG XL encode       | libjxl            | `.default` writes about `cjxl -e 7`'s sizes, 0.84× its speed on icons and faster above, at 131 MiB peak RSS against libjxl's 261 |
+| BMP decode           | Wuffs             | 1.30× on icons, 0.97–0.99× above                                                                                                 |
+| TGA decode           | Wuffs             | 1.68×, 1.14×, 1.00×; RLE 2.57× and 4.45×                                                                                         |
+| QOI decode           | Wuffs             | 1.64–1.83×                                                                                                                       |
+| QOI encode           | qoi.h             | 1.5×, with the same bytes                                                                                                        |
+| Netpbm decode        | Wuffs             | no row slower                                                                                                                    |
+| Resize               | stb_image_resize2 | 0.97× over every row: glyph-sized gray and premultiplied BGRA 0.83–1.20×, photo thumbnails 0.74×, with the lowest peak RSS       |
 
-The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode and Deflate encode trail libtiff, BMP decode sits at Wuffs's speed past icons, and GIF encode ran at 0.73× giflib's speed over all rows when first measured, where on the truecolor rows giflib times only its LZW writer against image's quantizer and ditherer. WebP lossless encode of flat, few-color images at efforts 1 to 6 runs at 0.39–0.66× libwebp. Every library here runs on one thread; libjxl can use more, and this package cannot.
+The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode and Deflate encode trail libtiff, BMP decode sits at Wuffs's speed past icons, and GIF encode ran at 0.73× giflib's speed over all rows when first measured, where on the truecolor rows giflib times only its LZW writer against image's quantizer and ditherer. WebP lossless encode of flat, few-color images at efforts 1 to 6 runs at 0.39–0.66× libwebp. Resizing 4000×3000 photos to thumbnails runs at 0.74× stb_image_resize2 and about half of libvips's integer reduce, which is slower than both at every other size. Every library here runs on one thread; libjxl can use more, and this package cannot.
 
 [`bench/README.md`](https://github.com/baskingspot/image/blob/main/bench/README.md) describes the harness, the arms, and the method. `just bench-compare` reruns it on your machine; its numbers describe that machine on that day.
 
 # Limits
 
 - Formats: no AVIF or HEIC, which are an AV1 or HEVC decoder in a container. No SVG, PSD, OpenEXR, Radiance HDR, or GPU texture formats. `image.Format` has no tag for any of them.
-- Color management: ICC profiles, primaries, and transfer functions are reported, and pixels are never converted with them. Orientation is reported and never applied.
-- Resizing: only `jpeg.Decoder.Options.scale` decodes smaller. There is no general resampler.
+- Color management: ICC profiles, primaries, and transfer functions are reported, and pixels are never converted with them. Orientation is reported, and applied only by `image.resize.orient`.
+- Resizing: `image.resize` has separable filters only, so no distortion, rotation by any angle, or elliptical filtering. It filters at `f32` precision, so 16-bit results can differ from an exact sum by a step or two. `srgb` is the only transfer curve it undoes.
 - JPEG: hierarchical files and lossless arithmetic-coded files are `error.Unsupported`, as in libjpeg-turbo. The encoder writes no arithmetic coding, no 12-bit samples, and no CMYK. An HDR gain map is flagged in `Metadata.gain_map` and not decoded.
 - JPEG XL: `jxl.encode` is lossless only, writes one frame, and writes a bare codestream with no container. There is no `jxl.Decoder.decodeFrameConfig`. Producing a `jbrd` box from a JPEG is not implemented.
 - WebP: `webp.encode` and `webp.lossy.encode` write one image, not an animation.

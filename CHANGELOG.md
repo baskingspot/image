@@ -5,9 +5,15 @@ All notable changes to image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `image.resize`: `resize.resize` scales a `PixelBuffer` from any size and pixel format to any other, and `resize.Resizer` does it a row at a time in a few rows of memory; `resize.Options` picks the filter (nearest neighbor, box, triangle, B-spline, Catmull-Rom, Mitchell, Lanczos-3, or stb_image_resize's default), the edge mode, and filtering stored values or sRGB in linear light, and `resize.workLen` sizes the work memory.
+- `image.resize.orient` writes an image turned and flipped as an `image.Orientation` says (the eight EXIF orientations), to show a photo upright.
+
 ### Changed
 
 - image builds with Zig 0.17.1 or a later 0.17 only (`minimum_zig_version` is `0.17.1`); Zig 0.16 no longer builds it, and Zig 0.17.0 miscompiles the JPEG codec on x86-64 without AVX-512.
+- `image.webp.encode` (lossless, `effort` 1 to 9), `image.webp.lossy.encode` with alpha, and `image.gif.encode` with `quantizer = .median_cut` or `.octree` write different bytes for some images, once: their sorts break ties by index, so a Zig release that changes `std.sort` cannot change their output. Files are within 1.3% of their old size, and each benchmark row's total within 0.11%; the default GIF quantizer, Wu's, is unchanged.
 
 ## [0.1.0] - 2026-11-04
 

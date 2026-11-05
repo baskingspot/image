@@ -236,9 +236,13 @@ pub fn cluster(in: Input) usize {
     const k0: usize = @intCast(startGroups(tiles, in.px.len, in.max_groups));
     if (in.start == 0) {
         for (m.order[0..tiles], 0..) |*o, ti| o.* = @intCast(ti);
-        sort.pdq(u32, m.order[0..tiles], m.feature, struct {
+        std.sort.pdq(u32, m.order[0..tiles], m.feature, struct {
+            // Ties by index, so the order is the comparison's alone, not
+            // the sort algorithm's.
             fn less(f: []f32, a: u32, b: u32) bool {
-                return f[4 * a + 3] < f[4 * b + 3];
+                const fa = f[4 * a + 3];
+                const fb = f[4 * b + 3];
+                return fa < fb or (fa == fb and a < b);
             }
         }.less);
         for (m.order[0..tiles], 0..) |ti, r| in.tile_group[ti] = @intCast(r * k0 / tiles);

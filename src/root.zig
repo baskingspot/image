@@ -10,6 +10,7 @@ pub const pixel = @import("pixel.zig");
 pub const PixelFormat = pixel.PixelFormat;
 pub const PixelBuffer = pixel.PixelBuffer;
 pub const convert = @import("convert.zig");
+pub const resize = @import("resize.zig");
 
 const decode = @import("decode.zig");
 pub const Config = decode.Config;
