@@ -17,6 +17,20 @@
 //! the two passes' 6.5e-5 each come to 8.5 steps (the most seen in 3,000
 //! requests was 5).
 //!
+//! 8-bit formats filtered as stored that shrink vertically, from rows of 64
+//! bytes, take the vertical pass in integers: each row's weights scaled by
+//! 2^p, the largest power of two that keeps them within 16 bits and their
+//! sums of 8-bit samples within 32 (at least 2^14 over the largest weight,
+//! or 2^22), and rounded cumulatively, so that every partial sum is within
+//! half a unit. A result then moves by at most half a unit for each step
+//! between neighbouring taps' samples, T taps' 255 at worst, which with T
+//! times the largest weight at most 8 for these filters is under a tenth
+//! of a step. So the tolerance stays 1 step: of 828 million samples in 12,000
+//! requests, 0.13% differ by 1 from the same resize in floats and none by
+//! more, and on the 5,000 requests the oracle run takes with seed 1, 2,318
+//! need the step against stb_image_resize2 where 2,195 did in floats, and
+//! 1,252 against 0.97 where 953 did.
+//!
 //! Straight alpha (`alpha`, `alpha_wide`) is compared on sources whose
 //! alpha is at least half (test/fuzz/resize.zig): dividing by a filtered
 //! alpha near 0 magnifies stb's rounding past any bound, and a pixel whose

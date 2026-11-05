@@ -197,6 +197,12 @@ pub const Resizer = struct {
     /// filter, which fills its vectors worst there, runs on destination
     /// rows. The ring then holds source rows.
     v_first: bool,
+    /// 8-bit samples filtered as stored that shrink vertically: the ring
+    /// holds the source rows' bytes, and the vertical filter sums them with
+    /// 16-bit integer weights (`v_fixed`, two taps at a time, each row's
+    /// scaled by its own power of two, undone by `v_scale`) before the
+    /// horizontal filter takes them as floats.
+    fixed: bool,
 
     // Horizontal: each destination pixel's first tap in `line` (for
     // `point`, its source pixel), and its `h_taps` weights, each repeated
@@ -228,6 +234,13 @@ pub const Resizer = struct {
     keep: []u32,
     /// A destination row's taps' ring rows, while it is filtered.
     taps: [][]const f32,
+    /// With `fixed`: each destination row's weights as integers,
+    /// `v_pairs` apart, a zero after an odd count; their scale back to
+    /// floats from 0 to 1; and the taps' ring rows, as bytes.
+    v_pairs: usize,
+    v_fixed: []i16,
+    v_scale: []f32,
+    byte_taps: [][]const u8,
 
     /// Source row `y` lives in ring row `y % ring_rows`: filtered to the
     /// destination's width (unfiltered, with `v_first`), `row_stride`
@@ -235,6 +248,8 @@ pub const Resizer = struct {
     /// source row's bytes, `row_stride` bytes long.
     ring: []u8,
     ring_rows: usize,
+    /// `2^64 / ring_rows`, rounded up, for `ringRow` (0 for an empty image).
+    ring_magic: u64,
     row_stride: usize,
     /// The vertical filter's result, or with `v_first` the horizontal's.
     out: []f32,
@@ -293,6 +308,7 @@ pub const Resizer = struct {
             .converter = if (l.pack_format == dst_format) null else .init(dst_format, l.pack_format),
             .point = l.point,
             .v_first = l.v_first,
+            .fixed = l.fixed,
             .h_taps = l.h_taps,
             .h_lanes = 16,
             .h_start = l.slice(u32, work, .h_start),
@@ -308,8 +324,13 @@ pub const Resizer = struct {
             .need = l.slice(u32, work, .need),
             .keep = l.slice(u32, work, .keep),
             .taps = l.slice([]const f32, work, .taps),
+            .v_pairs = l.v_pairs,
+            .v_fixed = l.slice(i16, work, .v_fixed),
+            .v_scale = l.slice(f32, work, .v_scale),
+            .byte_taps = l.slice([]const u8, work, .byte_taps),
             .ring = l.slice(u8, work, .ring),
             .ring_rows = l.ring_rows,
+            .ring_magic = if (l.ring_rows == 0) 0 else (std.math.maxInt(u64) / l.ring_rows) +% 1,
             .row_stride = l.row_stride,
             .out = l.slice(f32, work, .out),
             .pack = l.slice(u8, work, .pack),
@@ -327,6 +348,7 @@ pub const Resizer = struct {
         }
         // A vertical axis like the horizontal one takes its weights.
         r.planColumn(v, !r.point and std.meta.eql(h, v));
+        if (r.fixed) r.planFixed(v.period);
         return r;
     }
 
@@ -341,8 +363,8 @@ pub const Resizer = struct {
         // A row that no destination row still reads is not kept.
         if (r.next >= r.dst_height or y < r.keep[r.next]) return;
         const src = row[0 .. r.src_width * r.src_format.bytesPerPixel()];
-        const slot = (y % r.ring_rows) * r.row_stride;
-        if (r.point) {
+        const slot = r.ringRow(y) * r.row_stride;
+        if (r.point or r.fixed) {
             @memcpy(r.ring[slot..][0..src.len], src);
             return;
         }
@@ -379,8 +401,10 @@ pub const Resizer = struct {
         const rows = r.v_rows[y * r.v_taps ..][0..n];
         if (r.point) {
             const bpp = r.src_format.bytesPerPixel();
-            const src = r.ring[(rows[0] % r.ring_rows) * r.row_stride ..][0 .. r.src_width * bpp];
+            const src = r.ring[r.ringRow(rows[0]) * r.row_stride ..][0 .. r.src_width * bpp];
             for (r.h_start, 0..) |sx, x| @memcpy(to[x * bpp ..][0..bpp], src[sx * bpp ..][0..bpp]);
+        } else if (r.fixed) {
+            r.takeFixed(y, rows, to);
         } else {
             const fp: usize = r.floats_per_pixel;
             const weights = r.v_weights[y * r.v_taps ..][0..n];
@@ -391,10 +415,10 @@ pub const Resizer = struct {
             const out = if (r.v_first) r.line[r.pad_left * fp ..][0..len] else r.out[0..len];
             var filtered = out;
             if (n == 1 and weights[0] == 1) {
-                const one = ring[(rows[0] % r.ring_rows) * r.row_stride ..][0..len];
+                const one = ring[r.ringRow(rows[0]) * r.row_stride ..][0..len];
                 if (r.v_first) @memcpy(out, one) else filtered = one;
             } else {
-                for (r.taps[0..n], rows) |*t, s| t.* = ring[(s % r.ring_rows) * r.row_stride ..][0..len];
+                for (r.taps[0..n], rows) |*t, s| t.* = ring[r.ringRow(s) * r.row_stride ..][0..len];
                 filterColumn(out, r.taps[0..n], weights);
             }
             if (r.v_first and !r.h_identity) {
@@ -406,6 +430,39 @@ pub const Resizer = struct {
         }
         if (r.converter) |c| c.run(dst, r.pack, r.dst_width);
         return true;
+    }
+
+    /// Source row `y`'s ring row, `y % ring_rows`, by Lemire, Kaser, and
+    /// Kurz's direct remainder ("Faster Remainder by Direct Computation",
+    /// 2019), exact for 32-bit `y` and `ring_rows`: a division for each
+    /// tap costs more than the tap on an icon.
+    fn ringRow(r: *const Resizer, y: u32) usize {
+        const low = r.ring_magic *% y;
+        return @intCast((@as(u128, low) * r.ring_rows) >> 64);
+    }
+
+    /// `take`'s destination row `y` from 8-bit source `rows`, the vertical
+    /// pass in integers, into `to`.
+    fn takeFixed(r: *Resizer, y: usize, rows: []const u32, to: []u8) void {
+        const fp: usize = r.floats_per_pixel;
+        const n = rows.len;
+        const pairs = n + n % 2;
+        const len = r.src_width * r.src_format.bytesPerPixel();
+        for (r.byte_taps[0..pairs], 0..) |*t, k| {
+            const s = rows[if (k < n) k else 0];
+            t.* = r.ring[r.ringRow(s) * r.row_stride ..][0..len];
+        }
+        const out = r.line[r.pad_left * fp ..][0 .. r.src_width * fp];
+        const weights = r.v_fixed[y * r.v_pairs ..][0..pairs];
+        filterColumnFixed(out[0..len], r.byte_taps[0..pairs], weights, r.v_scale[y]);
+        if (fp != r.channels) spreadRgb(out);
+        var filtered = out;
+        if (!r.h_identity) {
+            r.padLine();
+            r.filterLine(r.out);
+            filtered = r.out;
+        }
+        r.packRow(filtered[0 .. r.dst_width * fp], to);
     }
 
     /// Plans the horizontal pass, and returns whether it is the identity.
@@ -507,15 +564,17 @@ pub const Resizer = struct {
                 for (w[0..n], 0..) |*to, k| to.* = r.h_weights[(y * r.h_taps + k) * fp];
             } else a.weights(@intCast(y), win, w[0..n]);
             var merged: usize = 0;
-            for (0..n) |k| {
-                const s = edgeIndex(win.lo + @as(i64, @intCast(k)), a.src, r.edge) orelse continue;
-                if (merged > 0 and rows[merged - 1] == s) {
-                    w[merged - 1] += w[k];
-                } else {
-                    rows[merged] = s;
-                    w[merged] = w[k];
-                    merged += 1;
-                }
+            switch (r.edge) {
+                inline else => |edge| for (0..n) |k| {
+                    const s = edgeIndex(win.lo + @as(i64, @intCast(k)), a.src, edge) orelse continue;
+                    if (merged > 0 and rows[merged - 1] == s) {
+                        w[merged - 1] += w[k];
+                    } else {
+                        rows[merged] = s;
+                        w[merged] = w[k];
+                        merged += 1;
+                    }
+                },
             }
             // Merged weights can cancel to zero too.
             var kept: usize = 0;
@@ -543,6 +602,58 @@ pub const Resizer = struct {
         }
     }
 
+    /// Turns each destination row's vertical weights into integers for
+    /// `filterColumnFixed`: scaled by the largest power of two that keeps
+    /// every weight within 16 bits and every sum of 8-bit samples times
+    /// them within 32, and rounded cumulatively, so that they sum to
+    /// exactly that power and a flat image stays flat.
+    /// Rows a `period` apart with the same weights share them.
+    fn planFixed(r: *Resizer, period: u32) void {
+        for (0..r.dst_height) |y| {
+            const n = r.v_count[y];
+            const w = r.v_weights[y * r.v_taps ..][0..n];
+            const q = r.v_fixed[y * r.v_pairs ..][0 .. n + n % 2];
+            if (y >= period and r.v_count[y - period] == n and
+                std.mem.eql(f32, w, r.v_weights[(y - period) * r.v_taps ..][0..n]))
+            {
+                @memcpy(q, r.v_fixed[(y - period) * r.v_pairs ..][0..q.len]);
+                r.v_scale[y] = r.v_scale[y - period];
+                continue;
+            }
+            var total: f64 = 0;
+            var abs: f64 = 0;
+            var most: f64 = 0;
+            for (w) |wk| {
+                total += wk;
+                abs += @abs(wk);
+                most = @max(most, @abs(wk));
+            }
+            // Weights that sum to 1 but for the `f32` rounding are made to
+            // sum to exactly 1; those of a row with taps past a zero edge
+            // left out sum to less, and stay so.
+            const norm = if (@abs(total - 1) < 1e-4) total else 1;
+            // Each weight rounds by under 1, so |q| is under |w| 2^p + 1.
+            const nf: f64 = @floatFromInt(n);
+            const limit = norm * @min((max_fixed_weight - 1) / most, (std.math.maxInt(i32) / 255 - nf) / abs);
+            // floor(log2(x)) from the exponent bits: x is a positive
+            // normal float, at least 32766 / 1.0001 or 2^23 / 4096 / 1.0001.
+            const exponent: i32 = @intCast(@as(u64, @bitCast(limit)) >> 52);
+            const shift = std.math.clamp(exponent - 1023, 0, 30);
+            const scale: f64 = @floatFromInt(@as(u32, 1) << @intCast(shift));
+            const per = scale / norm;
+            var sum: f64 = 0;
+            var before: i64 = 0;
+            for (w, q[0..n]) |wk, *qk| {
+                sum += wk;
+                const upto: i64 = @intFromFloat(@round(sum * per));
+                qk.* = @intCast(upto - before);
+                before = upto;
+            }
+            if (n % 2 == 1) q[n] = 0;
+            r.v_scale[y] = @floatCast(1 / (scale * 255));
+        }
+    }
+
     /// Fills `line` past each edge of the source row in it, as the edge
     /// mode reads it.
     fn padLine(r: *Resizer) void {
@@ -562,10 +673,10 @@ pub const Resizer = struct {
                         @memset(left, @splat(0));
                         @memset(right, @splat(0));
                     },
-                    .reflect, .wrap => for (0..r.pad_left + r.pad_right) |q| {
+                    inline .reflect, .wrap => |edge| for (0..r.pad_left + r.pad_right) |q| {
                         const p = if (q < r.pad_left) q else inner + q - r.pad_left;
                         const i = @as(i64, @intCast(p)) - @as(i64, @intCast(r.pad_left));
-                        line[p] = line[r.pad_left + edgeIndex(i, r.src_width, r.edge).?];
+                        line[p] = line[r.pad_left + edgeIndex(i, r.src_width, edge).?];
                     },
                 }
             },
@@ -907,6 +1018,94 @@ fn filterColumn(out: []f32, taps: []const []const f32, weights: []const f32) voi
     }
 }
 
+/// The largest integer weight (`Resizer.planFixed`).
+const max_fixed_weight = std.math.maxInt(i16);
+
+/// The most vertical taps the integer filter takes: past it, weights of a
+/// few units each would round too coarsely, and floats do it.
+const max_fixed_taps = 4096;
+
+/// The narrowest source row, in bytes, the integer filter takes: below one
+/// 64-byte run, planning its weights costs more than it saves, and floats
+/// do it.
+// Measured in results/resize-fast-20261105.md.
+const min_fixed_row = 64;
+
+/// One row through the vertical filter on 8-bit rows, `taps` an even
+/// number of them: each byte's sum of the taps' bytes times their integer
+/// `weights`, two taps at a time (as `vpmaddwd` and `vpdpwssd` do), times
+/// `scale`, into `out`, a float a byte, in runs of 64 bytes (several
+/// vectors summed side by side), then 16.
+fn filterColumnFixed(out: []f32, taps: []const []const u8, weights: []const i16, scale: f32) void {
+    var i: usize = 0;
+    while (i + 64 <= out.len) : (i += 64) columnsFixed(64, out, taps, weights, scale, i);
+    while (i + 16 <= out.len) : (i += 16) columnsFixed(16, out, taps, weights, scale, i);
+    while (i < out.len) : (i += 1) {
+        var acc: i32 = 0;
+        for (taps, weights) |t, wk| acc += @as(i32, t[i]) * wk;
+        out[i] = @as(f32, @floatFromInt(acc)) * scale;
+    }
+}
+
+/// `run` bytes of `filterColumnFixed`'s output from `at` on.
+inline fn columnsFixed(
+    comptime run: usize,
+    out: []f32,
+    taps: []const []const u8,
+    weights: []const i16,
+    scale: f32,
+    at: usize,
+) void {
+    const masks = comptime blk: {
+        var interleave: [2 * run]i32 = undefined;
+        var even: [run]i32 = undefined;
+        var odd: [run]i32 = undefined;
+        var pair: [2 * run]i32 = undefined;
+        for (&interleave, 0..) |*m, i| m.* = if (i % 2 == 0) @intCast(i / 2) else ~@as(i32, @intCast(i / 2));
+        for (&even, &odd, 0..) |*e, *o, i| {
+            e.* = @intCast(2 * i);
+            o.* = @intCast(2 * i + 1);
+        }
+        for (&pair, 0..) |*m, i| m.* = @intCast(i % 2);
+        break :blk .{ .interleave = interleave, .even = even, .odd = odd, .pair = pair };
+    };
+    var acc: @Vector(run, i32) = @splat(0);
+    var k: usize = 0;
+    while (k < taps.len) : (k += 2) {
+        const two: @Vector(2, i16) = .{ weights[k], weights[k + 1] };
+        const w: @Vector(2 * run, i16) = @shuffle(i16, two, undefined, masks.pair);
+        const b0: @Vector(run, u8) = taps[k][at..][0..run].*;
+        const b1: @Vector(run, u8) = taps[k + 1][at..][0..run].*;
+        const x: @Vector(2 * run, u8) = @shuffle(u8, b0, b1, masks.interleave);
+        const product = @as(@Vector(2 * run, i32), @as(@Vector(2 * run, i16), x)) * @as(@Vector(2 * run, i32), w);
+        acc += @shuffle(i32, product, undefined, masks.even) + @shuffle(i32, product, undefined, masks.odd);
+    }
+    out[at..][0..run].* = @as(@Vector(run, f32), @floatFromInt(acc)) * @as(@Vector(run, f32), @splat(scale));
+}
+
+/// RGB floats at the start of `px`, three a pixel, spread in place to four
+/// a pixel, the fourth 0: from the last pixel back, so that every pixel is
+/// read before a later one is written over it.
+fn spreadRgb(px: []f32) void {
+    const pixels = px.len / 4;
+    const mask = comptime blk: {
+        var m: [64]i32 = undefined;
+        for (&m, 0..) |*v, i| v.* = if (i % 4 == 3) -1 else @intCast(i / 4 * 3 + i % 4);
+        break :blk m;
+    };
+    var p = pixels;
+    while (p % 16 != 0) {
+        p -= 1;
+        const c = px[p * 3 ..][0..3].*;
+        px[p * 4 ..][0..4].* = .{ c[0], c[1], c[2], 0 };
+    }
+    while (p > 0) {
+        p -= 16;
+        const v: @Vector(48, f32) = px[p * 3 ..][0..48].*;
+        px[p * 4 ..][0..64].* = @shuffle(f32, v, @as(@Vector(48, f32), @splat(0)), mask);
+    }
+}
+
 /// `m` vectors of `filterColumn`'s output from `i` on, summed side by side.
 inline fn columns(comptime m: usize, out: []f32, taps: []const []const f32, weights: []const f32, i: usize) void {
     var acc: [m]F = @splat(@splat(0));
@@ -924,7 +1123,7 @@ inline fn columns(comptime m: usize, out: []f32, taps: []const []const f32, weig
 }
 
 /// Source index `i` as the edge mode reads it, or null for a zero.
-fn edgeIndex(i: i64, n: u32, edge: Edge) ?u32 {
+fn edgeIndex(i: i64, n: u32, comptime edge: Edge) ?u32 {
     if (i >= 0 and i < n) return @intCast(i);
     return switch (edge) {
         .clamp => if (i < 0) 0 else n - 1,
@@ -1156,6 +1355,8 @@ fn floatsPerPixel(f: PixelFormat) usize {
 const Layout = struct {
     point: bool = false,
     v_first: bool = false,
+    fixed: bool = false,
+    v_pairs: usize = 0,
     pack_format: PixelFormat = .gray8,
     h_taps: usize = 0,
     pad_left: usize = 0,
@@ -1168,7 +1369,23 @@ const Layout = struct {
     parts: std.enums.EnumArray(Part, [2]usize) = .initFill(.{ 0, 0 }),
     total: usize = 0,
 
-    const Part = enum { h_start, h_weights, line, v_count, v_rows, v_weights, need, keep, taps, ring, out, pack };
+    const Part = enum {
+        h_start,
+        h_weights,
+        line,
+        v_count,
+        v_rows,
+        v_weights,
+        need,
+        keep,
+        taps,
+        v_fixed,
+        v_scale,
+        byte_taps,
+        ring,
+        out,
+        pack,
+    };
     const alignment = 64;
 
     fn init(
@@ -1181,17 +1398,24 @@ const Layout = struct {
         options: Options,
     ) ?Layout {
         const point = options.filter == .point;
-        var l: Layout = .{
-            .point = point,
-            // Only for one float a pixel: with more, the horizontal filter's
-            // vectors are full anyway, and source rows in the ring cost
-            // memory and cache (results/resize-20261105.md).
-            .v_first = !point and floatsPerPixel(src_format) == 1 and dst_height < src_height,
-            .pack_format = if (point) src_format else packFormat(dst_format, src_format),
-        };
         const h: Axis = .init(src_width, dst_width, options.filter);
         const v: Axis = .init(src_height, dst_height, options.filter);
         const fp = floatsPerPixel(src_format);
+        const shrinks = !point and dst_height < src_height;
+        // 8-bit samples filtered as stored (results/resize-fast-20261105.md).
+        const fixed = shrinks and @as(usize, src_width) * src_format.bytesPerPixel() >= min_fixed_row and
+            src_format.sample() == .u8 and v.taps <= max_fixed_taps and
+            (options.colorspace == .linear or src_format.isCmyk()) and
+            !(src_format.hasAlpha() and !src_format.isPremultiplied());
+        var l: Layout = .{
+            .point = point,
+            // For floats, only for one float a pixel: with more, the
+            // horizontal filter's vectors are full anyway, and source rows
+            // in the ring cost memory and cache (results/resize-20261105.md).
+            .v_first = shrinks and (fixed or fp == 1),
+            .fixed = fixed,
+            .pack_format = if (point) src_format else packFormat(dst_format, src_format),
+        };
         if (!point) {
             // Windows move right with the destination pixel, so the first
             // reaches furthest left and the last furthest right. Taps are
@@ -1214,7 +1438,7 @@ const Layout = struct {
             mul(std.mem.alignForward(usize, dst_width, hGroup(fp)), fp) orelse return null,
             lanes,
         );
-        if (point) {
+        if (point or fixed) {
             l.row_stride = std.mem.alignForward(usize, mul(src_width, bpp_src) orelse return null, alignment);
         } else {
             // Ring rows are destination rows, or with `v_first` source rows.
@@ -1240,6 +1464,13 @@ const Layout = struct {
         l.place(&at, .keep, dst_height, @sizeOf(u32)) orelse return null;
         if (point) {
             l.place(&at, .ring, mul(l.ring_rows, l.row_stride) orelse return null, 1) orelse return null;
+        } else if (fixed) {
+            l.v_pairs = l.v_taps + l.v_taps % 2;
+            l.place(&at, .v_fixed, mul(dst_height, l.v_pairs) orelse return null, @sizeOf(i16)) orelse return null;
+            l.place(&at, .v_scale, dst_height, @sizeOf(f32)) orelse return null;
+            l.place(&at, .byte_taps, l.v_pairs, @sizeOf([]const u8)) orelse return null;
+            l.place(&at, .ring, mul(l.ring_rows, l.row_stride) orelse return null, 1) orelse return null;
+            l.place(&at, .out, dst_row, @sizeOf(f32)) orelse return null;
         } else {
             l.place(&at, .taps, l.v_taps, @sizeOf([]const f32)) orelse return null;
             const ring = mul(mul(l.ring_rows, l.row_stride) orelse return null, @sizeOf(f32)) orelse return null;

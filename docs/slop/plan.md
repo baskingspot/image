@@ -1353,6 +1353,10 @@ width)` for every file with several entries.
     cheaper per-call setup, against libvips on large 8-bit downscales and
     stb2 on icons, with a stated 8-bit tolerance against stb2; 16-bit and
     float stay on f64 weights. stb2's bugs found by the oracle are not filed.
+    Landed: 8-bit shrinks from 64-byte rows filter vertically with 16-bit
+    integer weights, the horizontal pass in floats; libvips matched on
+    thumbnails (0.98–1.02×), stb2 0.98–0.99× on icon quarters, 1.08× over
+    all rows, the 8-bit tolerance still 1 step (results/resize-fast-20261105.md).
 
 ## Harness requests
 
