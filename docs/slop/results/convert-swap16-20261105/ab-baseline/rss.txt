@@ -1,0 +1,4 @@
+peak RSS (MiB)            after   before
+tga-decode                338.2    338.2
+tga-decode-rle            325.1    325.1
+convert-rgba8-bgra8       130.3    130.2

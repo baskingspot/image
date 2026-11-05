@@ -997,10 +997,13 @@ TGA decode. The port's speed check timed no TGA or BMP row. Swap3 runs
 16-pixel blocks again, so every kernel has one block size, and `blocks`'s
 cache-line-aligned wide path and `lineStart` are gone
 (results/convert-swap3-20261105.md: 9 KB for both kernels, rgb8→bgr8
-16 GP/s native and 1.6 GP/s baseline per 1000-pixel call). `Swap3(u16)`
-stays slow (about 25 MP/s at any block size): Zig 0.17.1 lowers its
-`@bitCast` from bytes to `@Vector(48, u16)` with shifts and inserts; a
-byte shuffle measured 9.5 GP/s in a probe and is not made yet.
+16 GP/s native and 1.6 GP/s baseline per 1000-pixel call). Zig 0.17.1
+also lowers a `@bitCast` from bytes to `@Vector(n, u16)` with shifts and
+inserts, which held `Swap3(u16)` to about 25 MP/s and `Swap4(u16)` to
+400 MP/s native, so both swap kernels shuffle bytes, each sample's bytes
+moving together, for both sample types (results/convert-swap16-20261105.md:
+per 1000-pixel call, rgb16→bgr16 8.8 GP/s native and 2.5 baseline,
+rgba16→bgra16 15.9 and 5.0; the four kernels 12 KB to 3.6 KB).
 
 ## Decisions to measure
 

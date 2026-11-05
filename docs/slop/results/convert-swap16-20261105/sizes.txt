@@ -1,0 +1,67 @@
+# nm -S symbol sizes (bytes) of the swap kernels, Zig 0.17.1 ReleaseFast
+# micro/main.zig and bench-image (zig build bench -Doptimize=fast [-Dcpu=baseline]) give the same sizes
+## m-before-native
+8291	convert.Swap3(u16).run
+1069	convert.Swap3(u8).run
+1886	convert.Swap4(u16).run
+736	convert.Swap4(u8).run
+## m-after-native
+1171	convert.Swap3(u16).run
+893	convert.Swap3(u8).run
+736	convert.Swap4(u16).run
+736	convert.Swap4(u8).run
+## m-before-baseline
+5888	convert.Swap3(u16).run
+2775	convert.Swap3(u8).run
+1124	convert.Swap4(u16).run
+439	convert.Swap4(u8).run
+## m-after-baseline
+1340	convert.Swap3(u16).run
+1568	convert.Swap3(u8).run
+259	convert.Swap4(u16).run
+436	convert.Swap4(u8).run
+## bench-before-native
+8291	convert.Swap3(u16).run
+1069	convert.Swap3(u8).run
+1886	convert.Swap4(u16).run
+736	convert.Swap4(u8).run
+## bench-after-native
+1171	convert.Swap3(u16).run
+893	convert.Swap3(u8).run
+736	convert.Swap4(u16).run
+736	convert.Swap4(u8).run
+## bench-before-baseline
+5888	convert.Swap3(u16).run
+2775	convert.Swap3(u8).run
+1124	convert.Swap4(u16).run
+439	convert.Swap4(u8).run
+## bench-after-baseline
+1340	convert.Swap3(u16).run
+1568	convert.Swap3(u8).run
+259	convert.Swap4(u16).run
+439	convert.Swap4(u8).run
+
+# size(1) of bench-image
+   text	   data	    bss	    dec	    hex	filename
+2592177	    752	1383612344	1386205273	529fd059	bench-before-native
+2580457	    752	1383611784	1386192993	529fa061	bench-after-native
+2661769	    776	1383612392	1386274937	52a0e079	bench-before-baseline
+2653265	    776	1383612696	1386266737	52a0c071	bench-after-baseline
+
+# Instruction counts (objdump -d), top six
+m-before-native Swap3(u16).run:  713 mov 132 shr 126 vpinsrw 88 vmovups 68 vmovdqu 51 and
+m-before-native Swap4(u16).run:  90 vpinsrb 60 shr 58 mov 48 movzbl 46 shl 46 or
+m-before-native Swap3(u8).run:  22 vpermb 22 vmovdqu8 22 vmovdqu 14 mov 12 add 11 lea
+m-before-native Swap4(u8).run:  38 vmovdqu 19 vpshufb 9 cmp 8 mov 8 lea 8 add
+m-after-native Swap3(u16).run:  44 vmovdqu 20 vpermt2w 15 vmovdqa 14 add 13 lea 11 vpermw
+m-after-native Swap4(u16).run:  38 vmovdqu 19 vpshufb 9 cmp 8 mov 8 lea 8 add
+m-after-native Swap3(u8).run:  44 vmovdqu 13 lea 11 vpermb 11 mov 10 vpermt2b 10 vmovdqa
+m-after-native Swap4(u8).run:  38 vmovdqu 19 vpshufb 9 cmp 8 mov 8 lea 8 add
+m-before-baseline Swap3(u16).run:  328 mov 159 movdqa 72 movq 66 pshufd 38 xor 33 shld
+m-before-baseline Swap4(u16).run:  55 shl 55 or 48 movzbl 17 mov 12 movq 8 pop
+m-before-baseline Swap3(u8).run:  75 mov 72 movd 66 movzbl 53 movdqa 48 por 48 movzwl
+m-before-baseline Swap4(u8).run:  12 pshuflw 12 pshufhw 12 movdqu 7 cmp 6 punpcklbw 6 punpckhbw
+m-after-baseline Swap3(u16).run:  48 pshufd 36 movdqu 28 movdqa 24 por 24 pandn 24 pand
+m-after-baseline Swap4(u16).run:  12 movdqu 7 cmp 6 pshuflw 6 pshufhw 5 mov 4 add
+m-after-baseline Swap3(u8).run:  53 movdqa 36 pshufd 24 por 24 pandn 24 pand 18 pshuflw
+m-after-baseline Swap4(u8).run:  12 pshuflw 12 pshufhw 12 movdqu 7 cmp 6 punpcklbw 6 punpckhbw

@@ -556,16 +556,22 @@ fn Swap4(comptime T: type) type {
             blocks(@This(), g, f, out, in, n);
         }
         fn block(comptime l: usize, o: *[l * f.bytesPerPixel()]u8, i: *const [l * f.bytesPerPixel()]u8) void {
-            // A shuffle within each pixel (pshufb, tbl).
+            // A byte shuffle within each pixel (pshufb, tbl), each sample's
+            // bytes moving together. Zig 0.17 lowers a @bitCast of the bytes
+            // to @Vector(l * 4, u16) with shifts and inserts
+            // (docs/slop/results/convert-swap16-20261105.md).
+            const z = @sizeOf(T);
             const mask = comptime m: {
-                var m: [l * 4]i32 = undefined;
+                var m: [l * 4 * z]i32 = undefined;
                 for (0..l) |p| {
-                    for (0..4) |ch| m[p * 4 + ch] = p * 4 + (if (ch < 3) 2 - ch else ch);
+                    for (0..4) |ch| for (0..z) |b| {
+                        m[(p * 4 + ch) * z + b] = (p * 4 + (if (ch < 3) 2 - ch else ch)) * z + b;
+                    };
                 }
                 break :m m;
             };
-            const v: @Vector(l * 4, T) = @bitCast(i.*);
-            o.* = @bitCast(@shuffle(T, v, undefined, mask));
+            const v: @Vector(l * 4 * z, u8) = i.*;
+            o.* = @shuffle(u8, v, undefined, mask);
         }
     };
 }
@@ -583,15 +589,19 @@ fn Swap3(comptime T: type) type {
             blocks(@This(), g, f, out, in, n);
         }
         fn block(comptime l: usize, o: *[l * f.bytesPerPixel()]u8, i: *const [l * f.bytesPerPixel()]u8) void {
+            // A byte shuffle, as in Swap4.
+            const z = @sizeOf(T);
             const mask = comptime m: {
-                var m: [l * 3]i32 = undefined;
+                var m: [l * 3 * z]i32 = undefined;
                 for (0..l) |p| {
-                    for (0..3) |ch| m[p * 3 + ch] = p * 3 + (2 - ch);
+                    for (0..3) |ch| for (0..z) |b| {
+                        m[(p * 3 + ch) * z + b] = (p * 3 + (2 - ch)) * z + b;
+                    };
                 }
                 break :m m;
             };
-            const v: @Vector(l * 3, T) = @bitCast(i.*);
-            o.* = @bitCast(@shuffle(T, v, undefined, mask));
+            const v: @Vector(l * 3 * z, u8) = i.*;
+            o.* = @shuffle(u8, v, undefined, mask);
         }
     };
 }

@@ -1,0 +1,11 @@
+image/arm, geomean              rows image MP/s   before     ±   <1    ~   slowest vs before
+ConvertRGBA8ToBGRA8/icon           2    17965.4     0.99    9%    0    2   0.99 [0.76, 1.02] alpha-64x64.raw
+ConvertRGBA8ToBGRA8/1mp            2     6018.0     1.01    2%    0    2   1.00 [0.99, 1.03] alpha-1024x1024.raw
+ConvertRGBA8ToBGRA8/large          1     2614.3     0.96   14%    0    1   0.96 [0.88, 1.15] alpha-4096x4096.raw
+TgaDecode/icon                    13     3808.0     1.02    2%    0   12   0.96 [0.90, 1.11] icon_16-actions_appointment_new-16x16.tga
+TgaDecode/1mp                     23     5471.6     1.00    4%    1   22   0.93 [0.76, 1.16] icon_512-actions_appointment_new-512x512.tga
+TgaDecode/large                    8     3050.7     0.99    3%    0    8   0.96 [0.87, 1.10] photo_tecnick-RGB_OR_1200x1200_002-1200x1200.tga
+TgaDecodeRLE/icon                 13     1313.9     1.02    5%    0   11   0.92 [0.69, 1.01] icon_32-actions_appointment_new-32x32.tga
+TgaDecodeRLE/1mp                  23     2158.1     1.02    2%    0   20   0.99 [0.92, 1.13] icon_512-actions_appointment_new-512x512.tga
+TgaDecodeRLE/large                 8     1364.0     0.99    6%    0    8   0.97 [0.83, 1.03] screenshot_web-apple_com-1313x4755.tga
+all                               93     2913.4     1.01          1   86

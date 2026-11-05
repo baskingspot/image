@@ -96,6 +96,8 @@ Peak RSS is unchanged (`ab-*/rss.txt`).
 
 ## Not changed: Swap3 for 16-bit samples
 
+Since made: `convert-swap16-20261105.md`.
+
 `Swap3(u16)` is still slow after this change: 24–28 MP/s for rgb16 to
 bgr16 at every n, native and baseline, and 8.3 KB native. Block size is
 not the cause; it ran as slowly at 16 pixels before. Its block
