@@ -948,9 +948,8 @@ AVX-512; three sites `@truncate` instead, and `just test-cpu` (baseline and
 `x86_64_v3`, ReleaseSafe) runs in `just ci` and CI. compress's large
 `undefined` Debug locals blew up arm and riscv64 instruction selection and
 are heap-allocated. The `@intCast` flag is fixed in Zig 0.17.1 (checked with the repro:
-208, not 127), so the branch moves to 0.17.1 and drops the workaround; no
-issue filed. Row 77 (sort ties: vendored 0.16 pdq or ties by index) is the
-owner's.
+208, not 127), so the branch moved to 0.17.1 and dropped the workaround; no
+issue filed. Sort ties are decision 79, merged from main.
 
 Ported 2026-11-04 (results/zig017-20261104.md). The flake takes
 `zig."0.17"` and `devShells."zig-0-17"` from a newer baskingspot/nix;
@@ -971,21 +970,25 @@ and `@enumFromInt` are `@backingInt` and `@fromBackingInt` (zig fmt);
 `bufPrint` are `Allocator.print` and `mem.print`; `linux.waitpid` takes
 an `*i32` status (the fuzz driver). Zig 0.17 reworked
 `std.sort.pdq`, which orders equal elements differently, and the WebP
-lossless entropy tiles and GIF's quantizer sort with ties: WebP lossless
-and lossy-with-alpha output changed on 32 of the bench corpus rows until
-`src/sort.zig` (0.16's pdq, MIT) took over those three sorts; every
-`bench-image check` row (3,722 decode and encode outputs) is now identical
-to main's. The alternative, breaking ties by index, would make the bytes
-independent of any sort but change them on both branches once.
+lossless entropy tiles and GIF's quantizer sorted with ties, so WebP
+lossless and lossy-with-alpha output changed on 32 of the bench corpus
+rows. The branch first kept 0.16's pdq in `src/sort.zig`; decision 79 then
+broke those ties by index on main (results/sort-ties-20261105.md), and
+merged into the branch that replaced `src/sort.zig`, which is gone. Every
+`bench-image check` row is identical to main's again.
 
 CI on the branch then failed JPEG on GitHub's runner, which has no AVX-512:
-Zig 0.17 marks a signed-to-unsigned `@intCast` `trunc nsw`, so LLVM
-narrowed clamped vectors with signed saturation (128-255 to 127). The three
-vector sites that hit it (`jpeg/idct.zig`'s two stores, `jpeg/encode.zig`'s
-YCbCr store) use `@truncate` instead; `just test-cpu` runs the tests built
-for baseline and `x86_64_v3`, in `just ci` and CI, so a host with AVX-512
-cannot hide such a bug. The reduction, the IR audit, and a draft upstream
-issue (not filed; the owner decides) are in results/zig017-20261104.md.
+Zig 0.17.0 marks a signed-to-unsigned `@intCast` `trunc nsw`, so LLVM
+narrowed clamped vectors with signed saturation (128-255 to 127). Zig
+0.17.1 fixes the flag, so the branch needs 0.17.1 (`minimum_zig_version`,
+and the flake pins a nixpkgs master commit with it until nixos-unstable
+has it) and the three JPEG sites are `@intCast` again; no issue was filed.
+`just test-cpu` runs the tests built for baseline and `x86_64_v3`, in
+`just ci` and CI, so a host with AVX-512 cannot hide such a bug. compress's
+large `undefined` Debug locals are not fixed by 0.17.1: in a function with
+intrinsics disabled, an `undefined` local over 512 KiB is still an inline
+copy, and compress keeps those buffers on the heap. Both are in
+results/zig017-20261104.md.
 
 ## Decisions to measure
 

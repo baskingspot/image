@@ -8,7 +8,6 @@
 
 const std = @import("std");
 const vfill = @import("../fill.zig").fill;
-const sort = @import("../sort.zig");
 const testing = std.testing;
 const codes = @import("encode_codes.zig");
 const lz77 = @import("encode_lz77.zig");

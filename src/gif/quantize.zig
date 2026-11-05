@@ -27,7 +27,6 @@
 
 const std = @import("std");
 const vfill = @import("../fill.zig").fill;
-const sort = @import("../sort.zig");
 const testing = std.testing;
 
 pub const Method = enum { wu, median_cut, octree };

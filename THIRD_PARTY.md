@@ -1,11 +1,8 @@
 # Third-party material
 
-The package itself (`src/`) contains no third-party code except
-`src/sort.zig`, the pattern-defeating quicksort of Zig 0.16's standard library
-(MIT, Copyright (c) Zig contributors), kept so that the WebP and GIF
-encoders, which sort with ties, write the same bytes on later Zig versions.
-The tests and benchmarks use the test images and libraries below, none of
-which is part of what a consumer of the package fetches.
+The package itself (`src/`) contains no third-party code. The tests and
+benchmarks use the test images and libraries below. Nothing here is part of
+what a consumer of the package fetches.
 
 ## Vendored test images
 
