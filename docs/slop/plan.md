@@ -1300,7 +1300,10 @@ width)` for every file with several entries.
     keys by index (the WebP lossless tile sort and GIF's quantizer box
     sorts, as the JPEG XL encoder already does), so no `std.sort` change
     moves their bytes; the vendored Zig 0.16 pdq on `zig-0.17` goes. WebP
-    and GIF encoded bytes change once.
+    and GIF encoded bytes change once. Landed (results/sort-ties-20261105.md):
+    the tile and octree sorts compare the index after the key, and the
+    median-cut sort is `std.sort.block`, stable; files within 1.3%, rows
+    within 0.11%.
 80. **Resize default at 1:1. Decided by the owner:** Catmull-Rom, as
     stb_image_resize2: it passes through its samples, so an axis that keeps
     its size is copied; v0.97's Mitchell blurred it (monstar's glyphs lose
