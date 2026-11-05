@@ -48,7 +48,9 @@ Tecnick, Wikipedia, pngimg.com, game screenshots, textures).
 
 From nixpkgs through the dev shell (`flake.nix`), used only by the tests and
 benchmarks: libpng, libspng, libjpeg-turbo, giflib, libwebp, libtiff, libjxl,
-stb_image, qoi.h, ImageMagick, Rust's `image`, `tiff`, and `zune-qoi` crates (pinned in
+stb_image and stb_image_resize2, qoi.h, ImageMagick, libvips, Rust's `image`, `tiff`, and `zune-qoi` crates (pinned in
 `bench/rust/Cargo.lock`), and Go's `image` packages. Wuffs, which nixpkgs
 lacks as a C library, is its single-file C release at v0.4.0-alpha.12
-(Apache-2.0 or MIT), fetched by the flake and pinned by hash.
+(Apache-2.0 or MIT), fetched by the flake and pinned by hash, and so is
+stb_image_resize 0.97 (public domain or MIT), from stb's `deprecated/`
+directory at c4bbb6e.

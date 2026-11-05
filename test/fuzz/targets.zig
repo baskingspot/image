@@ -32,6 +32,7 @@ pub const jxl = @import("jxl.zig");
 pub const jxl_jbrd = @import("jxl_jbrd.zig");
 pub const webp_encode = @import("webp_encode.zig");
 pub const jxl_encode = @import("jxl_encode.zig");
+pub const resize = @import("resize.zig");
 
 const Self = @This();
 

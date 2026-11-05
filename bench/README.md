@@ -22,7 +22,7 @@ ratio and interval.
 | `image`         | this package, ReleaseFast                | `bench/zig/` and `bench/c/arm.c`, `zig build bench` |
 | `wuffs`         | Wuffs's decoders and pixel swizzler      | `bench/c/wuffs-*.c`                                 |
 | `qoih`          | qoi.h, the reference QOI codec           | `bench/c/qoih-*.c`                                  |
-| `stb`           | stb_image                                | `bench/c/stb-*.c`                                   |
+| `stb`           | stb_image, and stb_image_resize2         | `bench/c/stb-*.c`                                   |
 | `libpng`        | libpng                                   | `bench/c/libpng-*.c`                                |
 | `spng`          | libspng                                  | `bench/c/spng-*.c`                                  |
 | `libwebp`       | libwebp, and its demux animation decoder | `bench/c/libwebp-*.c`                               |
@@ -31,6 +31,7 @@ ratio and interval.
 | `magick`        | ImageMagick's MagickWand                 | `bench/c/magick-*.c`                                |
 | `libtiff`       | libtiff                                  | `bench/c/libtiff-*.c`                               |
 | `libjxl`        | libjxl                                   | `bench/c/libjxl-*.c`                                |
+| `libvips`       | libvips's reduce, one thread             | `bench/c/libvips-*.c`                               |
 | `image-rs`      | Rust's `image` and `tiff` crates         | `bench/rust`, feature `image-rs`                    |
 | `zune`          | the zune crates                          | `bench/rust`, feature `zune`                        |
 | `jxl-oxide`     | the jxl-oxide crate                      | `bench/rust`, feature `jxl-oxide`                   |

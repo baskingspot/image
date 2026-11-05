@@ -1,0 +1,17 @@
+image/arm, geomean              rows image MP/s      stb  libvips     ±   <1    ~   slowest vs stb
+ResizeGray8Quarter/icon           12      477.0     0.96   258.44    3%    9    3   0.93 [0.93, 0.94] actions_address_book_new-32x32.raw
+ResizeGray8Quarter/1mp             8     1882.0     1.13    36.76    3%    0    0   1.08 [1.06, 1.09] actions_bookmark_new-128x128.raw
+ResizeGray8Double/icon            12      147.1     0.83    87.51    1%   12    0   0.74 [0.74, 0.75] actions_bookmark_new-16x16.raw
+ResizeGray8Double/1mp              8      306.3     1.15    32.25    2%    0    0   1.12 [1.11, 1.13] actions_bookmark_new-128x128.raw
+ResizeBGRA8PremulQuarter/icon     12      279.7     0.85   178.79    2%   12    0   0.80 [0.79, 0.81] actions_contact_new-32x32.raw
+ResizeBGRA8PremulQuarter/1mp       8      646.3     1.05    15.67    1%    4    0   0.95 [0.94, 0.96] actions_appointment_new-128x128.raw
+ResizeBGRA8PremulDouble/icon      12       91.9     1.00    68.80    1%    4    0   0.85 [0.84, 0.86] actions_bookmark_new-16x16.raw
+ResizeBGRA8PremulDouble/1mp        8      123.0     1.20    26.48    0%    0    0   1.18 [1.17, 1.19] actions_address_book_new-256x256.raw
+ResizeRGB8Thumb256/large           2      491.3     0.75     0.45    2%    2    0   0.75 [0.74, 0.78] wikipedia-4000x3000.raw
+ResizeRGB8Thumb1024/large          2      486.9     0.74     0.62    3%    2    0   0.73 [0.71, 0.76] wikipedia-4000x3000.raw
+ResizeRGB8Double/1mp               4      108.7     0.89    18.28    1%    4    0   0.87 [0.86, 0.88] kodim02-1000x750.raw
+ResizeRGBA8Half/icon               2      189.1     1.01   129.23    1%    0    1   1.00 [0.98, 1.01] alpha-64x64.raw
+ResizeRGBA8Half/1mp                2      287.5     1.11     8.79    4%    0    1   1.07 [0.92, 1.13] alpha-1024x1024.raw
+ResizeRGBA8Half/large              1      246.7     1.12     6.09    6%    0    0   1.12 [1.07, 1.19] alpha-4096x4096.raw
+ResizeRGB8SrgbThumb256/large       2      341.1     0.83        -    1%    2    0   0.82 [0.82, 0.84] wikipedia-4000x3000.raw
+all                               95      278.0     0.97    49.63         51    5

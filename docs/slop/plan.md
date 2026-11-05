@@ -39,13 +39,20 @@ Shared by every format:
   f32 for float and HDR sources (TIFF float, PFM, JPEG XL), and premultiplied
   or straight alpha. It also reports the source's native format, so a caller
   can ask for that and skip conversion. Conversion and swizzle are SIMD.
+- **Resizing** (`image.resize`, added to scope by the owner on 2026-11-05;
+  it was under Not in phase 1): separable filters from nearest neighbor to
+  Lanczos-3, four edge modes, stored values or sRGB in linear light, any
+  pixel format in and out, whole buffers or a row at a time, caller-owned
+  work memory; and `resize.orient`, the eight EXIF orientations applied
+  into a buffer. Its first user is rockorager/monstar, which resizes glyph
+  bitmaps with stb_image_resize. docs/slop/resize.md has the design.
 
 ## Not in phase 1
 
 - AVIF and HEIC: an AV1 or HEVC decoder in a container, each a project of its
   own, and HEVC is patent-encumbered.
-- Color management (applying ICC profiles), resizing beyond JPEG's and JPEG
-  XL's own downscaled decode, and drawing: separate libraries.
+- Color management (applying ICC profiles) and drawing: separate libraries.
+  (Resizing was here until the owner put it in scope; see above.)
 - SVG, PSD, OpenEXR, Radiance HDR, DDS and other GPU textures (ETC2), and
   Wuffs's own NIE, Handsum, and Thumbhash.
 - Wuffs's non-image packages. Compression belongs in `baskingspot/compress`,
@@ -911,6 +918,21 @@ first user is rockorager/monstar's glyph scaling (`stbir_resize_uint8` on
 `src/resize*`, its root line, the resize oracle, fuzz target, bench arm,
 example, guide chapter, and `docs/slop/resize.md`. stb_image_resize2 is the
 bar and the oracle.
+
+Landed on the branch (resize.md, results/resize-20261105.md): `image.resize`
+with every filter, edge mode, and colorspace the owner listed, and
+`Resizer`. The oracle agrees with stb_image_resize2 2.18 within 1 step at 8
+bits, 8 at 16 bits and floats, and 16 for straight alpha past 8 bits (alpha
+at least half), after working around four stb2 bugs it documents; and with
+stb 0.97's `stbir_resize_uint8` within 1, except where an axis keeps its
+size, where 0.97 uses Mitchell and stb2 and image Catmull-Rom. 0.97× stb2
+over the bench rows, 0.83–1.20× on glyph sizes, 0.74× on photo thumbnails,
+where libvips's integer reduce is twice as fast. Beyond the files above it
+added `bench/c/libvips-resize.c` (a second arm), `bench/c/stb-resize.c`,
+`bench/c/resize-sizes.h`, and `bench/corpus/resize.*`, and flake.nix gained
+`stb-image-resize-097` (the oracle for monstar's calls) and `vips`. Owner
+calls: the default at 1:1 (Catmull-Rom, as stb2), transparent black where
+written alpha is 0, and an integer path for large 8-bit downscales.
 
 ### Zig 0.17
 
