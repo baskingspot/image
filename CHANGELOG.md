@@ -8,6 +8,7 @@ All notable changes to image are recorded here. The format follows
 ### Added
 
 - `image.resize`: `resize.resize` scales a `PixelBuffer` from any size and pixel format to any other, and `resize.Resizer` does it a row at a time in a few rows of memory; `resize.Options` picks the filter (nearest neighbor, box, triangle, B-spline, Catmull-Rom, Mitchell, Lanczos-3, or stb_image_resize's default), the edge mode, and filtering stored values or sRGB in linear light, and `resize.workLen` sizes the work memory.
+- `image.resize.orient` writes an image turned and flipped as an `image.Orientation` says (the eight EXIF orientations), to show a photo upright.
 
 ## [0.1.0] - 2026-11-04
 

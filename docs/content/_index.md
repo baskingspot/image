@@ -379,6 +379,22 @@ for (0..sh) |y| {
 
 `push` returns `error.RowReady` while a destination row waits to be taken, since the next source row may overwrite a row it reads. `take` returns false until the rows are in.
 
+## Orient a photo
+
+Decoders report `Config.metadata.orientation` and leave the pixels as stored. `image.resize.orient` writes them turned and flipped into another buffer of the same format, so the image comes out upright; the four orientations that swap the axes need a buffer as wide as the source is tall:
+
+```zig
+// A 2 by 1 image whose orientation says its first row belongs on the
+// right: turned a quarter clockwise, it comes out 1 by 2.
+const src_pixels = [_]u8{ 10, 20 };
+const src: image.PixelBuffer = try .init(@constCast(&src_pixels), .gray8, 2, 1);
+var out: [2]u8 = undefined;
+const dst: image.PixelBuffer = try .init(&out, .gray8, 1, 2);
+try image.resize.orient(dst, src, .right_top);
+```
+
+To orient and resize, resize first when the image shrinks, so `orient` moves fewer pixels, and give `resize` the destination size with the axes swapped back.
+
 # Encoding
 
 ## Encode an image
@@ -457,7 +473,7 @@ Decoders report metadata in `Config.metadata` and never apply it. The pixels are
 | `jpeg_reconstruction`                                          | the JPEG XL file can rebuild its original JPEG                                                           |
 | `gain_map`                                                     | the JPEG carries an HDR gain map, which is not decoded                                                   |
 
-To show a photo upright, rotate or flip by `orientation` yourself. `image.exif.orientation(bytes)` reads the tag from EXIF data you hold, and `Orientation.toExif` gives the 1 to 8 value.
+To show a photo upright, pass `orientation` to `image.resize.orient` ([Orient a photo](#orient-a-photo)). `image.exif.orientation(bytes)` reads the tag from EXIF data you hold, and `Orientation.toExif` gives the 1 to 8 value.
 
 ## Collect ICC, EXIF, and XMP
 
@@ -577,7 +593,7 @@ The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode 
 # Limits
 
 - Formats: no AVIF or HEIC, which are an AV1 or HEVC decoder in a container. No SVG, PSD, OpenEXR, Radiance HDR, or GPU texture formats. `image.Format` has no tag for any of them.
-- Color management: ICC profiles, primaries, and transfer functions are reported, and pixels are never converted with them. Orientation is reported and never applied.
+- Color management: ICC profiles, primaries, and transfer functions are reported, and pixels are never converted with them. Orientation is reported, and applied only by `image.resize.orient`.
 - Resizing: `image.resize` has separable filters only, so no distortion, rotation by any angle, or elliptical filtering. It filters at `f32` precision, so 16-bit results can differ from an exact sum by a step or two. `srgb` is the only transfer curve it undoes.
 - JPEG: hierarchical files and lossless arithmetic-coded files are `error.Unsupported`, as in libjpeg-turbo. The encoder writes no arithmetic coding, no 12-bit samples, and no CMYK. An HDR gain map is flagged in `Metadata.gain_map` and not decoded.
 - JPEG XL: `jxl.encode` is lossless only, writes one frame, and writes a bare codestream with no container. There is no `jxl.Decoder.decodeFrameConfig`. Producing a `jbrd` box from a JPEG is not implemented.

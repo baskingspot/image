@@ -152,3 +152,16 @@ steps at 16 bits and in floats, from stb computing positions and kernels in
 alpha at 16 bits and in floats, compared on alpha from half to opaque. The
 0.97 oracle compares within 1, leaving out requests where an axis keeps its
 size (the default-filter difference above).
+
+## Orient
+
+`resize.orient(dst, src, orientation)` applies an `image.Orientation` into
+another buffer of the same format: the first four orientations copy rows
+(mirrored per pixel for `top_right` and `bottom_right`, in reverse row
+order for the bottom ones), the last four transpose with source rows and
+columns counted from the far end as the orientation says, in 32-pixel
+tiles. Same format only (`FormatMismatch`); a conversion is `image.convert`
+before or after. The unit test checks all eight on a 3×2 image against
+EXIF's definitions (row 0 goes where the first word says, column 0 where
+the second says), and the fuzz target checks the corner the first pixel
+lands in and that the inverse orientation restores the source.

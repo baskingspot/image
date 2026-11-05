@@ -58,3 +58,14 @@ test "resize a row at a time" {
     }
     try testing.expectEqual(3, taken);
 }
+
+test "show a photo upright" {
+    // A 2 by 1 image whose orientation says its first row belongs on the
+    // right: turned a quarter clockwise, it comes out 1 by 2.
+    const src_pixels = [_]u8{ 10, 20 };
+    const src: image.PixelBuffer = try .init(@constCast(&src_pixels), .gray8, 2, 1);
+    var out: [2]u8 = undefined;
+    const dst: image.PixelBuffer = try .init(&out, .gray8, 1, 2);
+    try image.resize.orient(dst, src, .right_top);
+    try testing.expectEqualSlices(u8, &.{ 10, 20 }, &out);
+}

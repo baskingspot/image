@@ -26,7 +26,9 @@
 //! - `point` copies the source pixel under each destination pixel's center;
 //! - filters without negative lobes keep every sample of a format filtered
 //!   as stored within its channel's range in the source (and 0, at a zero
-//!   edge).
+//!   edge);
+//! - `orient` puts the source's first pixel in the corner the orientation
+//!   names, and its inverse brings the source back.
 
 const std = @import("std");
 const image = @import("image");
@@ -165,6 +167,37 @@ pub fn Decoder(comptime mode: Mode) type {
     };
 }
 
+/// `orient` puts the source's first pixel in the corner `o` names, and
+/// the inverse orientation brings the source back.
+fn checkOrient(src: PixelBuffer, o: image.Orientation) !void {
+    const swap = @intFromEnum(o) >= @intFromEnum(image.Orientation.left_top);
+    const w = if (swap) src.height else src.width;
+    const h = if (swap) src.width else src.height;
+    const turned = PixelBuffer.init(dst_buf[1][0..src.pixels.len], src.format, w, h) catch unreachable;
+    try resize.orient(turned, src, o);
+    const right = switch (o) {
+        .top_right, .bottom_right, .right_top, .right_bottom => true,
+        else => false,
+    };
+    const bottom = switch (o) {
+        .bottom_right, .bottom_left, .right_bottom, .left_bottom => true,
+        else => false,
+    };
+    const bpp = src.format.bytesPerPixel();
+    const corner = turned.row(if (bottom) h - 1 else 0)[(if (right) w - 1 else 0) * bpp ..][0..bpp];
+    if (!std.mem.eql(u8, src.row(0)[0..bpp], corner)) return error.OrientDiffers;
+    // A quarter turn either way undoes the other; every other orientation
+    // undoes itself.
+    const inverse: image.Orientation = switch (o) {
+        .right_top => .left_bottom,
+        .left_bottom => .right_top,
+        else => o,
+    };
+    const back = PixelBuffer.init(dst_buf[2][0..src.pixels.len], src.format, src.width, src.height) catch unreachable;
+    try resize.orient(back, turned, inverse);
+    if (!std.mem.eql(u8, src.pixels, back.pixels)) return error.OrientDiffers;
+}
+
 pub const Finding = error{
     ShortWorkAccepted,
     ShortBufferAccepted,
@@ -173,6 +206,7 @@ pub const Finding = error{
     PushWhileReady,
     PointDiffers,
     OutOfRange,
+    OrientDiffers,
 };
 
 const max_bytes = max_pixels * 16;
@@ -245,6 +279,8 @@ pub fn check(input: []const u8, choice: u64) !void {
     while (y < dh and r.take(streamed.row(y))) y += 1;
     if (y != dh or r.take(streamed.row(0))) return error.StreamDiffers;
     if (!std.mem.eql(u8, dst.pixels, streamed.pixels)) return error.StreamDiffers;
+
+    try checkOrient(src, @enumFromInt(@as(u3, @truncate(choice >> 32))));
 
     if (sf != df) return;
     const bpp = sf.bytesPerPixel();

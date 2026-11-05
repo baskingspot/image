@@ -40,7 +40,7 @@ Releases are tagged, from v0.1.0. Before 1.0 a minor release can change the API;
 | `wbmp`    | WBMP                    | type 0                                                                                                                                  | type 0                                                                  |
 | `qoi`     | QOI                     | the specification                                                                                                                       | the specification, byte for byte as qoi.h                               |
 
-`image.detect` names any of these formats from its first 18 bytes, `image.Decoder` decodes any of them behind one interface, `image.convert` converts between every pair of pixel formats, and `image.resize` scales from any size and pixel format to any other, with the usual filters from nearest neighbor to Lanczos. Metadata is reported and never applied: ICC, EXIF, and XMP bytes go to your `BlobSink`, and `Config.metadata` has the orientation, transfer function, primaries, and density.
+`image.detect` names any of these formats from its first 18 bytes, `image.Decoder` decodes any of them behind one interface, `image.convert` converts between every pair of pixel formats, and `image.resize` scales from any size and pixel format to any other, with the usual filters from nearest neighbor to Lanczos. Metadata is reported and never applied: ICC, EXIF, and XMP bytes go to your `BlobSink`, and `Config.metadata` has the orientation, transfer function, primaries, and density; `image.resize.orient` turns an image upright by its orientation when you ask.
 
 Not implemented:
 

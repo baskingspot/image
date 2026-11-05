@@ -25,6 +25,9 @@
 //! stb_image_resize's `stbir_resize_uint8`'s: Catmull-Rom on an axis that
 //! grows, Mitchell–Netravali on one that shrinks, edges clamped, samples
 //! filtered as stored.
+//!
+//! `orient` turns and flips an image into another buffer as an
+//! `Orientation` says, the eight EXIF transforms, to show a photo upright.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -34,6 +37,7 @@ const pixel = @import("pixel.zig");
 const PixelFormat = pixel.PixelFormat;
 const PixelBuffer = pixel.PixelBuffer;
 const convert = @import("convert.zig");
+const Orientation = @import("decode.zig").Orientation;
 
 /// The filter each axis is resampled with. Its argument is a distance in
 /// source pixels on an axis that grows, and in destination pixels on one
@@ -1294,6 +1298,78 @@ fn ringRows(v: Axis, edge: Edge) i64 {
 
 /// Resizes a `sw` by `sh` image of `src` samples in `format` to `dw` by `dh`,
 /// with work memory from the testing allocator, into `dst`.
+pub const OrientError = error{
+    /// A pixel buffer is smaller than its dimensions and stride need.
+    BufferTooSmall,
+    /// `dst` is not `src`'s size once oriented: the same for the first four
+    /// orientations, width and height swapped for the last four.
+    SizeMismatch,
+    /// `dst` and `src` are in different pixel formats.
+    FormatMismatch,
+};
+
+/// Writes `src` into `dst` turned and flipped as `orientation` says, so
+/// that an image whose metadata reports `orientation` (`Metadata.orientation`)
+/// comes out upright: its first row and column go where `orientation`
+/// names, and `.top_left` copies. For `.left_top` to `.left_bottom`, which
+/// swap the axes, `dst` is `src`'s height wide and its width tall. Both are
+/// in the same pixel format, and they must not overlap.
+pub fn orient(dst: PixelBuffer, src: PixelBuffer, orientation: Orientation) OrientError!void {
+    try dst.check();
+    try src.check();
+    if (dst.format != src.format) return error.FormatMismatch;
+    const swap = @intFromEnum(orientation) >= @intFromEnum(Orientation.left_top);
+    const w = if (swap) src.height else src.width;
+    const h = if (swap) src.width else src.height;
+    if (dst.width != w or dst.height != h) return error.SizeMismatch;
+    switch (src.format.bytesPerPixel()) {
+        inline 1, 2, 3, 4, 6, 8, 12, 16 => |bpp| orientPixels(bpp, dst, src, orientation),
+        else => unreachable,
+    }
+}
+
+fn orientPixels(comptime bpp: usize, dst: PixelBuffer, src: PixelBuffer, orientation: Orientation) void {
+    const sw: usize = src.width;
+    const sh: usize = src.height;
+    switch (orientation) {
+        .top_left, .top_right, .bottom_right, .bottom_left => {
+            const mirror = orientation == .top_right or orientation == .bottom_right;
+            const flip = orientation == .bottom_right or orientation == .bottom_left;
+            for (0..sh) |y| {
+                const from = src.row(@intCast(y));
+                const to = dst.row(@intCast(if (flip) sh - 1 - y else y));
+                if (!mirror) {
+                    @memcpy(to, from);
+                    continue;
+                }
+                for (0..sw) |x| to[(sw - 1 - x) * bpp ..][0..bpp].* = from[x * bpp ..][0..bpp].*;
+            }
+        },
+        .left_top, .right_top, .right_bottom, .left_bottom => {
+            // Destination pixel (x, y) is source pixel (y, x), each counted
+            // from the far end where the orientation says, in tiles, so
+            // that reading down a source column stays in cache.
+            const from_right = orientation == .right_bottom or orientation == .left_bottom;
+            const from_bottom = orientation == .right_top or orientation == .right_bottom;
+            const tile = 32;
+            var ty: usize = 0;
+            while (ty < sw) : (ty += tile) {
+                var tx: usize = 0;
+                while (tx < sh) : (tx += tile) {
+                    for (ty..@min(ty + tile, sw)) |y| {
+                        const to = dst.row(@intCast(y));
+                        const sx = if (from_right) sw - 1 - y else y;
+                        for (tx..@min(tx + tile, sh)) |x| {
+                            const sy = if (from_bottom) sh - 1 - x else x;
+                            to[x * bpp ..][0..bpp].* = src.row(@intCast(sy))[sx * bpp ..][0..bpp].*;
+                        }
+                    }
+                }
+            }
+        },
+    }
+}
+
 fn testResize(
     dst: []u8,
     dst_format: PixelFormat,
@@ -1487,4 +1563,57 @@ test "work memory" {
     // Any alignment.
     try resize(d, s, work[1..][0..need], .{});
     try testing.expectError(error.EmptySource, resize(d, try .init(&src, .rgba8, 0, 50), &work, .{}));
+}
+
+test "orient applies each EXIF orientation" {
+    // A 3 by 2 image, 1 2 3 over 4 5 6, and how each orientation shows it
+    // upright: row 0 goes where the orientation's first word says, column
+    // 0 where its second says (EXIF 2.3, Orientation).
+    const src_pixels = [_]u8{ 1, 2, 3, 4, 5, 6 };
+    const src = try PixelBuffer.init(@constCast(&src_pixels), .gray8, 3, 2);
+    const cases = [_]struct { Orientation, []const u8 }{
+        .{ .top_left, &.{ 1, 2, 3, 4, 5, 6 } },
+        .{ .top_right, &.{ 3, 2, 1, 6, 5, 4 } },
+        .{ .bottom_right, &.{ 6, 5, 4, 3, 2, 1 } },
+        .{ .bottom_left, &.{ 4, 5, 6, 1, 2, 3 } },
+        .{ .left_top, &.{ 1, 4, 2, 5, 3, 6 } },
+        .{ .right_top, &.{ 4, 1, 5, 2, 6, 3 } },
+        .{ .right_bottom, &.{ 6, 3, 5, 2, 4, 1 } },
+        .{ .left_bottom, &.{ 3, 6, 2, 5, 1, 4 } },
+    };
+    for (cases) |c| {
+        var out: [6]u8 = undefined;
+        const swap = @intFromEnum(c[0]) >= @intFromEnum(Orientation.left_top);
+        const dst = try PixelBuffer.init(&out, .gray8, if (swap) 2 else 3, if (swap) 3 else 2);
+        try orient(dst, src, c[0]);
+        try testing.expectEqualSlices(u8, c[1], &out);
+    }
+}
+
+test "orient moves whole pixels, strided, and checks its buffers" {
+    // RGB pixels 0 to 69 in a 7 by 10 image whose rows have room for 9,
+    // turned a quarter clockwise into 10 by 7, past the tile size in
+    // neither direction but crossing the stride; four turns are the start.
+    var a: [10 * 9 * 3]u8 = undefined;
+    for (&a, 0..) |*v, i| v.* = @intCast(i / 3 % 9 + i / (9 * 3) * 7);
+    const src = try PixelBuffer.initStride(&a, .rgb8, 7, 10, 9 * 3);
+    var b: [7 * 10 * 3]u8 = undefined;
+    var c: [10 * 7 * 3]u8 = undefined;
+    const turned = try PixelBuffer.init(&b, .rgb8, 10, 7);
+    const back = try PixelBuffer.init(&c, .rgb8, 7, 10);
+    try orient(turned, src, .right_top);
+    // The source's bottom-left pixel is the top-left one, upright.
+    try testing.expectEqualSlices(u8, src.row(9)[0..3], turned.row(0)[0..3]);
+    try orient(back, turned, .left_bottom);
+    for (0..10) |y| try testing.expectEqualSlices(u8, src.row(@intCast(y)), back.row(@intCast(y)));
+
+    try testing.expectError(error.SizeMismatch, orient(back, src, .right_top));
+    try testing.expectError(error.FormatMismatch, orient(try .init(&c, .bgr8, 10, 7), src, .right_top));
+    try testing.expectError(error.BufferTooSmall, orient(try .initStride(&c, .rgb8, 10, 7, 30), .{
+        .pixels = a[0..10],
+        .format = .rgb8,
+        .width = 7,
+        .height = 10,
+        .stride = 27,
+    }, .right_top));
 }

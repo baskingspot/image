@@ -920,8 +920,8 @@ example, guide chapter, and `docs/slop/resize.md`. stb_image_resize2 is the
 bar and the oracle.
 
 Landed on the branch (resize.md, results/resize-20261105.md): `image.resize`
-with every filter, edge mode, and colorspace the owner listed, and
-`Resizer`. The oracle agrees with stb_image_resize2 2.18 within 1 step at 8
+with every filter, edge mode, and colorspace the owner listed, `Resizer`,
+and `orient` (its own commit). The oracle agrees with stb_image_resize2 2.18 within 1 step at 8
 bits, 8 at 16 bits and floats, and 16 for straight alpha past 8 bits (alpha
 at least half), after working around four stb2 bugs it documents; and with
 stb 0.97's `stbir_resize_uint8` within 1, except where an axis keeps its
