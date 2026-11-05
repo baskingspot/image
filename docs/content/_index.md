@@ -323,7 +323,7 @@ const len = image.resize.workLen(.gray8, 2, 2, .gray8, 4, 4, options) orelse ret
 try image.resize.resize(dst, src, work[0..len], options);
 ```
 
-The work memory grows with the widths and the filter's reach, and with the heights only through the weights: a 4000×3000 photo to 256×192 takes 408 KiB with the default filter, and a 64-pixel glyph to 16 pixels 5 KiB in gray or 10 KiB in BGRA. `workLen` returns null when the sizes overflow `usize`, and `resize` returns `error.WorkTooSmall` or `error.BufferTooSmall` before it writes anything.
+The work memory grows with the widths and the filter's reach, and with the heights only through the weights: a 4000×3000 RGB photo to 256×192 takes 1.2 MiB with the default filter, and a 64-pixel glyph to 16 pixels 6 KiB in gray or 14 KiB in BGRA. `workLen` returns null when the sizes overflow `usize`, and `resize` returns `error.WorkTooSmall` or `error.BufferTooSmall` before it writes anything.
 
 The source is filtered in its own channel layout, at `f32` precision, along the rows and down the columns. Straight-alpha formats are premultiplied before filtering and unpremultiplied after, so a transparent pixel's color does not bleed into its neighbors; a pixel whose alpha rounds to 0 is written transparent black. Premultiplied formats, such as the BGRA bitmaps FreeType renders color glyphs into, are filtered as they are. When the destination's layout differs, the rows are converted with `image.convert`:
 
@@ -584,9 +584,9 @@ Each format's best library is the bar, on throughput and on peak memory. These n
 | QOI decode           | Wuffs             | 1.64–1.83×                                                                                                                       |
 | QOI encode           | qoi.h             | 1.5×, with the same bytes                                                                                                        |
 | Netpbm decode        | Wuffs             | no row slower                                                                                                                    |
-| Resize               | stb_image_resize2 | 0.97× over every row: glyph-sized gray and premultiplied BGRA 0.83–1.20×, photo thumbnails 0.74×, with the lowest peak RSS       |
+| Resize               | stb_image_resize2 | 1.08× over every row: glyph-sized gray and premultiplied BGRA 0.88–1.51×, photo thumbnails 1.13–1.72×, with the lowest peak RSS  |
 
-The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode and Deflate encode trail libtiff, BMP decode sits at Wuffs's speed past icons, and GIF encode ran at 0.73× giflib's speed over all rows when first measured, where on the truecolor rows giflib times only its LZW writer against image's quantizer and ditherer. WebP lossless encode of flat, few-color images at efforts 1 to 6 runs at 0.39–0.66× libwebp. Resizing 4000×3000 photos to thumbnails runs at 0.74× stb_image_resize2 and about half of libvips's integer reduce, which is slower than both at every other size. Every library here runs on one thread; libjxl can use more, and this package cannot.
+The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode and Deflate encode trail libtiff, BMP decode sits at Wuffs's speed past icons, and GIF encode ran at 0.73× giflib's speed over all rows when first measured, where on the truecolor rows giflib times only its LZW writer against image's quantizer and ditherer. WebP lossless encode of flat, few-color images at efforts 1 to 6 runs at 0.39–0.66× libwebp. Resizing 4000×3000 photos to thumbnails runs at libvips's speed (0.98–1.02×), whose integer reduce is slower than stb_image_resize2 and image at every other size; doubling 16- and 32-pixel gray icons runs at 0.74–0.88× stb_image_resize2. Every library here runs on one thread; libjxl can use more, and this package cannot.
 
 [`bench/README.md`](https://github.com/baskingspot/image/blob/main/bench/README.md) describes the harness, the arms, and the method. `just bench-compare` reruns it on your machine; its numbers describe that machine on that day.
 
@@ -594,7 +594,7 @@ The measured losses: JPEG XL decode trails libjxl past icons, TIFF's LZW decode 
 
 - Formats: no AVIF or HEIC, which are an AV1 or HEVC decoder in a container. No SVG, PSD, OpenEXR, Radiance HDR, or GPU texture formats. `image.Format` has no tag for any of them.
 - Color management: ICC profiles, primaries, and transfer functions are reported, and pixels are never converted with them. Orientation is reported, and applied only by `image.resize.orient`.
-- Resizing: `image.resize` has separable filters only, so no distortion, rotation by any angle, or elliptical filtering. It filters at `f32` precision, so 16-bit results can differ from an exact sum by a step or two. `srgb` is the only transfer curve it undoes.
+- Resizing: `image.resize` has separable filters only, so no distortion, rotation by any angle, or elliptical filtering. It filters at `f32` precision, so 16-bit results can differ from an exact sum by a step or two, and 8-bit shrinks filter vertically with 16-bit integer weights, within a step. `srgb` is the only transfer curve it undoes.
 - JPEG: hierarchical files and lossless arithmetic-coded files are `error.Unsupported`, as in libjpeg-turbo. The encoder writes no arithmetic coding, no 12-bit samples, and no CMYK. An HDR gain map is flagged in `Metadata.gain_map` and not decoded.
 - JPEG XL: `jxl.encode` is lossless only, writes one frame, and writes a bare codestream with no container. There is no `jxl.Decoder.decodeFrameConfig`. Producing a `jbrd` box from a JPEG is not implemented.
 - WebP: `webp.encode` and `webp.lossy.encode` write one image, not an animation.

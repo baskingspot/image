@@ -32,6 +32,8 @@ Implemented from the filter definitions, not from stb's source:
   shrinks. This is stb_image_resize2's choice, probed on 2.18. stb 0.97
   picks Mitchell when `scale ≥ 1`, so it blurs an axis that keeps its size
   (by up to 30 steps on 8-bit edges); the two agree everywhere else.
+  Catmull-Rom at 1:1 is decided by the owner (plan.md, decision 80): it
+  passes through its samples, so an axis that keeps its size is copied.
 - Edges: clamp repeats the edge pixel; reflect is half-sample symmetric
   (`… 1 0 | 0 1 …`); wrap tiles; zero reads 0 and
   keeps the weights past the edge (edges darken, as stb's ZERO does on its
@@ -103,9 +105,39 @@ Non-finite float samples: a padded tap multiplies a neighbor by a weight of
 inputs are unaffected.
 
 Straight alpha: a pixel whose written alpha quantizes to 0 is transparent
-black, since a color divided by an alpha that rounds away is noise. This is
-our decision; stb_image_resize2 fills such pixels from neighbors unless
-`non_pm_alpha_speed_over_quality` is set.
+black, since a color divided by an alpha that rounds away is noise.
+Decided by the owner (plan.md, decision 81); stb_image_resize2 fills such
+pixels from neighbors unless `non_pm_alpha_speed_over_quality` is set.
+
+## Fixed point
+
+Plan.md decision 82. 8-bit sources filtered as stored (linear colorspace,
+or CMYK; not straight alpha, which is premultiplied in floats) that shrink
+vertically, from rows of 64 bytes and up to 4096 vertical taps, run the
+vertical pass first, in integers, on the raw source bytes in the ring:
+
+- Each destination row's weights are scaled by 2^p, the largest power of
+  two keeping every weight within ±32766 and (Σ|q| + n)·255 within i32
+  (p from the float's exponent bits, clamped to 0..30), and rounded
+  cumulatively from prefix sums, so they sum to exactly 2^p and a flat
+  image stays flat. Weights within 1e-4 of summing to 1 are normalized
+  first; a row next to a zero edge keeps its smaller sum. An odd count
+  gets a zero pad tap. Rows a period apart with equal weights copy them.
+- `filterColumnFixed` is channel-agnostic over bytes: two rows' bytes
+  interleaved and widened to i16, times a (w_k, w_k+1) pair, summed into
+  i32 (LLVM emits `vpdpwssd` with AVX-512 VNNI, `vpmaddwd` without), in runs
+  of 64 bytes, then 16, then scalar. The sum times 1/(2^p·255) is the
+  float the horizontal pass reads, so the horizontal pass, packing, and
+  conversion are unchanged. RGB is spread from 3 to 4 floats a pixel in
+  place after the vertical pass.
+- The horizontal pass stays in floats: in integers it would need a second
+  rounding and its own per-format kernels, and the vertical pass is where
+  a large downscale spends its time.
+
+Below 64 row bytes floats win: planning the integer weights costs about
+100 ns a distinct row, more than the narrower kernel saves on 16 and 32 px
+gray icons. Error and tolerance: test/oracle/resize.zig. Measurements:
+results/resize-fast-20261105.md.
 
 ## Memory
 
@@ -116,7 +148,9 @@ times `floats_per_pixel`), the padded line, the vertical rows and weights
 or source width with `v_first`, times `floats_per_pixel` floats), one
 output row, and a pack row when a conversion follows. Every
 product and sum is overflow-checked; null on overflow. Point keeps raw
-source rows in the ring instead of floats.
+source rows in the ring instead of floats, and so does the fixed-point
+path, its rows 64-byte aligned, with `v_taps` 16-bit weights a row (an
+even count) and a float scale per destination row.
 
 `Resizer` uses the same work memory: `push` refuses a row while a
 destination row is ready (it could overwrite a row that row reads), and
