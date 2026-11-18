@@ -87,6 +87,7 @@ tiff-encode-none	TiffEncodeNone	qoi_encode	5	own
 tiff-encode-packbits	TiffEncodePackBits	qoi_encode	6	own
 tiff-encode-lzw	TiffEncodeLZW	qoi_encode	7	own
 tiff-encode-deflate	TiffEncodeDeflate	qoi_encode	6	own
+tiff-encode-deflate-per-row	TiffEncodeDeflatePerRow	qoi_encode	6	own
 webp-decode-lossy	WebpDecodeLossy	webp/lossy	4	own
 webp-decode-anim	WebpDecodeAnim	webp/anim	4	own
 webp-encode-lossy	WebpEncodeLossy	netpbm/raw-rgb8	4	own
