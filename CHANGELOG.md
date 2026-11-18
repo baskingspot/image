@@ -12,6 +12,7 @@ All notable changes to image are recorded here. The format follows
 
 ### Changed
 
+- `image.tiff.encode` starts each strip's zlib stream in the work memory with `initInPlace`, not by copying a 401,768-byte writer into place: 512 strips of a 512×2048 RGBA image encode in 5.9 ms, not 16.1 ms, and the bytes are unchanged.
 - `image.webp.encode` (lossless, `effort` 1 to 9), `image.webp.lossy.encode` with alpha, and `image.gif.encode` with `quantizer = .median_cut` or `.octree` write different bytes for some images, once: their sorts break ties by index, so a Zig release that changes `std.sort` cannot change their output. Files are within 1.3% of their old size, and each benchmark row's total within 0.11%; the default GIF quantizer, Wu's, is unchanged.
 
 ## [0.1.0] - 2026-11-04

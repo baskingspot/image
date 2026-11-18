@@ -607,7 +607,9 @@ fn pack(p: *const Plan, options: EncodeOptions, m: Memory, s: usize) []const u8 
         .deflate => {
             const d = m.deflate;
             var fixed: Io.Writer = .fixed(m.out);
-            d.zw = .init(&fixed, &d.window, zlibOptions(options.effort));
+            // A stream per strip, started in the work memory: `init`
+            // would copy the writer's 400 KiB in beside it.
+            d.zw.initInPlace(&fixed, &d.window, zlibOptions(options.effort));
             // `out` holds the most a strip compresses to.
             d.zw.writer.writeAll(raw) catch unreachable;
             d.zw.finish() catch unreachable;
@@ -897,6 +899,82 @@ test "deflate's output buffer holds incompressible strips" {
             const file = try encodeAlloc(&.{src}, .{ .compression = compression, .predictor = false });
             defer gpa.free(file);
             _ = try expectPages(file, &.{src}, &.{.rgba16});
+        }
+    }
+}
+
+test "deflate strips start in place, whatever the work memory held" {
+    // Every strip starts a zlib stream in the work memory's writer, in
+    // place, after the strip before it finished a stream there. A field the
+    // start leaves behind, or one it fails to set, would change this file.
+    // Debug and ReleaseSafe write 0xaa over memory set to `undefined`,
+    // which hides that; only a ReleaseFast build catches it here.
+    const gpa = testing.allocator;
+    var prng: std.Random.DefaultPrng = .init(testing.random_seed);
+    const random = prng.random();
+    // Tiles repeated with noise, so the match finders have many candidates
+    // at many distances.
+    const width = 120;
+    const height = 90;
+    const px = try gpa.alloc(u8, 4 * width * height);
+    defer gpa.free(px);
+    var tile: [4 * 16]u8 = undefined;
+    random.bytes(&tile);
+    for (px, 0..) |*b, i| {
+        const x = i / 4 % width;
+        const y = i / 4 / width;
+        const noise = random.uintLessThan(u8, 4) * @intFromBool(random.uintLessThan(u8, 8) == 0);
+        b.* = tile[(x + 3 * y) % 16 * 4 + i % 4] +% noise;
+    }
+    const src = try PixelBuffer.init(px, .rgba8, width, height);
+    // Another image, larger and at its own effort, to leave the work
+    // memory as a real encode does.
+    const other_px = try gpa.alloc(u8, 3 * 200 * 150);
+    defer gpa.free(other_px);
+    for (other_px, 0..) |*b, i| b.* = @truncate(i / 3 % 200 * 7 + i / 600 * 3 + random.uintLessThan(u8, 3));
+    const other = try PixelBuffer.init(other_px, .rgb8, 200, 150);
+
+    const len = @max(
+        workLen(.{ .compression = .deflate }, width, height).?,
+        workLen(.{ .compression = .deflate }, 200, 150).?,
+    );
+    const work = try gpa.alloc(u8, len);
+    defer gpa.free(work);
+    const want = try gpa.alloc(u8, 1 << 18);
+    defer gpa.free(want);
+    const got = try gpa.alloc(u8, 1 << 18);
+    defer gpa.free(got);
+
+    // Seven rows a strip, so the streams start in a used slot again and
+    // again.
+    const top = src.sub(0, 0, width, height / 2);
+    for (std.enums.values(Effort)) |effort| {
+        const options: EncodeOptions = .{ .compression = .deflate, .effort = effort, .rows_per_strip = 7 };
+        @memset(work, 0);
+        var w: Io.Writer = .fixed(want);
+        try encode(&w, src, options, work);
+        const n = w.buffered().len;
+        for (0..6) |dirt| {
+            switch (dirt) {
+                0 => @memset(work, 0xff),
+                1 => random.bytes(work),
+                2 => for (std.enums.values(Effort)) |e| {
+                    var sink: Io.Writer.Discarding = .init(&.{});
+                    try encode(&sink.writer, other, .{ .compression = .deflate, .effort = e }, work);
+                },
+                // The image's top half leaves match-finder entries that
+                // point back at this image's own bytes, the stale state
+                // most likely to change a match if a stream did not start
+                // clean.
+                else => {
+                    var sink: Io.Writer.Discarding = .init(&.{});
+                    try encode(&sink.writer, top, .{ .compression = .deflate, .effort = @enumFromInt(dirt - 3) }, work);
+                },
+            }
+            w = .fixed(got);
+            try encode(&w, src, options, work);
+            try testing.expectEqual(n, w.buffered().len);
+            try testing.expectEqualSlices(u8, want[0..n], w.buffered());
         }
     }
 }
