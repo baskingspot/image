@@ -105,7 +105,22 @@ fuzz SECONDS="600" SEED="" *TARGETS: cache-guard
 [doc("Run the fuzz targets on Zig's coverage-guided fuzzer for N inputs (such as 1M)")]
 [group("fuzz")]
 fuzz-zig N="1M": cache-guard
-    zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Zig 0.17 counts the build's failures before the fuzzer starts and keeps
+    # that count for the exit code, so `zig build --fuzz=N` exits 0 after a
+    # target error or a crash (baskingspot/testingx#9). Judge the test
+    # runner's report instead: it prints one of the strings below only on a
+    # finding. Zig 0.16 exits nonzero, so a finding fails the step either way.
+    log=zig-out/fuzz/zig-build.log
+    mkdir -p zig-out/fuzz
+    status=0
+    zig build fuzz-zig -Doptimize=ReleaseSafe --fuzz={{ N }} 2>&1 | tee "$log" || status=$?
+    if grep -qF -e 'failed with error.' -e 'terminated with signal' -e 'input saved to' "$log"; then
+        echo "fuzz-zig: the fuzzer reported a failure; its report is in $log" >&2
+        exit 1
+    fi
+    exit "$status"
 
 [doc("The scheduled fuzz run (.github/workflows/fuzz.yml), not a push gate: the fetched suites, `just fuzz SECONDS` (N in all or N/target each), and 100K inputs on Zig's fuzzer")]
 [group("fuzz")]
